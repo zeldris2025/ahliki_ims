@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% block title %}{{ product.name }} — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Product Detail{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div><h1>{{ product.name }}</h1><p>SKU: <code>{{ product.sku }}</code></p></div>
+  <div style="display:flex;gap:8px">
+    <a href="{% url 'product_edit' product.pk %}" class="btn btn-secondary">Edit</a>
+    <a href="{% url 'product_list' %}" class="btn btn-secondary">← Back</a>
+  </div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+  <div class="card">
+    <div class="card-header"><h2>Product Info</h2></div>
+    <div class="card-body">
+      <table style="width:100%;border-collapse:collapse">
+        {% for label, val in forloop.parentloop.0 %}{% endfor %}
+        <tr><td style="color:var(--gray-500);padding:5px 0;width:130px">SKU</td><td><code>{{ product.sku }}</code></td></tr>
+        <tr><td style="color:var(--gray-500);padding:5px 0">Barcode</td><td>{{ product.barcode|default:"—" }}</td></tr>
+        <tr><td style="color:var(--gray-500);padding:5px 0">Category</td><td>{{ product.category|default:"—" }}</td></tr>
+        <tr><td style="color:var(--gray-500);padding:5px 0">Supplier</td><td>{{ product.supplier|default:"—" }}</td></tr>
+        <tr><td style="color:var(--gray-500);padding:5px 0">Unit</td><td>{{ product.unit }}</td></tr>
+        <tr><td style="color:var(--gray-500);padding:5px 0">Sale Price</td><td>SAT${{ product.unit_price }}</td></tr>
+        <tr><td style="color:var(--gray-500);padding:5px 0">Cost Price</td><td>SAT${{ product.cost_price }}</td></tr>
+        <tr><td style="color:var(--gray-500);padding:5px 0">Reorder At</td><td>{{ product.reorder_level }} {{ product.unit }}</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header"><h2>Stock Status</h2></div>
+    <div class="card-body" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:160px">
+      <div style="font-size:52px;font-weight:800;color:{% if product.is_low_stock %}var(--red){% else %}var(--green-dark){% endif %}">{{ current_stock }}</div>
+      <div style="font-size:13px;color:var(--gray-500)">{{ product.unit }}(s) on hand</div>
+      {% if product.is_low_stock %}<span class="badge badge-red" style="margin-top:10px">⚠️ Below reorder level</span>
+      {% else %}<span class="badge badge-green" style="margin-top:10px">✅ Stock OK</span>{% endif %}
+      <div style="margin-top:14px"><a href="{% url 'stock_adjust' %}" class="btn btn-sm btn-secondary">Adjust stock</a></div>
+    </div>
+  </div>
+</div>
+{% if alerts %}<div class="alert alert-warning">⚠️ {{ alerts.count }} open alert(s) for this product. <a href="{% url 'alert_list' %}">View →</a></div>{% endif %}
+<div class="card">
+  <div class="card-header"><h2>Recent Stock Movements</h2></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Date</th><th>Type</th><th>Qty</th><th>Reference</th><th>Batch</th><th>Expiry</th><th>By</th></tr></thead>
+      <tbody>
+      {% for m in movements %}
+      <tr>
+        <td style="font-size:12px">{{ m.timestamp|date:"d M Y H:i" }}</td>
+        <td>{% if m.movement_type == 'in' %}<span class="badge badge-green">IN</span>{% elif m.movement_type == 'out' %}<span class="badge badge-red">OUT</span>{% else %}<span class="badge badge-gray">{{ m.get_movement_type_display }}</span>{% endif %}</td>
+        <td><strong>{{ m.quantity }}</strong></td>
+        <td>{{ m.reference|default:"—" }}</td>
+        <td>{{ m.batch_number|default:"—" }}</td>
+        <td>{{ m.expiry_date|default:"—" }}</td>
+        <td style="font-size:12px">{{ m.performed_by.username|default:"—" }}</td>
+      </tr>
+      {% empty %}<tr><td colspan="7" style="text-align:center;color:var(--gray-500)">No movements yet.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

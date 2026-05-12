@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block title %}Add User — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Add Staff User{% endblock %}
+{% block content %}
+<div class="page-header"><div><h1>Add Staff User</h1></div><a href="{% url 'user_list' %}" class="btn btn-secondary">← Back</a></div>
+<div class="card" style="max-width:580px">
+  <div class="card-body">
+    <form method="post">{% csrf_token %}
+      <div class="form-grid">
+        <div class="form-group"><label>First name</label><input type="text" name="first_name" placeholder="First name"></div>
+        <div class="form-group"><label>Last name</label><input type="text" name="last_name" placeholder="Last name"></div>
+      </div>
+      <div class="form-group"><label>Username *</label><input type="text" name="username" placeholder="e.g. tala.manu" required></div>
+      <div class="form-group"><label>Email</label><input type="email" name="email" placeholder="staff@ahliki.ws"></div>
+      <div class="form-group">
+        <label>Role *</label>
+        <select name="role">
+          <option value="cashier">🛒 Cashier — Sales only</option>
+          <option value="warehouse">📦 Warehouse — Stock receiving &amp; adjustments</option>
+          <option value="admin">⚡ Admin — Full access</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Password *</label><input type="password" name="password" required placeholder="Set initial password"></div>
+      <div class="alert alert-info" style="margin-bottom:14px">The user can change their password after first login via My Profile.</div>
+      <div style="display:flex;gap:10px">
+        <button type="submit" class="btn btn-primary">Create user</button>
+        <a href="{% url 'user_list' %}" class="btn btn-secondary">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

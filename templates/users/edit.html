@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}Edit User — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Edit User{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div><h1>Edit: {{ u.username }}</h1></div>
+  <a href="{% url 'user_list' %}" class="btn btn-secondary">← Back</a>
+</div>
+<div class="card" style="max-width:580px">
+  <div class="card-body">
+    <form method="post">{% csrf_token %}
+      <div class="form-grid">
+        <div class="form-group"><label>First name</label><input type="text" name="first_name" value="{{ u.first_name }}"></div>
+        <div class="form-group"><label>Last name</label><input type="text" name="last_name" value="{{ u.last_name }}"></div>
+      </div>
+      <div class="form-group"><label>Email</label><input type="email" name="email" value="{{ u.email }}"></div>
+      <div class="form-group">
+        <label>Role</label>
+        <select name="role">
+          <option value="cashier" {% if profile.role == 'cashier' %}selected{% endif %}>🛒 Cashier</option>
+          <option value="warehouse" {% if profile.role == 'warehouse' %}selected{% endif %}>📦 Warehouse</option>
+          <option value="admin" {% if profile.role == 'admin' %}selected{% endif %}>⚡ Admin</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Account status</label>
+        <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin-top:4px">
+          <input type="checkbox" name="is_active" {% if u.is_active %}checked{% endif %}> Active (uncheck to disable login)
+        </label>
+      </div>
+      <div class="form-group">
+        <label>New password <span style="font-weight:400;color:var(--gray-500)">(leave blank to keep current)</span></label>
+        <input type="password" name="new_password" placeholder="Leave blank to keep unchanged">
+      </div>
+      <div style="display:flex;gap:10px;margin-top:8px">
+        <button type="submit" class="btn btn-primary">Save changes</button>
+        <a href="{% url 'user_list' %}" class="btn btn-secondary">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block title %}Stock Movements — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Stock Movements{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div><h1>Stock Movements</h1><p>Last 100 movements across all products</p></div>
+  <a href="{% url 'stock_adjust' %}" class="btn btn-primary">+ Adjust Stock</a>
+</div>
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Date</th><th>Product</th><th>Type</th><th>Qty</th><th>Reference</th><th>Batch</th><th>By</th></tr></thead>
+      <tbody>
+      {% for m in movements %}
+      <tr>
+        <td style="font-size:12px;white-space:nowrap">{{ m.timestamp|date:"d M Y H:i" }}</td>
+        <td><a href="{% url 'product_detail' m.product.pk %}">{{ m.product.name }}</a></td>
+        <td>{% if m.movement_type == 'in' %}<span class="badge badge-green">IN</span>{% elif m.movement_type == 'out' %}<span class="badge badge-red">OUT</span>{% else %}<span class="badge badge-gray">{{ m.get_movement_type_display }}</span>{% endif %}</td>
+        <td><strong>{{ m.quantity }}</strong></td>
+        <td>{{ m.reference|default:"—" }}</td>
+        <td>{{ m.batch_number|default:"—" }}</td>
+        <td style="font-size:12px">{{ m.performed_by.username|default:"—" }}</td>
+      </tr>
+      {% empty %}<tr><td colspan="7" style="text-align:center;color:var(--gray-500);padding:24px">No movements yet.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

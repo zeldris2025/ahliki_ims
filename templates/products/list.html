@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}Products — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Products{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div><h1>Products</h1><p>All active product SKUs</p></div>
+  <a href="{% url 'product_add' %}" class="btn btn-primary">+ Add Product</a>
+</div>
+<div class="card">
+  <div class="card-body" style="padding-bottom:0">
+    <form method="get" class="search-bar">
+      <input type="text" name="q" value="{{ q }}" placeholder="Search by name, SKU or barcode…">
+      <select name="category">
+        <option value="">All categories</option>
+        {% for c in categories %}<option value="{{ c.pk }}" {% if selected_cat == c.pk|stringformat:"s" %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+      </select>
+      <button type="submit" class="btn btn-secondary">Search</button>
+    </form>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>SKU</th><th>Product</th><th>Category</th><th>Supplier</th><th>Stock</th><th>Unit Price</th><th>Reorder</th><th></th></tr></thead>
+      <tbody>
+      {% for item in product_data %}
+      <tr class="{% if item.low %}low-stock{% endif %}">
+        <td><code>{{ item.product.sku }}</code></td>
+        <td><a href="{% url 'product_detail' item.product.pk %}"><strong>{{ item.product.name }}</strong></a></td>
+        <td>{{ item.product.category|default:"—" }}</td>
+        <td>{{ item.product.supplier|default:"—" }}</td>
+        <td>{% if item.low %}<span class="badge badge-red">{{ item.stock }} {{ item.product.unit }}</span>{% else %}<span class="badge badge-green">{{ item.stock }} {{ item.product.unit }}</span>{% endif %}</td>
+        <td>SAT${{ item.product.unit_price }}</td>
+        <td>{{ item.product.reorder_level }}</td>
+        <td><a href="{% url 'product_edit' item.product.pk %}" class="btn btn-sm btn-secondary">Edit</a></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="8" style="text-align:center;color:var(--gray-500);padding:24px">No products found.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

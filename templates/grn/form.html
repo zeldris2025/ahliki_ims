@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}Receive Stock — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Receive Stock (GRN){% endblock %}
+{% block content %}
+<div class="page-header">
+  <div><h1>New Goods Received Note</h1><p>Record stock arriving at the warehouse</p></div>
+  <a href="{% url 'grn_list' %}" class="btn btn-secondary">← Back</a>
+</div>
+<form method="post">{% csrf_token %}
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><h2>GRN Details</h2></div>
+    <div class="card-body">
+      <div class="form-grid">
+        {% for field in form %}<div class="form-group"><label>{{ field.label }}</label>{{ field }}{% if field.errors %}<span style="color:var(--red);font-size:12px">{{ field.errors.0 }}</span>{% endif %}</div>{% endfor %}
+      </div>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><h2>Items Received</h2></div>
+    <div class="card-body">
+      {{ formset.management_form }}
+      <table class="formset-table">
+        <thead><tr><th>Product</th><th>Qty Received</th><th>Batch #</th><th>Expiry Date</th><th>Unit Cost (SAT$)</th><th>Delete</th></tr></thead>
+        <tbody>
+        {% for f in formset %}
+        <tr>
+          <td>{{ f.product }}</td>
+          <td>{{ f.quantity_received }}</td>
+          <td>{{ f.batch_number }}</td>
+          <td>{{ f.expiry_date }}</td>
+          <td>{{ f.unit_cost }}</td>
+          <td>{{ f.DELETE }}</td>
+          {% for hidden in f.hidden_fields %}{{ hidden }}{% endfor %}
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <button type="submit" class="btn btn-primary">Save GRN &amp; Update Stock</button>
+</form>
+{% endblock %}

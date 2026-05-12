@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block title %}Alerts — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Stock Alerts{% endblock %}
+{% block content %}
+<div class="page-header"><div><h1>Stock Alerts</h1></div></div>
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Type</th><th>Product</th><th>Message</th><th>Created</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+      {% for a in alerts %}
+      <tr style="{% if a.is_resolved %}opacity:0.5{% endif %}">
+        <td>{% if a.alert_type == 'low_stock' %}<span class="badge badge-red">Low Stock</span>{% elif a.alert_type == 'expiry' %}<span class="badge badge-amber">Expiry</span>{% else %}<span class="badge badge-blue">Discrepancy</span>{% endif %}</td>
+        <td><a href="{% url 'product_detail' a.product.pk %}">{{ a.product.name }}</a></td>
+        <td style="font-size:12px">{{ a.message }}</td>
+        <td style="font-size:12px">{{ a.created_at|date:"d M Y" }}</td>
+        <td>{% if a.is_resolved %}<span class="badge badge-green">Resolved</span>{% else %}<span class="badge badge-red">Open</span>{% endif %}</td>
+        <td>{% if not a.is_resolved %}<a href="{% url 'alert_resolve' a.pk %}" class="btn btn-sm btn-amber">Resolve</a>{% endif %}</td>
+      </tr>
+      {% empty %}<tr><td colspan="6" style="text-align:center;color:var(--gray-500);padding:24px">No alerts.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+{% block title %}Reports — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Reports & Analytics{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div><h1>Reports &amp; Analytics</h1></div>
+  <div style="display:flex;gap:8px">
+    <a href="{% url 'export_stock_csv' %}" class="btn btn-secondary">⬇ Stock CSV</a>
+    <a href="{% url 'export_sales_csv' %}" class="btn btn-secondary">⬇ Sales CSV</a>
+  </div>
+</div>
+<div class="stats-grid" style="margin-bottom:20px">
+  <div class="stat-card success"><div class="stat-label">Total Sales Revenue</div><div class="stat-value">SAT${{ total_sales|floatformat:0 }}</div><div class="stat-sub">{{ total_sales_count }} transactions</div></div>
+  <div class="stat-card"><div class="stat-label">Total Stock Value</div><div class="stat-value">SAT${{ total_stock_value|floatformat:0 }}</div><div class="stat-sub">At cost price</div></div>
+  <div class="stat-card {% if low_stock %}danger{% endif %}"><div class="stat-label">Low Stock Items</div><div class="stat-value">{{ low_stock|length }}</div><div class="stat-sub">Below reorder level</div></div>
+  <div class="stat-card warning"><div class="stat-label">Expiring Soon</div><div class="stat-value">{{ expiring_soon|length }}</div><div class="stat-sub">Within 30 days</div></div>
+</div>
+<div class="charts-grid">
+  <div class="card">
+    <div class="card-header"><h2>Monthly Sales — Last 6 Months (SAT$)</h2></div>
+    <div class="card-body"><canvas id="monthlyChart" height="100"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-header"><h2>Top 10 Selling Products</h2></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Product</th><th>Qty Sold</th></tr></thead>
+        <tbody>
+        {% for i, s in top_sellers|dictsortreversed:"total_qty"|slice:":10"|enumerate %}{% endfor %}
+        {% for s in top_sellers %}
+        <tr><td>{{ forloop.counter }}</td><td>{{ s.product__name }}</td><td><strong>{{ s.total_qty }}</strong></td></tr>
+        {% empty %}<tr><td colspan="3" style="text-align:center;color:var(--gray-500)">No sales data.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+  <div class="card">
+    <div class="card-header"><h2>⚠️ Low Stock</h2></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Product</th><th>Stock</th><th>Reorder At</th></tr></thead>
+        <tbody>
+        {% for p in low_stock %}<tr class="low-stock"><td><a href="{% url 'product_detail' p.pk %}">{{ p.name }}</a></td><td><span class="badge badge-red">{{ p.current_stock }}</span></td><td>{{ p.reorder_level }}</td></tr>{% empty %}<tr><td colspan="3" style="text-align:center;color:var(--gray-500)">All stocked OK.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header"><h2>📅 Expiring Within 30 Days</h2></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Product</th><th>Batch</th><th>Expiry</th></tr></thead>
+        <tbody>
+        {% for item in expiring_soon %}<tr><td><a href="{% url 'product_detail' item.product.pk %}">{{ item.product.name }}</a></td><td>{{ item.batch_number|default:"—" }}</td><td><span class="badge badge-amber">{{ item.expiry_date }}</span></td></tr>{% empty %}<tr><td colspan="3" style="text-align:center;color:var(--gray-500)">No expiring items.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<script>
+const d = {{ monthly_json|safe }};
+new Chart(document.getElementById('monthlyChart'), {
+  type: 'line',
+  data: {
+    labels: d.map(x => x.month),
+    datasets: [{ label: 'SAT$', data: d.map(x => x.amount), borderColor: '#1a3a2a', backgroundColor: 'rgba(26,58,42,0.1)', tension: 0.3, fill: true, pointBackgroundColor: '#1a3a2a' }]
+  },
+  options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { callback: v => 'SAT$' + v.toLocaleString() } } } }
+});
+</script>
+{% endblock %}

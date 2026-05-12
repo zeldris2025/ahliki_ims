@@ -1,0 +1,175 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Dashboard{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Dashboard</h1>
+    <p>Welcome back, {{ request.user.get_full_name|default:request.user.username }} — Ah Liki Warehouse Overview</p>
+  </div>
+  <a href="{% url 'sale_new' %}" class="btn btn-primary">🛒 New Sale</a>
+</div>
+
+<div class="stats-grid">
+  <div class="stat-card success">
+    <div class="stat-label">Today's Sales</div>
+    <div class="stat-value">SAT${{ sales_today_total|floatformat:2 }}</div>
+    <div class="stat-sub">{{ sales_today_count }} transaction(s)</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Total Products</div>
+    <div class="stat-value">{{ total_products }}</div>
+    <div class="stat-sub">Active SKUs</div>
+  </div>
+  <div class="stat-card {% if low_stock_count %}danger{% endif %}">
+    <div class="stat-label">Low Stock Items</div>
+    <div class="stat-value">{{ low_stock_count }}</div>
+    <div class="stat-sub">Below reorder level</div>
+  </div>
+  <div class="stat-card warning">
+    <div class="stat-label">Open Alerts</div>
+    <div class="stat-value">{{ open_alerts_count }}</div>
+    <div class="stat-sub">Require attention</div>
+  </div>
+</div>
+
+<div class="charts-grid">
+  <div class="card">
+    <div class="card-header"><h2>Sales — Last 7 Days (SAT$)</h2></div>
+    <div class="card-body"><canvas id="salesChart" height="90"></canvas></div>
+  </div>
+  <div class="card">
+    <div class="card-header"><h2>Stock Value</h2></div>
+    <div class="card-body" style="display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:140px">
+      <div style="font-size:32px;font-weight:800;color:var(--green-dark)">SAT${{ stock_value|floatformat:2 }}</div>
+      <div style="font-size:13px;color:var(--gray-500);margin-top:6px">Total warehouse value (at cost)</div>
+    </div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+  <!-- Low Stock -->
+  <div class="card">
+    <div class="card-header">
+      <h2>⚠️ Low Stock Products</h2>
+      <a href="{% url 'product_list' %}" class="btn btn-sm btn-secondary">View all</a>
+    </div>
+    {% if low_stock_products %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Product</th><th>SKU</th><th>Stock</th><th>Reorder</th></tr></thead>
+        <tbody>
+        {% for p in low_stock_products %}
+        <tr class="low-stock">
+          <td><a href="{% url 'product_detail' p.pk %}">{{ p.name }}</a></td>
+          <td><code>{{ p.sku }}</code></td>
+          <td><span class="badge badge-red">{{ p.current_stock }} {{ p.unit }}</span></td>
+          <td>{{ p.reorder_level }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="card-body" style="color:var(--gray-500);font-size:13px">✅ All products are adequately stocked.</div>
+    {% endif %}
+  </div>
+
+  <!-- Recent Alerts -->
+  <div class="card">
+    <div class="card-header">
+      <h2>🔔 Recent Alerts</h2>
+      <a href="{% url 'alert_list' %}" class="btn btn-sm btn-secondary">View all</a>
+    </div>
+    {% if open_alerts %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Type</th><th>Product</th><th>Date</th></tr></thead>
+        <tbody>
+        {% for a in open_alerts %}
+        <tr>
+          <td>
+            {% if a.alert_type == 'low_stock' %}<span class="badge badge-red">Low Stock</span>
+            {% elif a.alert_type == 'expiry' %}<span class="badge badge-amber">Expiry</span>
+            {% else %}<span class="badge badge-blue">Discrepancy</span>{% endif %}
+          </td>
+          <td>{{ a.product.name }}</td>
+          <td style="font-size:12px;color:var(--gray-500)">{{ a.created_at|date:"d M Y" }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="card-body" style="color:var(--gray-500);font-size:13px">✅ No open alerts.</div>
+    {% endif %}
+  </div>
+
+  <!-- Recent Sales -->
+  <div class="card">
+    <div class="card-header">
+      <h2>🧾 Recent Sales</h2>
+      <a href="{% url 'sale_list' %}" class="btn btn-sm btn-secondary">View all</a>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Sale #</th><th>Customer</th><th>Total</th><th>Date</th></tr></thead>
+        <tbody>
+        {% for s in recent_sales %}
+        <tr>
+          <td><a href="{% url 'sale_detail' s.pk %}">{{ s.sale_number }}</a></td>
+          <td>{{ s.customer_name|default:"—" }}</td>
+          <td>SAT${{ s.total_amount }}</td>
+          <td style="font-size:12px;color:var(--gray-500)">{{ s.created_at|date:"d M H:i" }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Recent GRNs -->
+  <div class="card">
+    <div class="card-header">
+      <h2>📥 Recent Stock Received</h2>
+      <a href="{% url 'grn_list' %}" class="btn btn-sm btn-secondary">View all</a>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>GRN #</th><th>Supplier</th><th>Status</th><th>Date</th></tr></thead>
+        <tbody>
+        {% for g in recent_grns %}
+        <tr>
+          <td><a href="{% url 'grn_detail' g.pk %}">{{ g.grn_number }}</a></td>
+          <td>{{ g.supplier.name }}</td>
+          <td>{% if g.has_discrepancy %}<span class="badge badge-red">Discrepancy</span>{% else %}<span class="badge badge-green">OK</span>{% endif %}</td>
+          <td style="font-size:12px;color:var(--gray-500)">{{ g.received_at|date:"d M" }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const data = {{ sales_chart_json|safe }};
+new Chart(document.getElementById('salesChart'), {
+  type: 'bar',
+  data: {
+    labels: data.map(d => d.date),
+    datasets: [{
+      label: 'SAT$',
+      data: data.map(d => d.amount),
+      backgroundColor: '#2d5c42',
+      borderRadius: 5,
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: { y: { beginAtZero: true, ticks: { callback: v => 'SAT$' + v.toLocaleString() } } }
+  }
+});
+</script>
+{% endblock %}

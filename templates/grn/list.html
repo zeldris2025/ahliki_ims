@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block title %}GRN — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Goods Received Notes{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div><h1>Goods Received Notes</h1><p>All stock received into the warehouse</p></div>
+  <a href="{% url 'grn_add' %}" class="btn btn-primary">+ Receive Stock</a>
+</div>
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>GRN #</th><th>Supplier</th><th>Received By</th><th>Date</th><th>Discrepancy</th><th></th></tr></thead>
+      <tbody>
+      {% for g in grns %}
+      <tr>
+        <td><a href="{% url 'grn_detail' g.pk %}"><strong>{{ g.grn_number }}</strong></a></td>
+        <td>{{ g.supplier.name }}</td>
+        <td>{{ g.received_by.get_full_name|default:g.received_by.username }}</td>
+        <td>{{ g.received_at|date:"d M Y H:i" }}</td>
+        <td>{% if g.has_discrepancy %}<span class="badge badge-red">⚠ Discrepancy</span>{% else %}<span class="badge badge-green">OK</span>{% endif %}</td>
+        <td><a href="{% url 'grn_detail' g.pk %}" class="btn btn-sm btn-secondary">View</a></td>
+      </tr>
+      {% empty %}<tr><td colspan="6" style="text-align:center;color:var(--gray-500);padding:24px">No GRNs yet.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

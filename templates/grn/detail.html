@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block title %}{{ grn.grn_number }} — Ah Liki IMS{% endblock %}
+{% block topbar_title %}GRN Detail{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div><h1>{{ grn.grn_number }}</h1><p>{{ grn.supplier.name }} &mdash; {{ grn.received_at|date:"d M Y H:i" }}</p></div>
+  <div style="display:flex;gap:8px">
+    {% if grn.has_discrepancy %}<span class="badge badge-red" style="padding:8px 14px">⚠ Discrepancy</span>{% endif %}
+    <a href="{% url 'grn_list' %}" class="btn btn-secondary">← Back</a>
+  </div>
+</div>
+{% if grn.notes %}<div class="alert alert-info">{{ grn.notes }}</div>{% endif %}
+<div class="card">
+  <div class="card-header"><h2>Items Received</h2></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Product</th><th>SKU</th><th>Qty Received</th><th>Batch #</th><th>Expiry</th><th>Unit Cost</th></tr></thead>
+      <tbody>
+      {% for item in grn.items.all %}
+      <tr>
+        <td><a href="{% url 'product_detail' item.product.pk %}">{{ item.product.name }}</a></td>
+        <td><code>{{ item.product.sku }}</code></td>
+        <td><strong>{{ item.quantity_received }}</strong></td>
+        <td>{{ item.batch_number|default:"—" }}</td>
+        <td>{% if item.expiry_date %}{% if item.expiry_date < today %}<span class="badge badge-red">{{ item.expiry_date }}</span>{% else %}{{ item.expiry_date }}{% endif %}{% else %}—{% endif %}</td>
+        <td>SAT${{ item.unit_cost }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

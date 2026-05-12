@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% block title %}My Profile — Ah Liki IMS{% endblock %}
+{% block topbar_title %}My Profile{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div><h1>My Profile</h1><p>View and update your account details</p></div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 2fr;gap:20px;max-width:800px">
+
+  <!-- Profile card -->
+  <div class="card">
+    <div class="card-body" style="text-align:center;padding:28px 18px">
+      <div class="profile-avatar-big" style="margin:0 auto 12px">
+        {{ request.user.first_name|first|upper|default:request.user.username|first|upper }}
+      </div>
+      <div style="font-weight:700;font-size:16px">{{ request.user.get_full_name|default:request.user.username }}</div>
+      <div style="color:var(--gray-500);font-size:13px;margin-bottom:12px">@{{ request.user.username }}</div>
+      {% if profile.role == 'admin' %}<span class="role-badge role-admin">⚡ Admin</span>
+      {% elif profile.role == 'warehouse' %}<span class="role-badge role-warehouse">📦 Warehouse</span>
+      {% else %}<span class="role-badge role-cashier">🛒 Cashier</span>{% endif %}
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--gray-200)">
+        <div style="font-size:12px;color:var(--gray-500)">Member since</div>
+        <div style="font-size:13px">{{ request.user.date_joined|date:"d M Y" }}</div>
+      </div>
+      <div style="margin-top:10px">
+        <div style="font-size:12px;color:var(--gray-500)">Last login</div>
+        <div style="font-size:13px">{{ request.user.last_login|date:"d M Y H:i"|default:"—" }}</div>
+      </div>
+      <div style="margin-top:20px">
+        <a href="{% url 'change_password' %}" class="btn btn-secondary btn-sm" style="width:100%;justify-content:center">🔑 Change Password</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Edit form -->
+  <div class="card">
+    <div class="card-header"><h2>Edit Details</h2></div>
+    <div class="card-body">
+      <form method="post">{% csrf_token %}
+        <div class="form-grid">
+          <div class="form-group">
+            <label>First name</label>
+            <input type="text" name="first_name" value="{{ request.user.first_name }}">
+          </div>
+          <div class="form-group">
+            <label>Last name</label>
+            <input type="text" name="last_name" value="{{ request.user.last_name }}">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" name="email" value="{{ request.user.email }}">
+        </div>
+        <div class="form-group">
+          <label>Username</label>
+          <input type="text" value="{{ request.user.username }}" disabled style="background:var(--gray-100);color:var(--gray-500)">
+          <span style="font-size:11px;color:var(--gray-500)">Username cannot be changed here.</span>
+        </div>
+        <div class="form-group">
+          <label>Role</label>
+          <input type="text" value="{{ profile.get_role_display }}" disabled style="background:var(--gray-100);color:var(--gray-500)">
+          <span style="font-size:11px;color:var(--gray-500)">Role can only be changed by an Admin.</span>
+        </div>
+        <button type="submit" class="btn btn-primary">Save changes</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

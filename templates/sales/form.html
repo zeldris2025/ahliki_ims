@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}New Sale — Ah Liki IMS{% endblock %}
+{% block topbar_title %}New Sale (POS){% endblock %}
+{% block content %}
+<div class="page-header">
+  <div><h1>New Sale</h1><p>Record a customer sale and deduct stock</p></div>
+  <a href="{% url 'sale_list' %}" class="btn btn-secondary">← Back</a>
+</div>
+{% for e in errors %}<div class="alert alert-error">{{ e }}</div>{% endfor %}
+<form method="post">{% csrf_token %}
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><h2>Sale Details</h2></div>
+    <div class="card-body">
+      <div class="form-grid">
+        {% for field in form %}<div class="form-group"><label>{{ field.label }}</label>{{ field }}</div>{% endfor %}
+      </div>
+    </div>
+  </div>
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-header"><h2>Items Sold</h2></div>
+    <div class="card-body">
+      <div class="alert alert-info" style="margin-bottom:12px">💡 Enter the SKU or barcode in the product field. Stock will be deducted automatically on save.</div>
+      {{ formset.management_form }}
+      <table class="formset-table">
+        <thead><tr><th>Product</th><th>Qty</th><th>Unit Price (SAT$)</th><th>Delete</th></tr></thead>
+        <tbody>
+        {% for f in formset %}
+        <tr>
+          <td>{{ f.product }}</td>
+          <td>{{ f.quantity }}</td>
+          <td>{{ f.unit_price }}</td>
+          <td>{{ f.DELETE }}</td>
+          {% for hidden in f.hidden_fields %}{{ hidden }}{% endfor %}
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <button type="submit" class="btn btn-primary">💾 Complete Sale</button>
+</form>
+{% endblock %}
