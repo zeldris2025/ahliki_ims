@@ -18,9 +18,17 @@
         <td>{{ u.email|default:"—" }}</td>
         <td>
           {% with role=u.profile.role %}
-          {% if role == 'admin' %}<span class="role-badge role-admin">⚡ Admin</span>
-          {% elif role == 'warehouse' %}<span class="role-badge role-warehouse">📦 Warehouse</span>
-          {% else %}<span class="role-badge role-cashier">🛒 Cashier</span>{% endif %}
+          {% if role == 'admin' %}
+            <span class="role-badge role-admin">⚡ Admin</span>
+          {% elif role == 'finance' %}
+            <span class="role-badge role-finance">💰 Finance</span>
+          {% elif role == 'warehouse' %}
+            <span class="role-badge role-warehouse">📦 Warehouse</span>
+          {% elif role == 'cashier' %}
+            <span class="role-badge role-cashier">🛒 Cashier</span>
+          {% else %}
+            <span class="role-badge">{{ role }}</span>
+          {% endif %}
           {% endwith %}
         </td>
         <td>{% if u.is_active %}<span class="badge badge-green">Active</span>{% else %}<span class="badge badge-red">Inactive</span>{% endif %}</td>

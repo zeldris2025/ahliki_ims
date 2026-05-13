@@ -1,10 +1,11 @@
 {% extends 'base.html' %}
+{% load custom_tags %}
 {% block title %}Products — Ah Liki IMS{% endblock %}
 {% block topbar_title %}Products{% endblock %}
 {% block content %}
 <div class="page-header">
   <div><h1>Products</h1><p>All active product SKUs</p></div>
-  <a href="{% url 'product_add' %}" class="btn btn-primary">+ Add Product</a>
+  {% if request.user.is_superuser or request.user|has_role:'admin' or request.user|has_role:'warehouse' %}<a href="{% url 'product_add' %}" class="btn btn-primary">+ Add Product</a>{% endif %}
 </div>
 <div class="card">
   <div class="card-body" style="padding-bottom:0">

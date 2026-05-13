@@ -1,11 +1,12 @@
 {% extends 'base.html' %}
+{% load custom_tags %}
 {% block title %}{{ product.name }} — Ah Liki IMS{% endblock %}
 {% block topbar_title %}Product Detail{% endblock %}
 {% block content %}
 <div class="page-header">
   <div><h1>{{ product.name }}</h1><p>SKU: <code>{{ product.sku }}</code></p></div>
   <div style="display:flex;gap:8px">
-    <a href="{% url 'product_edit' product.pk %}" class="btn btn-secondary">Edit</a>
+    {% if request.user.is_superuser or request.user|has_role:'admin' or request.user|has_role:'finance' %}<a href="{% url 'product_edit' product.pk %}" class="btn btn-secondary">Edit</a>{% endif %}
     <a href="{% url 'product_list' %}" class="btn btn-secondary">← Back</a>
   </div>
 </div>

@@ -1,4 +1,5 @@
 from django.db import models
+from decimal import Decimal
 from django.contrib.auth.models import User
 from django.utils import timezone
 from django.db.models.signals import post_save
@@ -8,6 +9,7 @@ from django.dispatch import receiver
 class UserProfile(models.Model):
     ROLE_CHOICES = [
         ('admin', 'Admin'),
+        ('finance', 'Finance'),
         ('warehouse', 'Warehouse Staff'),
         ('cashier', 'Cashier'),
     ]
@@ -205,3 +207,94 @@ class StockAlert(models.Model):
 
     def __str__(self):
         return f"{self.get_alert_type_display()} — {self.product.name}"
+
+
+class Quote(models.Model):
+    STATUS_CHOICES = [
+        ('draft', 'Draft'),
+        ('sent', 'Sent'),
+        ('converted', 'Converted to Invoice'),
+        ('expired', 'Expired'),
+    ]
+    quote_number = models.CharField(max_length=100, unique=True)
+    cashier = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='quotes')
+    customer_name = models.CharField(max_length=200, blank=True)
+    account_number = models.CharField(max_length=100, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    created_at = models.DateTimeField(default=timezone.now)
+    valid_until = models.DateField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    converted_to = models.OneToOneField('Invoice', on_delete=models.SET_NULL, null=True, blank=True, related_name='from_quote')
+
+    def __str__(self):
+        return self.quote_number
+
+    def calculate_total(self):
+        total = sum(item.line_total for item in self.items.all())
+        self.total_amount = total
+        self.save(update_fields=['total_amount'])
+        return total
+
+
+class QuoteItem(models.Model):
+    quote = models.ForeignKey(Quote, on_delete=models.CASCADE, related_name='items')
+    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    quantity = models.PositiveIntegerField()
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+    discount_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+
+    @property
+    def line_total(self):
+        discounted = self.unit_price * (1 - self.discount_percent / 100)
+        return self.quantity * discounted
+
+    def __str__(self):
+        return f"{self.quote.quote_number} — {self.product.name}"
+
+
+class Invoice(models.Model):
+    STATUS_CHOICES = [
+        ('unpaid', 'Unpaid'),
+        ('paid', 'Paid'),
+        ('overdue', 'Overdue'),
+        ('void', 'Void'),
+    ]
+    invoice_number = models.CharField(max_length=100, unique=True)
+    cashier = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='invoices')
+    customer_name = models.CharField(max_length=200, blank=True)
+    account_number = models.CharField(max_length=100, blank=True)
+    payment_method = models.CharField(max_length=50, default='cash',
+        choices=[('cash','Cash'),('credit','Credit Account'),('eftpos','EFTPOS'),('cheque','Cheque')])
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='unpaid')
+    created_at = models.DateTimeField(default=timezone.now)
+    due_date = models.DateField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+    def __str__(self):
+        return self.invoice_number
+
+    def calculate_total(self):
+        subtotal = sum(item.line_total for item in self.items.all())
+        self.tax_amount = round(subtotal * Decimal('0.15'), 2)
+        self.total_amount = subtotal + self.tax_amount
+        self.save(update_fields=['total_amount', 'tax_amount'])
+        return self.total_amount
+
+
+class InvoiceItem(models.Model):
+    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='items')
+    product = models.ForeignKey(Product, on_delete=models.CASCADE)
+    quantity = models.PositiveIntegerField()
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+    discount_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+
+    @property
+    def line_total(self):
+        discounted = self.unit_price * (1 - self.discount_percent / 100)
+        return self.quantity * discounted
+
+    def __str__(self):
+        return f"{self.invoice.invoice_number} — {self.product.name}"

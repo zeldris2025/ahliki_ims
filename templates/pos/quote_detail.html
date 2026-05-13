@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+{% block title %}{{ quote.quote_number }} — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Quote Detail{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>{{ quote.quote_number }}</h1>
+    <p>{{ quote.customer_name|default:"Walk-in" }} &mdash; {{ quote.created_at|date:"d M Y H:i" }}</p>
+  </div>
+  <div style="display:flex;gap:8px">
+    {% if quote.status != 'converted' %}
+    <a href="{% url 'quote_convert' quote.pk %}" class="btn btn-primary" onclick="return confirm('Convert this quote to a full invoice? Stock will be deducted.')">🧾 Convert to Invoice</a>
+    {% else %}
+    <a href="{% url 'invoice_detail' quote.converted_to.pk %}" class="btn btn-secondary">View Invoice →</a>
+    {% endif %}
+    <a href="{% url 'quote_list' %}" class="btn btn-secondary">← Back</a>
+  </div>
+</div>
+
+{% if quote.status == 'converted' %}
+<div class="alert alert-success">✅ This quote has been converted to invoice <strong>{{ quote.converted_to.invoice_number }}</strong>.</div>
+{% endif %}
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
+  <div class="card">
+    <div class="card-header"><h2>Items</h2></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Product</th><th>Qty</th><th>Unit Price</th><th>Disc%</th><th>Line Total</th></tr></thead>
+        <tbody>
+        {% for item in quote.items.all %}
+        <tr>
+          <td>{{ item.product.name }}</td>
+          <td>{{ item.quantity }}</td>
+          <td>SAT${{ item.unit_price }}</td>
+          <td>{% if item.discount_percent %}{{ item.discount_percent }}%{% else %}—{% endif %}</td>
+          <td><strong>SAT${{ item.line_total|floatformat:2 }}</strong></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+        <tfoot><tr><td colspan="4" style="text-align:right;font-weight:600;padding:10px 14px">TOTAL</td><td style="font-weight:800;font-size:16px;padding:10px 14px">SAT${{ quote.total_amount }}</td></tr></tfoot>
+      </table>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-header"><h2>Quote Info</h2></div>
+    <div class="card-body">
+      <table style="width:100%;border-collapse:collapse">
+        <tr><td style="color:var(--gray-500);padding:6px 0">Quote #</td><td><strong>{{ quote.quote_number }}</strong></td></tr>
+        <tr><td style="color:var(--gray-500);padding:6px 0">Customer</td><td>{{ quote.customer_name|default:"Walk-in" }}</td></tr>
+        <tr><td style="color:var(--gray-500);padding:6px 0">Account #</td><td>{{ quote.account_number|default:"—" }}</td></tr>
+        <tr><td style="color:var(--gray-500);padding:6px 0">Status</td><td>
+          {% if quote.status == 'draft' %}<span class="badge badge-gray">Draft</span>
+          {% elif quote.status == 'converted' %}<span class="badge badge-green">Converted</span>
+          {% else %}<span class="badge badge-blue">{{ quote.get_status_display }}</span>{% endif %}
+        </td></tr>
+        <tr><td style="color:var(--gray-500);padding:6px 0">Valid Until</td><td>{{ quote.valid_until|default:"—" }}</td></tr>
+        <tr><td style="color:var(--gray-500);padding:6px 0">Created</td><td>{{ quote.created_at|date:"d M Y H:i" }}</td></tr>
+        <tr><td style="color:var(--gray-500);padding:6px 0">By</td><td>{{ quote.cashier.get_full_name|default:quote.cashier.username }}</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block title %}Invoices — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Invoices{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div><h1>Invoices</h1></div>
+  <a href="{% url 'pos' %}" class="btn btn-primary">+ New from POS</a>
+</div>
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Invoice #</th><th>Customer</th><th>Total</th><th>Tax</th><th>Status</th><th>Due Date</th><th>Created</th><th></th></tr></thead>
+      <tbody>
+      {% for inv in invoices %}
+      <tr>
+        <td><a href="{% url 'invoice_detail' inv.pk %}"><strong>{{ inv.invoice_number }}</strong></a></td>
+        <td>{{ inv.customer_name|default:"Walk-in" }}</td>
+        <td><strong>SAT${{ inv.total_amount }}</strong></td>
+        <td>SAT${{ inv.tax_amount }}</td>
+        <td>
+          {% if inv.status == 'paid' %}<span class="badge badge-green">Paid ✓</span>
+          {% elif inv.status == 'unpaid' %}<span class="badge badge-amber">Unpaid</span>
+          {% elif inv.status == 'overdue' %}<span class="badge badge-red">Overdue</span>
+          {% else %}<span class="badge badge-gray">Void</span>{% endif %}
+        </td>
+        <td style="font-size:12px">{{ inv.due_date|default:"—" }}</td>
+        <td style="font-size:12px">{{ inv.created_at|date:"d M Y" }}</td>
+        <td><a href="{% url 'invoice_detail' inv.pk %}" class="btn btn-sm btn-secondary">View</a></td>
+      </tr>
+      {% empty %}<tr><td colspan="8" style="text-align:center;color:var(--gray-500);padding:24px">No invoices yet.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

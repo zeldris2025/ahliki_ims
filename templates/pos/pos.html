@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>POS — Ah Liki Wholesale</title>
+{% load static %}
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* Dark mode (default) */
+body.dark-mode {
+  --bg: #1a1a2e; --panel: #16213e; --surface: #0f3460;
+  --blue: #0ea5e9; --green: #22c55e; --amber: #f59e0b;
+  --red: #ef4444; --purple: #a855f7; --teal: #14b8a6;
+  --text: #f1f5f9; --muted: #94a3b8; --border: #334155;
+}
+
+/* Light mode */
+body.light-mode {
+  --bg: #f8fafc; --panel: #e2e8f0; --surface: #cbd5e1;
+  --blue: #0284c7; --green: #16a34a; --amber: #d97706;
+  --red: #dc2626; --purple: #9333ea; --teal: #0d9488;
+  --text: #1e293b; --muted: #64748b; --border: #cbd5e1;
+}
+
+:root {
+  --header-h: 44px; --footer-h: 48px;
+  --font-scale: 1;
+}
+
+body { 
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
+  background: var(--bg); 
+  color: var(--text); 
+  height: 100vh; 
+  overflow: hidden; 
+  display: flex; 
+  flex-direction: column;
+}
+
+/* Apply font scaling to everything */
+body * {
+  font-size: calc(var(--original-font-size, 1) * var(--font-scale));
+}
+
+/* ── HEADER ── */
+.pos-header { height: var(--header-h); background: var(--blue); display: flex; align-items: center; justify-content: space-between; padding: 0 14px; flex-shrink: 0; gap: 10px; }
+.pos-header .brand { font-weight: 700; font-size: calc(15px * var(--font-scale)); color: #fff; white-space: nowrap; }
+.pos-header .controls { display: flex; gap: 8px; align-items: center; }
+.theme-toggle, .font-btn { background: rgba(255,255,255,0.25); border: none; color: #fff; padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: calc(12px * var(--font-scale)); font-weight: 600; display: flex; align-items: center; gap: 4px; transition: all 0.15s; white-space: nowrap; }
+.theme-toggle:hover, .font-btn:hover { background: rgba(255,255,255,0.35); }
+.pos-header .meta { display: flex; gap: 20px; font-size: calc(12px * var(--font-scale)); color: rgba(255,255,255,0.9); align-items: center; }
+.pos-header .clock { font-size: calc(13px * var(--font-scale)); font-weight: 600; color: #fff; }
+.pos-header .logout-btn { background: rgba(0,0,0,0.25); border: none; color: #fff; padding: 5px 12px; border-radius: 5px; cursor: pointer; font-size: calc(12px * var(--font-scale)); display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+
+/* ── MAIN BODY ── */
+.pos-body { display: flex; flex: 1; overflow: hidden; }
+
+/* LEFT — cart area */
+.pos-left { display: flex; flex-direction: column; flex: 1; overflow: hidden; border-right: 1px solid var(--border); }
+
+/* customer bar */
+.customer-bar { background: var(--panel); padding: 8px 12px; border-bottom: 1px solid var(--border); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.customer-bar input { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: calc(6px * var(--font-scale)); border-radius: 5px; font-size: calc(13px * var(--font-scale)); flex: 1; min-width: 100px; }
+.customer-bar input:focus { outline: none; border-color: var(--blue); }
+.customer-bar .cust-label { font-size: calc(11px * var(--font-scale)); color: var(--muted); white-space: nowrap; }
+
+/* scan bar */
+.scan-bar { padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--border); display: flex; gap: 8px; flex-wrap: wrap; }
+.scan-input { flex: 1; min-width: 150px; background: var(--bg); border: 1.5px solid var(--blue); color: var(--text); padding: calc(7px * var(--font-scale)); border-radius: 5px; font-size: calc(14px * var(--font-scale)); }
+.scan-input:focus { outline: none; box-shadow: 0 0 0 2px rgba(14,165,233,0.3); }
+.scan-btn { background: var(--blue); border: none; color: #fff; padding: calc(7px * var(--font-scale)) calc(14px * var(--font-scale)); border-radius: 5px; cursor: pointer; font-size: calc(13px * var(--font-scale)); font-weight: 600; white-space: nowrap; }
+
+/* cart table */
+.cart-wrap { flex: 1; overflow-y: auto; }
+.cart-table { width: 100%; border-collapse: collapse; }
+.cart-table thead th { background: var(--blue); color: #fff; padding: calc(8px * var(--font-scale)); text-align: left; font-size: calc(12px * var(--font-scale)); font-weight: 600; position: sticky; top: 0; z-index: 2; }
+.cart-table tbody td { padding: calc(7px * var(--font-scale)); border-bottom: 1px solid var(--border); font-size: calc(13px * var(--font-scale)); vertical-align: middle; }
+.cart-table tbody tr:hover td { background: rgba(14,165,233,0.06); }
+.qty-ctrl { display: flex; align-items: center; gap: 4px; }
+.qty-btn { background: var(--surface); border: 1px solid var(--border); color: var(--text); width: calc(24px * var(--font-scale)); height: calc(24px * var(--font-scale)); border-radius: 4px; cursor: pointer; font-size: calc(14px * var(--font-scale)); font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.qty-val { min-width: 30px; text-align: center; font-weight: 700; font-size: calc(14px * var(--font-scale)); }
+.disc-input { width: 52px; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: calc(3px * var(--font-scale)) calc(6px * var(--font-scale)); border-radius: 4px; font-size: calc(12px * var(--font-scale)); text-align: center; }
+.remove-btn { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.4); color: var(--red); width: calc(26px * var(--font-scale)); height: calc(26px * var(--font-scale)); border-radius: 4px; cursor: pointer; font-size: calc(14px * var(--font-scale)); display: flex; align-items: center; justify-content: center; }
+.cart-empty { text-align: center; color: var(--muted); padding: calc(40px * var(--font-scale)) calc(20px * var(--font-scale)); font-size: calc(14px * var(--font-scale)); }
+
+/* totals footer of cart */
+.cart-footer { background: var(--panel); border-top: 1px solid var(--border); padding: 0; display: grid; grid-template-columns: 1fr 1fr 1fr; }
+.cart-total-cell { padding: calc(10px * var(--font-scale)) calc(14px * var(--font-scale)); border-right: 1px solid var(--border); }
+.cart-total-cell:last-child { border-right: none; }
+.cart-total-cell .label { font-size: calc(11px * var(--font-scale)); color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.cart-total-cell .value { font-size: calc(20px * var(--font-scale)); font-weight: 800; margin-top: 2px; }
+.cart-total-cell.big .value { font-size: calc(28px * var(--font-scale)); color: var(--green); }
+
+/* ── RIGHT panel ── */
+.pos-right { width: 310px; display: flex; flex-direction: column; flex-shrink: 0; overflow: hidden; }
+
+/* payment buttons */
+.payment-section { padding: 10px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.payment-section .section-label { font-size: calc(10px * var(--font-scale)); font-weight: 700; text-transform: uppercase; color: var(--muted); letter-spacing: 0.08em; margin-bottom: 7px; display: flex; align-items: center; justify-content: space-between; cursor: pointer; }
+.pay-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; }
+.pay-btn { border: 1px solid var(--border); background: var(--surface); color: var(--text); padding: calc(8px * var(--font-scale)) calc(4px * var(--font-scale)); border-radius: 6px; cursor: pointer; font-size: calc(11px * var(--font-scale)); font-weight: 600; text-align: center; transition: all 0.15s; }
+.pay-btn:hover { border-color: var(--blue); background: rgba(14,165,233,0.12); }
+.pay-btn.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+.pay-btn.cancel { background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.5); color: var(--red); grid-column: span 1; }
+.pay-btn.cancel:hover { background: var(--red); color: #fff; }
+.pay-btn.void-line { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.4); color: var(--red); }
+.pay-btn.void-all { background: rgba(239,68,68,0.2); border-color: rgba(239,68,68,0.6); color: var(--red); font-weight: 700; }
+.pay-btn.green { background: rgba(34,197,94,0.15); border-color: rgba(34,197,94,0.5); color: var(--green); }
+.pay-btn.green:hover { background: var(--green); color: #fff; }
+.pay-btn.amber { background: rgba(245,158,11,0.15); border-color: rgba(245,158,11,0.5); color: var(--amber); }
+.pay-btn.amber:hover { background: var(--amber); color: #fff; }
+.pay-btn.wide { grid-column: span 2; }
+.pay-btn.full { grid-column: span 3; }
+
+/* Quick items */
+.quick-section { flex: 1; overflow-y: auto; padding: 10px; background: var(--bg); }
+.quick-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.quick-item { background: var(--amber); color: #000; border: none; border-radius: 6px; padding: calc(10px * var(--font-scale)) calc(6px * var(--font-scale)); font-size: calc(11px * var(--font-scale)); font-weight: 700; text-align: center; cursor: pointer; line-height: 1.3; transition: opacity 0.15s; }
+.quick-item:hover { opacity: 0.85; }
+.quick-item.green { background: var(--green); color: #000; }
+.quick-item.blue { background: var(--blue); color: #fff; }
+.quick-item.purple { background: var(--purple); color: #fff; }
+.quick-item.teal { background: var(--teal); color: #000; }
+.quick-item.gray { background: #475569; color: #fff; }
+
+/* ── FOOTER ── */
+.pos-footer { height: var(--footer-h); background: var(--panel); border-top: 1px solid var(--border); display: flex; align-items: center; flex-shrink: 0; }
+.footer-tabs { display: flex; width: 100%; height: 100%; }
+.footer-tab { flex: 1; border: none; background: none; color: var(--muted); font-size: calc(12px * var(--font-scale)); font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px; border-right: 1px solid var(--border); transition: all 0.15s; }
+.footer-tab:hover { background: rgba(14,165,233,0.1); color: var(--text); }
+.footer-tab.active { background: rgba(14,165,233,0.15); color: var(--blue); }
+.footer-tab:last-child { border-right: none; }
+
+/* ── MODALS ── */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center; }
+.modal-overlay.open { display: flex; }
+.modal { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: calc(24px * var(--font-scale)); width: 420px; max-width: 95vw; }
+.modal h2 { font-size: calc(16px * var(--font-scale)); font-weight: 700; margin-bottom: 16px; color: var(--text); }
+.modal label { font-size: calc(12px * var(--font-scale)); color: var(--muted); display: block; margin-bottom: 4px; margin-top: 12px; }
+.modal input, .modal select { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: calc(8px * var(--font-scale)) calc(10px * var(--font-scale)); border-radius: 6px; font-size: calc(14px * var(--font-scale)); }
+.modal input:focus, .modal select:focus { outline: none; border-color: var(--blue); }
+.modal-footer { display: flex; gap: 8px; margin-top: 20px; justify-content: flex-end; }
+.modal-btn { padding: calc(9px * var(--font-scale)) calc(18px * var(--font-scale)); border-radius: 7px; font-size: calc(13px * var(--font-scale)); font-weight: 600; cursor: pointer; border: none; }
+.modal-btn.primary { background: var(--green); color: #000; }
+.modal-btn.secondary { background: var(--surface); color: var(--text); }
+.modal-btn.danger { background: var(--red); color: #fff; }
+.modal-btn.blue { background: var(--blue); color: #fff; }
+
+/* receipt */
+.receipt { font-family: 'Courier New', monospace; font-size: calc(13px * var(--font-scale)); background: var(--text); color: var(--bg); padding: calc(20px * var(--font-scale)); border-radius: 8px; max-height: 60vh; overflow-y: auto; }
+.receipt hr { border: none; border-top: 1px dashed; margin: 8px 0; }
+
+/* product search modal */
+.product-search-input { width: 100%; padding: calc(10px * var(--font-scale)) calc(12px * var(--font-scale)); background: var(--bg); border: 1.5px solid var(--blue); color: var(--text); border-radius: 6px; font-size: calc(14px * var(--font-scale)); margin-bottom: 10px; }
+.product-search-input:focus { outline: none; }
+.product-list { max-height: 320px; overflow-y: auto; }
+.product-row { padding: calc(9px * var(--font-scale)) calc(10px * var(--font-scale)); border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
+.product-row:hover { background: rgba(14,165,233,0.12); }
+.product-row .pname { font-size: calc(13px * var(--font-scale)); font-weight: 600; }
+.product-row .psku { font-size: calc(11px * var(--font-scale)); color: var(--muted); }
+.product-row .pprice { font-size: calc(13px * var(--font-scale)); color: var(--green); font-weight: 700; }
+.product-row .pstock { font-size: calc(11px * var(--font-scale)); color: var(--muted); }
+.stock-warn { color: var(--red) !important; }
+
+/* status bar */
+.status-bar { background: var(--panel); padding: 3px 12px; font-size: 11px; color: var(--muted); display: flex; gap: 14px; flex-shrink: 0; border-bottom: 1px solid var(--border); }
+.status-bar span { display: flex; align-items: center; gap: 4px; }
+.status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); display: inline-block; }
+</style>
+</head>
+<body class="dark-mode">
+
+<!-- HEADER -->
+<div class="pos-header">
+  
+  <div class="brand" padding="0">
+    <img src="{% static 'image/ahliki_logo.png' %}" alt="Ah Liki Logo" class="logo-image" width="20" height="20" padding="0" style="margin-right:8px">
+    Ah Liki Wholesale HQ</div>
+  <div class="controls">
+    <button class="theme-toggle" onclick="toggleTheme()">
+      <span id="themeIcon">🌙</span>
+      <span id="themeLabel">Dark</span>
+    </button>
+    <button class="font-btn" onclick="changeFontSize(-0.1)">A−</button>
+    <button class="font-btn" onclick="changeFontSize(0.1)">A+</button>
+  </div>
+  <div class="meta">
+    <span>🖥 Terminal: HDQ-{{ request.user.username|upper }}</span>
+    <span class="clock" id="clock">--:-- --</span>
+    <form method="post" action="{% url 'logout' %}" style="margin:0">
+      {% csrf_token %}
+      <button class="logout-btn" type="submit">🚪 Sign Out</button>
+    </form>
+  </div>
+</div>
+
+<!-- STATUS BAR -->
+<div class="status-bar">
+  <span><span class="status-dot"></span> Online</span>
+  <span>👤 {{ request.user.get_full_name|default:request.user.username }}</span>
+  <span>📅 <span id="datestamp"></span></span>
+  <span style="margin-left:auto"><a href="{% url 'dashboard' %}" style="color:var(--muted);text-decoration:none">← Back to Dashboard</a></span>
+</div>
+
+<!-- BODY -->
+<div class="pos-body">
+
+  <!-- LEFT: Cart -->
+  <div class="pos-left">
+
+    <!-- Customer bar -->
+    <div class="customer-bar">
+      <span class="cust-label">Customer:</span>
+      <input type="text" id="customerName" placeholder="No customer selected — type name or account #">
+      <span class="cust-label">Acct:</span>
+      <input type="text" id="accountNumber" placeholder="BC Account #" style="max-width:140px">
+    </div>
+
+    <!-- Scan bar -->
+    <div class="scan-bar">
+      <input class="scan-input" id="scanInput" type="text" placeholder="Scan or enter the item code / SKU…" autofocus autocomplete="off">
+      <button class="scan-btn" onclick="openProductSearch()">🔍 Items</button>
+    </div>
+
+    <!-- Cart table -->
+    <div class="cart-wrap">
+      <table class="cart-table">
+        <thead>
+          <tr>
+            <th style="width:80px">Code</th>
+            <th>Name</th>
+            <th style="width:90px">Price</th>
+            <th style="width:90px">Qty</th>
+            <th style="width:65px">Disc%</th>
+            <th style="width:90px">Amount</th>
+            <th style="width:36px"></th>
+          </tr>
+        </thead>
+        <tbody id="cartBody">
+          <tr id="emptyRow"><td colspan="7" class="cart-empty">🛒 Scan a barcode or press <strong>Items</strong> to start adding products</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Cart totals -->
+    <div class="cart-footer">
+      <div class="cart-total-cell">
+        <div class="label">Item Count</div>
+        <div class="value" id="itemCount" style="color:var(--blue)">0</div>
+      </div>
+      <div class="cart-total-cell">
+        <div class="label">Tax (15% VAGST)</div>
+        <div class="value" id="taxTotal" style="color:var(--amber)">SAT$0.00</div>
+      </div>
+      <div class="cart-total-cell big">
+        <div class="label">TOTAL</div>
+        <div class="value" id="grandTotal">SAT$0.00</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Controls -->
+  <div class="pos-right">
+
+    <!-- Payment / Action buttons -->
+    <div class="payment-section">
+      <div class="section-label">MAIN MENU ▾</div>
+      <div class="pay-grid">
+        <button class="pay-btn active" id="btn-cash" onclick="setPayment('cash')">Cash</button>
+        <button class="pay-btn" id="btn-cheque" onclick="setPayment('cheque')">Cheque</button>
+        <button class="pay-btn" id="btn-eftpos" onclick="setPayment('eftpos')">EFTPOS</button>
+        <button class="pay-btn cancel" onclick="cancelSale()">CANCEL</button>
+        <button class="pay-btn" id="btn-credit" onclick="setPayment('credit')" style="grid-column:span 2">Post on Cust.</button>
+        <button class="pay-btn green wide" onclick="completeSale()">✔ Complete Sale</button>
+        <button class="pay-btn void-line" onclick="voidSelected()">VOID LINE</button>
+        <button class="pay-btn amber" onclick="openQuoteModal()">Save Quote</button>
+        <button class="pay-btn void-all" onclick="voidAll()">VOID ALL</button>
+        <button class="pay-btn blue full" onclick="openInvoiceModal()">🧾 Generate Invoice</button>
+      </div>
+    </div>
+
+    <!-- Quick Items -->
+    <div class="payment-section" style="border-bottom:1px solid var(--border)">
+      <div class="section-label" onclick="toggleQuick()">QUICK ITEMS ▾</div>
+    </div>
+    <div class="quick-section" id="quickSection">
+      <div class="quick-grid" id="quickGrid">
+        {% for p in products|slice:":12" %}
+        <button class="quick-item {% cycle 'amber' 'green' 'blue' 'purple' 'teal' 'amber' 'green' 'blue' 'purple' 'teal' 'amber' 'green' %}" onclick="addToCartById({{ p.pk }}, '{{ p.sku|escapejs }}', '{{ p.name|escapejs }}', {{ p.unit_price }}, {{ p.current_stock }})">
+          {{ p.name|truncatechars:22 }}
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- FOOTER TABS -->
+<div class="pos-footer">
+  <div class="footer-tabs">
+    <button class="footer-tab active" onclick="window.location='{% url 'pos' %}'">🔍 Items</button>
+    <button class="footer-tab" onclick="window.location='{% url 'sale_list' %}'">📋 POS Transactions</button>
+    <button class="footer-tab" onclick="window.location='{% url 'quote_list' %}'">📝 Sales Quotes</button>
+    <button class="footer-tab" onclick="window.location='{% url 'invoice_list' %}'">🧾 Invoices</button>
+    <button class="footer-tab" onclick="window.location='{% url 'dashboard' %}'">📊 Dashboard</button>
+  </div>
+</div>
+
+<!-- ── MODALS ── -->
+
+<!-- Product Search -->
+<div class="modal-overlay" id="productModal">
+  <div class="modal" style="width:520px">
+    <h2>🔍 Product Search</h2>
+    <input class="product-search-input" id="productSearch" placeholder="Search by name, SKU or barcode…" oninput="filterProducts()" autocomplete="off">
+    <div class="product-list" id="productList"></div>
+    <div class="modal-footer">
+      <button class="modal-btn secondary" onclick="closeModal('productModal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Complete Sale -->
+<div class="modal-overlay" id="completeModal">
+  <div class="modal">
+    <h2>✅ Complete Sale</h2>
+    <label>Payment Method</label>
+    <select id="finalPayment">
+      <option value="cash">Cash</option>
+      <option value="eftpos">EFTPOS</option>
+      <option value="cheque">Cheque</option>
+      <option value="credit">Credit Account</option>
+    </select>
+    <label>Notes (optional)</label>
+    <input type="text" id="saleNotes" placeholder="Any notes for this sale…">
+    <div style="margin-top:14px;padding:12px;background:var(--surface);border-radius:8px">
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px"><span style="color:var(--muted)">Subtotal</span><span id="modalSubtotal">SAT$0.00</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px"><span style="color:var(--muted)">Tax (15%)</span><span id="modalTax">SAT$0.00</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:18px;font-weight:800"><span>TOTAL</span><span style="color:var(--green)" id="modalTotal">SAT$0.00</span></div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn secondary" onclick="closeModal('completeModal')">Back</button>
+      <button class="modal-btn primary" onclick="submitSale()">💳 Confirm &amp; Pay</button>
+    </div>
+  </div>
+</div>
+
+<!-- Receipt -->
+<div class="modal-overlay" id="receiptModal">
+  <div class="modal" style="width:480px">
+    <h2>🧾 Sale Complete</h2>
+    <div class="receipt" id="receiptContent"></div>
+    <div class="modal-footer">
+      <button class="modal-btn secondary" onclick="window.print()">🖨 Print</button>
+      <button class="modal-btn primary" onclick="newSale()">➕ New Sale</button>
+    </div>
+  </div>
+</div>
+
+<!-- Quote Modal -->
+<div class="modal-overlay" id="quoteModal">
+  <div class="modal">
+    <h2>📝 Save as Quote</h2>
+    <label>Valid Until</label>
+    <input type="date" id="quoteValidUntil">
+    <label>Notes (optional)</label>
+    <input type="text" id="quoteNotes" placeholder="Quote notes…">
+    <div class="modal-footer">
+      <button class="modal-btn secondary" onclick="closeModal('quoteModal')">Cancel</button>
+      <button class="modal-btn blue" onclick="submitQuote()">Save Quote</button>
+    </div>
+  </div>
+</div>
+
+<!-- Invoice Modal -->
+<div class="modal-overlay" id="invoiceModal">
+  <div class="modal">
+    <h2>🧾 Generate Invoice</h2>
+    <label>Payment Method</label>
+    <select id="invoicePayment">
+      <option value="cash">Cash</option>
+      <option value="credit">Credit Account</option>
+      <option value="eftpos">EFTPOS</option>
+      <option value="cheque">Cheque</option>
+    </select>
+    <label>Due Date</label>
+    <input type="date" id="invoiceDue">
+    <label>Notes (optional)</label>
+    <input type="text" id="invoiceNotes" placeholder="Invoice notes…">
+    <div class="modal-footer">
+      <button class="modal-btn secondary" onclick="closeModal('invoiceModal')">Cancel</button>
+      <button class="modal-btn blue" onclick="submitInvoice()">Generate Invoice</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let cart = [];
+let allProducts = [];
+let selectedPayment = 'cash';
+
+// ── CLOCK ─────────────────────────────────────────────────────────────────────
+function tick() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  document.getElementById('datestamp').textContent =
+    now.toLocaleDateString('en-GB',{day:'2-digit',month:'2-digit',year:'numeric'});
+}
+setInterval(tick, 1000); tick();
+
+// ── LOAD PRODUCTS ─────────────────────────────────────────────────────────────
+fetch('/api/products/').then(r => r.json()).then(data => {
+  allProducts = data.products;
+  renderProductList('');
+});
+
+// ── SCAN INPUT ────────────────────────────────────────────────────────────────
+document.getElementById('scanInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    const val = e.target.value.trim();
+    if (!val) return;
+    const p = allProducts.find(x => x.sku === val || x.barcode === val || String(x.id) === val);
+    if (p) { addToCart(p); e.target.value = ''; }
+    else { e.target.style.border = '1.5px solid #ef4444'; setTimeout(() => e.target.style.border = '1.5px solid var(--blue)', 800); }
+  }
+});
+
+// ── CART LOGIC ────────────────────────────────────────────────────────────────
+function addToCartById(id, sku, name, price, stock) {
+  const p = { id, sku, name, unit_price: price, stock };
+  addToCart(p);
+}
+
+function addToCart(p) {
+  const existing = cart.find(i => i.id === p.id);
+  if (existing) {
+    if (existing.qty >= p.stock) { showFlash('⚠️ No more stock available for ' + p.name, 'amber'); return; }
+    existing.qty++;
+  } else {
+    if (p.stock <= 0) { showFlash('⚠️ ' + p.name + ' is out of stock', 'red'); return; }
+    cart.push({ id: p.id, sku: p.sku, name: p.name, price: parseFloat(p.unit_price), qty: 1, discount: 0, stock: p.stock });
+  }
+  renderCart();
+  closeModal('productModal');
+}
+
+function renderCart() {
+  const tbody = document.getElementById('cartBody');
+  if (cart.length === 0) {
+    tbody.innerHTML = '<tr id="emptyRow"><td colspan="7" class="cart-empty">🛒 Scan a barcode or press <strong>Items</strong> to start adding products</td></tr>';
+    updateTotals(0, 0, 0);
+    return;
+  }
+  let subtotal = 0;
+  tbody.innerHTML = cart.map((item, i) => {
+    const disc = parseFloat(item.discount) || 0;
+    const lineTotal = item.qty * item.price * (1 - disc / 100);
+    subtotal += lineTotal;
+    return `<tr>
+      <td style="font-size:11px;color:var(--muted)">${item.sku}</td>
+      <td><strong>${item.name}</strong></td>
+      <td>SAT$${item.price.toFixed(2)}</td>
+      <td>
+        <div class="qty-ctrl">
+          <button class="qty-btn" onclick="changeQty(${i}, -1)">−</button>
+          <span class="qty-val">${item.qty}</span>
+          <button class="qty-btn" onclick="changeQty(${i}, 1)">+</button>
+        </div>
+      </td>
+      <td><input class="disc-input" type="number" min="0" max="100" value="${disc}" onchange="setDiscount(${i}, this.value)" placeholder="0"></td>
+      <td style="font-weight:700;color:var(--green)">SAT$${lineTotal.toFixed(2)}</td>
+      <td><button class="remove-btn" onclick="removeItem(${i})">✕</button></td>
+    </tr>`;
+  }).join('');
+  const tax = subtotal * 0.15;
+  const total = subtotal + tax;
+  updateTotals(cart.reduce((s, i) => s + i.qty, 0), tax, total);
+}
+
+function updateTotals(count, tax, total) {
+  document.getElementById('itemCount').textContent = count;
+  document.getElementById('taxTotal').textContent = 'SAT$' + tax.toFixed(2);
+  document.getElementById('grandTotal').textContent = 'SAT$' + total.toFixed(2);
+}
+
+function changeQty(i, delta) {
+  cart[i].qty = Math.max(1, Math.min(cart[i].qty + delta, cart[i].stock));
+  renderCart();
+}
+
+function setDiscount(i, val) {
+  cart[i].discount = Math.max(0, Math.min(100, parseFloat(val) || 0));
+  renderCart();
+}
+
+function removeItem(i) { cart.splice(i, 1); renderCart(); }
+function voidSelected() { if (cart.length > 0) { cart.pop(); renderCart(); } }
+function voidAll() { if (confirm('Clear all items from the cart?')) { cart = []; renderCart(); } }
+function cancelSale() { if (cart.length === 0 || confirm('Cancel this sale?')) { cart = []; renderCart(); document.getElementById('customerName').value = ''; document.getElementById('accountNumber').value = ''; } }
+
+// ── PAYMENT ───────────────────────────────────────────────────────────────────
+function setPayment(method) {
+  selectedPayment = method;
+  ['cash','cheque','eftpos','credit'].forEach(m => {
+    const btn = document.getElementById('btn-' + m);
+    if (btn) btn.classList.toggle('active', m === method);
+  });
+}
+
+// ── COMPLETE SALE ─────────────────────────────────────────────────────────────
+function completeSale() {
+  if (cart.length === 0) { showFlash('Cart is empty — add items first', 'red'); return; }
+  const subtotal = cart.reduce((s, i) => s + i.qty * i.price * (1 - i.discount/100), 0);
+  const tax = subtotal * 0.15;
+  document.getElementById('modalSubtotal').textContent = 'SAT$' + subtotal.toFixed(2);
+  document.getElementById('modalTax').textContent = 'SAT$' + tax.toFixed(2);
+  document.getElementById('modalTotal').textContent = 'SAT$' + (subtotal + tax).toFixed(2);
+  document.getElementById('finalPayment').value = selectedPayment;
+  openModal('completeModal');
+}
+
+async function submitSale() {
+  const payload = {
+    cart: cart.map(i => ({ product_id: i.id, qty: i.qty })),
+    customer_name: document.getElementById('customerName').value,
+    account_number: document.getElementById('accountNumber').value,
+    payment_method: document.getElementById('finalPayment').value,
+    notes: document.getElementById('saleNotes').value,
+  };
+  const res = await fetch('/pos/complete/', { method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')}, body: JSON.stringify(payload) });
+  const data = await res.json();
+  if (data.success) {
+    closeModal('completeModal');
+    showReceipt(data.sale_number, data.total);
+    cart = [];
+    renderCart();
+  } else { alert('Error: ' + data.error); }
+}
+
+// ── RECEIPT ───────────────────────────────────────────────────────────────────
+function showReceipt(saleNum, total) {
+  const items = cart.map(i => `  ${i.name.padEnd(22).substring(0,22)} x${i.qty}  SAT$${(i.qty * i.price).toFixed(2)}`).join('\n');
+  const subtotal = parseFloat(total) / 1.15;
+  const tax = parseFloat(total) - subtotal;
+  document.getElementById('receiptContent').innerHTML = `
+    <div style="text-align:center;margin-bottom:8px"><strong>AH LIKI WHOLESALE</strong><br>Apia, Samoa<br>Tel: +685 20699</div>
+    <hr>
+    <div>Sale #: ${saleNum}</div>
+    <div>Date: ${new Date().toLocaleString('en-GB')}</div>
+    <div>Cashier: {{ request.user.get_full_name|default:request.user.username }}</div>
+    ${document.getElementById('customerName').value ? '<div>Customer: ' + document.getElementById('customerName').value + '</div>' : ''}
+    <hr>
+    <pre>${items}</pre>
+    <hr>
+    <div style="display:flex;justify-content:space-between"><span>Subtotal</span><span>SAT$${subtotal.toFixed(2)}</span></div>
+    <div style="display:flex;justify-content:space-between"><span>VAGST 15%</span><span>SAT$${tax.toFixed(2)}</span></div>
+    <hr>
+    <div style="display:flex;justify-content:space-between;font-size:16px;font-weight:800"><span>TOTAL</span><span>SAT$${parseFloat(total).toFixed(2)}</span></div>
+    <hr>
+    <div style="text-align:center;font-size:12px;margin-top:8px">Thank you for shopping at Ah Liki!<br>* * *</div>`;
+  openModal('receiptModal');
+}
+
+function newSale() { closeModal('receiptModal'); document.getElementById('customerName').value = ''; document.getElementById('accountNumber').value = ''; document.getElementById('scanInput').focus(); }
+
+// ── QUOTE ─────────────────────────────────────────────────────────────────────
+function openQuoteModal() {
+  if (cart.length === 0) { showFlash('Cart is empty', 'red'); return; }
+  openModal('quoteModal');
+}
+
+async function submitQuote() {
+  const payload = {
+    cart: cart.map(i => ({ product_id: i.id, qty: i.qty, discount: i.discount })),
+    customer_name: document.getElementById('customerName').value,
+    account_number: document.getElementById('accountNumber').value,
+    valid_until: document.getElementById('quoteValidUntil').value,
+    notes: document.getElementById('quoteNotes').value,
+  };
+  const res = await fetch('/quotes/new/', { method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')}, body: JSON.stringify(payload) });
+  const data = await res.json();
+  if (data.success) {
+    closeModal('quoteModal');
+    showFlash('Quote ' + data.quote_number + ' saved!', 'green');
+    if (confirm('View the quote now?')) window.location = '/quotes/' + data.quote_id + '/';
+  } else { alert('Error: ' + data.error); }
+}
+
+// ── INVOICE ───────────────────────────────────────────────────────────────────
+function openInvoiceModal() {
+  if (cart.length === 0) { showFlash('Cart is empty', 'red'); return; }
+  openModal('invoiceModal');
+}
+
+async function submitInvoice() {
+  // Build a quote first, then convert it to invoice
+  const payload = {
+    cart: cart.map(i => ({ product_id: i.id, qty: i.qty, discount: i.discount })),
+    customer_name: document.getElementById('customerName').value,
+    account_number: document.getElementById('accountNumber').value,
+    notes: document.getElementById('invoiceNotes').value,
+  };
+  const qres = await fetch('/quotes/new/', { method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':getCookie('csrftoken')}, body: JSON.stringify(payload) });
+  const qdata = await qres.json();
+  if (!qdata.success) { alert('Error: ' + qdata.error); return; }
+  // Convert to invoice
+  const ires = await fetch('/quotes/' + qdata.quote_id + '/convert/', { method:'POST', headers:{'X-CSRFToken':getCookie('csrftoken')} });
+  if (ires.redirected || ires.ok) {
+    closeModal('invoiceModal');
+    cart = []; renderCart();
+    showFlash('Invoice generated! Redirecting…', 'green');
+    setTimeout(() => window.location = '/invoices/', 900);
+  } else { alert('Invoice generation failed.'); }
+}
+
+// ── PRODUCT SEARCH ────────────────────────────────────────────────────────────
+function openProductSearch() { openModal('productModal'); document.getElementById('productSearch').value = ''; renderProductList(''); setTimeout(() => document.getElementById('productSearch').focus(), 50); }
+function filterProducts() { renderProductList(document.getElementById('productSearch').value.toLowerCase()); }
+function renderProductList(q) {
+  const filtered = q ? allProducts.filter(p => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || (p.barcode||'').toLowerCase().includes(q)) : allProducts;
+  document.getElementById('productList').innerHTML = filtered.slice(0, 40).map(p => `
+    <div class="product-row" onclick='addToCart(${JSON.stringify(p)})'>
+      <div><div class="pname">${p.name}</div><div class="psku">${p.sku}</div></div>
+      <div style="text-align:right"><div class="pprice">SAT$${parseFloat(p.unit_price).toFixed(2)}</div><div class="pstock ${p.stock <= 0 ? 'stock-warn' : ''}">${p.stock} in stock</div></div>
+    </div>`).join('') || '<div style="text-align:center;color:var(--muted);padding:20px">No products found</div>';
+}
+
+// ── QUICK TOGGLE ──────────────────────────────────────────────────────────────
+function toggleQuick() { const s = document.getElementById('quickSection'); s.style.display = s.style.display === 'none' ? '' : 'none'; }
+
+// ── MODAL HELPERS ─────────────────────────────────────────────────────────────
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-overlay').forEach(el => { el.addEventListener('click', e => { if (e.target === el) el.classList.remove('open'); }); });
+
+// ── FLASH ─────────────────────────────────────────────────────────────────────
+function showFlash(msg, color='green') {
+  const el = document.createElement('div');
+  const colors = {green:'#22c55e',red:'#ef4444',amber:'#f59e0b',blue:'#0ea5e9'};
+  el.style.cssText = `position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:${colors[color]||colors.green};color:${color==='amber'?'#000':'#fff'};padding:10px 20px;border-radius:8px;font-weight:700;font-size:14px;z-index:9999;animation:slideUp 0.25s ease`;
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2500);
+}
+
+// ── CSRF ──────────────────────────────────────────────────────────────────────
+function getCookie(name) { let v = null; document.cookie.split(';').forEach(c => { const [k, val] = c.trim().split('='); if (k === name) v = decodeURIComponent(val); }); return v; }
+
+// ── KEYBOARD SHORTCUTS ────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'F1') { e.preventDefault(); openProductSearch(); }
+  if (e.key === 'F2') { e.preventDefault(); completeSale(); }
+  if (e.key === 'F3') { e.preventDefault(); openQuoteModal(); }
+  if (e.key === 'Escape') { document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open')); }
+  if (!e.target.matches('input,select,textarea') && e.key.length === 1) { document.getElementById('scanInput').focus(); }
+});
+
+// Slideup animation
+const style = document.createElement('style');
+style.textContent = '@keyframes slideUp { from { bottom:40px;opacity:0 } to { bottom:60px;opacity:1 } }';
+document.head.appendChild(style);
+
+// ── THEME & FONT SIZE ─────────────────────────────────────────────────────────
+function initThemeAndFont() {
+  const theme = localStorage.getItem('pos-theme') || 'dark-mode';
+  const fontScale = parseFloat(localStorage.getItem('pos-font-scale')) || 1;
+  document.body.className = theme;
+  document.documentElement.style.setProperty('--font-scale', fontScale);
+  updateThemeLabel();
+}
+
+function toggleTheme() {
+  const current = document.body.classList.contains('dark-mode') ? 'dark-mode' : 'light-mode';
+  const next = current === 'dark-mode' ? 'light-mode' : 'dark-mode';
+  document.body.className = next;
+  localStorage.setItem('pos-theme', next);
+  updateThemeLabel();
+}
+
+function updateThemeLabel() {
+  const isDark = document.body.classList.contains('dark-mode');
+  document.getElementById('themeIcon').textContent = isDark ? '🌙' : '☀️';
+  document.getElementById('themeLabel').textContent = isDark ? 'Dark' : 'Light';
+}
+
+function changeFontSize(delta) {
+  const current = parseFloat(document.documentElement.style.getPropertyValue('--font-scale')) || 1;
+  const newScale = Math.max(0.8, Math.min(1.4, current + delta));
+  document.documentElement.style.setProperty('--font-scale', newScale);
+  localStorage.setItem('pos-font-scale', newScale);
+  showFlash(`Font size: ${Math.round(newScale * 100)}%`, 'blue');
+}
+
+// Initialize on page load
+window.addEventListener('load', initThemeAndFont);
+document.addEventListener('DOMContentLoaded', initThemeAndFont);
+</script>
+</body>
+</html>

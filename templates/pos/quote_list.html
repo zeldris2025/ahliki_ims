@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block title %}Quotes — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Sales Quotes{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div><h1>Sales Quotes</h1><p>All saved quotes — convert to invoice with one click</p></div>
+  <a href="{% url 'pos' %}" class="btn btn-primary">+ New Quote (POS)</a>
+</div>
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Quote #</th><th>Customer</th><th>Total</th><th>Status</th><th>Valid Until</th><th>Created</th><th></th></tr></thead>
+      <tbody>
+      {% for q in quotes %}
+      <tr>
+        <td><a href="{% url 'quote_detail' q.pk %}"><strong>{{ q.quote_number }}</strong></a></td>
+        <td>{{ q.customer_name|default:"Walk-in" }}</td>
+        <td><strong>SAT${{ q.total_amount }}</strong></td>
+        <td>
+          {% if q.status == 'draft' %}<span class="badge badge-gray">Draft</span>
+          {% elif q.status == 'sent' %}<span class="badge badge-blue">Sent</span>
+          {% elif q.status == 'converted' %}<span class="badge badge-green">Converted ✓</span>
+          {% else %}<span class="badge badge-red">Expired</span>{% endif %}
+        </td>
+        <td>{{ q.valid_until|default:"—" }}</td>
+        <td style="font-size:12px">{{ q.created_at|date:"d M Y H:i" }}</td>
+        <td style="display:flex;gap:6px">
+          <a href="{% url 'quote_detail' q.pk %}" class="btn btn-sm btn-secondary">View</a>
+          {% if q.status != 'converted' %}
+          <a href="{% url 'quote_convert' q.pk %}" class="btn btn-sm btn-primary" onclick="return confirm('Convert this quote to an invoice?')">→ Invoice</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}<tr><td colspan="7" style="text-align:center;color:var(--gray-500);padding:24px">No quotes yet. Create one from the POS.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

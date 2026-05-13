@@ -22,11 +22,17 @@ def role_required(*roles):
         def _wrapped(request, *args, **kwargs):
             if not request.user.is_authenticated:
                 return redirect('login')
+            # Superusers always have access
+            if request.user.is_superuser:
+                return view_func(request, *args, **kwargs)
             profile, _ = UserProfile.objects.get_or_create(user=request.user)
-            if request.user.is_superuser or profile.role in roles:
+            if profile.role in roles:
                 return view_func(request, *args, **kwargs)
             messages.error(request, "You don't have permission to access that page.")
-            return redirect('dashboard')
+            # Redirect to POS or home, not dashboard (to avoid redirect loops)
+            if profile.role == 'cashier':
+                return redirect('pos')
+            return redirect('pos')
         return _wrapped
     return decorator
 
@@ -135,7 +141,7 @@ def product_detail(request, pk):
 
 
 @login_required
-@role_required('admin', 'warehouse')
+@role_required('admin', 'finance')
 def product_edit(request, pk):
     product = get_object_or_404(Product, pk=pk)
     form = ProductForm(request.POST or None, instance=product)
@@ -493,3 +499,194 @@ def user_edit(request, pk):
         messages.success(request, f'User "{u.username}" updated.')
         return redirect('user_list')
     return render(request, 'users/edit.html', {'u': u, 'profile': profile})
+
+
+# ── POS (Cashier View) ─────────────────────────────────────────────────────────
+
+from .models import Quote, QuoteItem, Invoice, InvoiceItem
+from decimal import Decimal
+import uuid
+
+def gen_number(prefix):
+    from django.utils import timezone
+    ts = timezone.now().strftime('%Y%m%d%H%M%S')
+    return f"{prefix}-{ts}-{str(uuid.uuid4())[:4].upper()}"
+
+
+@login_required
+@role_required('admin', 'cashier')
+def pos(request):
+    """Full POS terminal view for cashiers."""
+    products = Product.objects.filter(is_active=True).select_related('category').order_by('name')
+    categories = Category.objects.all()
+    recent_transactions = Sale.objects.order_by('-created_at')[:8]
+    return render(request, 'pos/pos.html', {
+        'products': products,
+        'categories': categories,
+        'recent_transactions': recent_transactions,
+    })
+
+
+@login_required
+def pos_complete_sale(request):
+    """AJAX endpoint — receive cart JSON and save Sale + deduct stock."""
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST required'}, status=405)
+    import json as _json
+    data = _json.loads(request.body)
+    cart = data.get('cart', [])
+    customer = data.get('customer_name', '').strip()
+    account = data.get('account_number', '').strip()
+    payment = data.get('payment_method', 'cash')
+    notes = data.get('notes', '')
+
+    if not cart:
+        return JsonResponse({'error': 'Cart is empty'}, status=400)
+
+    errors = []
+    with transaction.atomic():
+        sale = Sale.objects.create(
+            sale_number=gen_number('SAL'),
+            cashier=request.user,
+            customer_name=customer,
+            account_number=account,
+            payment_method=payment,
+            notes=notes,
+        )
+        for line in cart:
+            try:
+                product = Product.objects.get(pk=line['product_id'])
+            except Product.DoesNotExist:
+                errors.append(f"Product ID {line['product_id']} not found.")
+                continue
+            qty = int(line['qty'])
+            if product.current_stock < qty:
+                errors.append(f"Insufficient stock for {product.name}. Available: {product.current_stock}")
+                transaction.set_rollback(True)
+                return JsonResponse({'error': '\n'.join(errors)}, status=400)
+            SaleItem.objects.create(sale=sale, product=product, quantity=qty, unit_price=product.unit_price)
+            StockMovement.objects.create(
+                product=product, movement_type='out', quantity=-qty,
+                reference=sale.sale_number, performed_by=request.user,
+            )
+            check_and_create_alerts(product)
+        sale.calculate_total()
+    return JsonResponse({'success': True, 'sale_number': sale.sale_number, 'total': str(sale.total_amount), 'sale_id': sale.pk})
+
+
+# ── QUOTES ────────────────────────────────────────────────────────────────────
+
+@login_required
+def quote_list(request):
+    quotes = Quote.objects.select_related('cashier').order_by('-created_at')
+    return render(request, 'pos/quote_list.html', {'quotes': quotes})
+
+
+@login_required
+def quote_new(request):
+    products = Product.objects.filter(is_active=True).order_by('name')
+    if request.method == 'POST':
+        import json as _json
+        data = _json.loads(request.body)
+        cart = data.get('cart', [])
+        if not cart:
+            return JsonResponse({'error': 'Cart is empty'}, status=400)
+        quote = Quote.objects.create(
+            quote_number=gen_number('QTE'),
+            cashier=request.user,
+            customer_name=data.get('customer_name', ''),
+            account_number=data.get('account_number', ''),
+            notes=data.get('notes', ''),
+            valid_until=data.get('valid_until') or None,
+        )
+        for line in cart:
+            product = Product.objects.get(pk=line['product_id'])
+            QuoteItem.objects.create(quote=quote, product=product, quantity=int(line['qty']),
+                                     unit_price=product.unit_price,
+                                     discount_percent=Decimal(str(line.get('discount', 0))))
+        quote.calculate_total()
+        return JsonResponse({'success': True, 'quote_number': quote.quote_number, 'quote_id': quote.pk})
+    return render(request, 'pos/pos.html', {'products': products, 'mode': 'quote'})
+
+
+@login_required
+def quote_detail(request, pk):
+    quote = get_object_or_404(Quote, pk=pk)
+    return render(request, 'pos/quote_detail.html', {'quote': quote})
+
+
+@login_required
+def quote_convert(request, pk):
+    """Convert a quote to an invoice — one click."""
+    quote = get_object_or_404(Quote, pk=pk)
+    if quote.status == 'converted':
+        messages.warning(request, 'This quote has already been converted.')
+        return redirect('quote_detail', pk=pk)
+    with transaction.atomic():
+        invoice = Invoice.objects.create(
+            invoice_number=gen_number('INV'),
+            cashier=request.user,
+            customer_name=quote.customer_name,
+            account_number=quote.account_number,
+            notes=quote.notes,
+        )
+        for qi in quote.items.all():
+            InvoiceItem.objects.create(
+                invoice=invoice, product=qi.product,
+                quantity=qi.quantity, unit_price=qi.unit_price,
+                discount_percent=qi.discount_percent,
+            )
+            # Deduct stock
+            if qi.product.current_stock < qi.quantity:
+                messages.error(request, f"Not enough stock for {qi.product.name}. Conversion failed.")
+                transaction.set_rollback(True)
+                return redirect('quote_detail', pk=pk)
+            StockMovement.objects.create(
+                product=qi.product, movement_type='out', quantity=-qi.quantity,
+                reference=invoice.invoice_number, performed_by=request.user,
+            )
+            check_and_create_alerts(qi.product)
+        invoice.calculate_total()
+        quote.status = 'converted'
+        quote.converted_to = invoice
+        quote.save()
+    messages.success(request, f'Quote converted to Invoice {invoice.invoice_number}.')
+    return redirect('invoice_detail', pk=invoice.pk)
+
+
+# ── INVOICES ──────────────────────────────────────────────────────────────────
+
+@login_required
+def invoice_list(request):
+    invoices = Invoice.objects.select_related('cashier').order_by('-created_at')
+    return render(request, 'pos/invoice_list.html', {'invoices': invoices})
+
+
+@login_required
+def invoice_detail(request, pk):
+    invoice = get_object_or_404(Invoice, pk=pk)
+    return render(request, 'pos/invoice_detail.html', {'invoice': invoice})
+
+
+@login_required
+def invoice_mark_paid(request, pk):
+    invoice = get_object_or_404(Invoice, pk=pk)
+    if request.method == 'POST':
+        invoice.status = 'paid'
+        invoice.payment_method = request.POST.get('payment_method', 'cash')
+        invoice.save()
+        messages.success(request, f'Invoice {invoice.invoice_number} marked as paid.')
+    return redirect('invoice_detail', pk=pk)
+
+
+@login_required
+def api_products_all(request):
+    """Return all products as JSON for the POS."""
+    products = list(Product.objects.filter(is_active=True).select_related('category').values(
+        'id', 'sku', 'name', 'unit_price', 'unit', 'category__name', 'barcode'
+    ))
+    # annotate stock
+    for p in products:
+        obj = Product.objects.get(pk=p['id'])
+        p['stock'] = obj.current_stock
+    return JsonResponse({'products': products})
