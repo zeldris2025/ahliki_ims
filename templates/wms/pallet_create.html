@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% block title %}Create Pallet — Ahliki WMS{% endblock %}
+{% block topbar_title %}+ New Pallet{% endblock %}
+
+{% block extra_css %}
+<style>
+@media (max-width: 768px) {
+  .pallet-form-fields input,
+  .pallet-form-fields select,
+  .pallet-form-fields textarea { font-size: 16px !important; padding: 13px 12px !important; min-height: 50px; }
+  .pallet-form-fields label { font-size: 14px !important; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Create Pallet</h1>
+    <p>Register a new pallet received from the container{% if grn %} — GRN {{ grn.grn_number }}{% endif %}</p>
+  </div>
+  <a href="{% url 'pallet_list' %}" class="btn btn-secondary">← Back</a>
+</div>
+
+{% if grn %}
+<div class="card" style="margin-bottom:14px;border-left:4px solid var(--green-mid)">
+  <div class="card-body" style="padding:12px 18px;font-size:13px">
+    <strong>GRN:</strong> {{ grn.grn_number }} &nbsp;·&nbsp;
+    <strong>Supplier:</strong> {{ grn.supplier.name }} &nbsp;·&nbsp;
+    <strong>Date:</strong> {{ grn.received_at|date:"d M Y" }}
+  </div>
+</div>
+{% endif %}
+
+<form method="post">
+  {% csrf_token %}
+  <div class="card">
+    <div class="card-header"><h2>Pallet Details</h2></div>
+    <div class="card-body">
+      <div class="form-grid pallet-form-fields">
+        {% for field in form %}
+        <div class="form-group">
+          <label>{{ field.label }}{% if field.field.required %} <span style="color:var(--red)">*</span>{% endif %}</label>
+          {{ field }}
+          {% if field.errors %}<span style="color:var(--red);font-size:12px">{{ field.errors.0 }}</span>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      <p style="margin-top:8px;font-size:12px;color:var(--gray-500)">
+        ℹ️ A unique lot number is auto-generated. After saving, print the pallet label.
+      </p>
+    </div>
+  </div>
+  <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
+    <button type="submit"
+      style="flex:1;min-width:200px;display:flex;align-items:center;justify-content:center;gap:8px;padding:14px 20px;font-size:16px;font-weight:700;border-radius:10px;border:none;background:var(--green-dark);color:#fff;cursor:pointer">
+      ✅ Create &amp; Print Label
+    </button>
+    <a href="{% url 'pallet_list' %}" class="btn btn-secondary" style="min-height:48px;display:flex;align-items:center">Cancel</a>
+  </div>
+</form>
+{% endblock %}

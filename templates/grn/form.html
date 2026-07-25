@@ -1,42 +1,213 @@
 {% extends 'base.html' %}
-{% block title %}Receive Stock — Ah Liki IMS{% endblock %}
-{% block topbar_title %}Receive Stock (GRN){% endblock %}
+{% block title %}Receive Stock — Ah Liki WMS{% endblock %}
+{% block topbar_title %}📥 Receive Stock{% endblock %}
+
+{% block extra_css %}
+<link href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.bootstrap5.min.css" rel="stylesheet">
+<style>
+/* tom-select skin overrides to match our design */
+.ts-wrapper.single .ts-control {
+  border: 1px solid var(--gray-200) !important;
+  border-radius: 7px !important;
+  padding: 8px 11px !important;
+  font-size: 13px !important;
+  font-family: inherit !important;
+  background: #fff !important;
+  box-shadow: none !important;
+  min-height: 36px;
+}
+.ts-wrapper.single.focus .ts-control {
+  border-color: var(--green-mid) !important;
+  box-shadow: 0 0 0 3px rgba(45,92,66,0.1) !important;
+}
+.ts-dropdown { border: 1px solid var(--gray-200) !important; border-radius: 7px !important; font-size: 13px !important; font-family: inherit !important; box-shadow: 0 4px 16px rgba(0,0,0,0.1) !important; }
+.ts-dropdown .option.active { background: var(--green-light) !important; color: var(--green-dark) !important; }
+.ts-dropdown .option:hover { background: var(--green-light) !important; }
+.ts-dropdown input { font-size: 13px !important; }
+
+.grn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.grn-grid .full-width { grid-column: 1 / -1; }
+
+.supplier-notice {
+  display: none;
+  background: #fef3c7; border: 1px solid #fcd34d; border-radius: 8px;
+  padding: 10px 14px; font-size: 13px; color: #78350f; margin-bottom: 12px;
+}
+.supplier-notice.visible { display: flex; align-items: center; gap: 8px; }
+.no-products-row { display: none; }
+.no-products-row.visible { display: table-row; }
+
+@media (max-width: 768px) {
+  .grn-grid { grid-template-columns: 1fr; }
+  .grn-grid .full-width { grid-column: auto; }
+  .grn-form-field input,
+  .grn-form-field select,
+  .grn-form-field textarea { font-size: 16px !important; padding: 13px 12px !important; min-height: 50px; }
+  .ts-wrapper.single .ts-control { font-size: 16px !important; padding: 12px 11px !important; }
+  .formset-table th, .formset-table td { padding: 8px 6px; font-size: 13px; }
+}
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-header">
-  <div><h1>New Goods Received Note</h1><p>Record stock arriving at the warehouse</p></div>
+  <div>
+    <h1>New Goods Received Note</h1>
+    <p>Record stock arriving from the container</p>
+  </div>
   <a href="{% url 'grn_list' %}" class="btn btn-secondary">← Back</a>
 </div>
-<form method="post">{% csrf_token %}
+
+<form method="post">
+{% csrf_token %}
+
   <div class="card" style="margin-bottom:16px">
-    <div class="card-header"><h2>GRN Details</h2></div>
+    <div class="card-header">
+      <h2>GRN Details</h2>
+      <span style="background:var(--green-light);color:var(--green-dark);padding:4px 14px;border-radius:20px;font-size:13px;font-weight:700;font-family:monospace">
+        {{ grn_preview }}
+      </span>
+    </div>
     <div class="card-body">
-      <div class="form-grid">
-        {% for field in form %}<div class="form-group"><label>{{ field.label }}</label>{{ field }}{% if field.errors %}<span style="color:var(--red);font-size:12px">{{ field.errors.0 }}</span>{% endif %}</div>{% endfor %}
+      <div class="grn-grid">
+        {% for field in form %}
+        <div class="form-group grn-form-field {% if field.name == 'notes' %}full-width{% endif %}">
+          <label style="font-weight:600;font-size:13px">
+            {{ field.label }}{% if field.field.required %} <span style="color:var(--red)">*</span>{% endif %}
+          </label>
+          {{ field }}
+          {% if field.errors %}<span style="color:var(--red);font-size:12px">{{ field.errors.0 }}</span>{% endif %}
+        </div>
+        {% endfor %}
       </div>
     </div>
   </div>
+
   <div class="card" style="margin-bottom:16px">
-    <div class="card-header"><h2>Items Received</h2></div>
+    <div class="card-header">
+      <h2>Items Received</h2>
+      <span style="font-size:12px;color:var(--gray-500)">Type to search products for the selected supplier</span>
+    </div>
     <div class="card-body">
+      <div class="supplier-notice" id="supplierNotice">
+        ⚠️ Select a <strong>Supplier</strong> above — the product list will filter automatically.
+      </div>
       {{ formset.management_form }}
-      <table class="formset-table">
-        <thead><tr><th>Product</th><th>Qty Received</th><th>Batch #</th><th>Expiry Date</th><th>Unit Cost (SAT$)</th><th>Delete</th></tr></thead>
-        <tbody>
-        {% for f in formset %}
-        <tr>
-          <td>{{ f.product }}</td>
-          <td>{{ f.quantity_received }}</td>
-          <td>{{ f.batch_number }}</td>
-          <td>{{ f.expiry_date }}</td>
-          <td>{{ f.unit_cost }}</td>
-          <td>{{ f.DELETE }}</td>
-          {% for hidden in f.hidden_fields %}{{ hidden }}{% endfor %}
-        </tr>
-        {% endfor %}
-        </tbody>
-      </table>
+      <div class="table-wrap">
+        <table class="formset-table">
+          <thead>
+            <tr>
+              <th style="min-width:260px">Product <span style="color:var(--red)">*</span></th>
+              <th style="min-width:100px">Qty Received <span style="color:var(--red)">*</span></th>
+              <th style="min-width:130px">Expiry Date</th>
+              <th>✕</th>
+            </tr>
+          </thead>
+          <tbody id="formset-body">
+          {% for f in formset %}
+          <tr class="formset-row">
+            <td>{{ f.product }}</td>
+            <td>{{ f.quantity_received }}</td>
+            <td>{{ f.expiry_date }}</td>
+            <td>{{ f.DELETE }}</td>
+            {% for hidden in f.hidden_fields %}{{ hidden }}{% endfor %}
+          </tr>
+          {% endfor %}
+          <tr class="no-products-row" id="noProductsRow">
+            <td colspan="4" style="text-align:center;color:var(--amber);padding:16px;font-weight:600">
+              ⚠️ No products linked to this supplier. Go to Products and assign a supplier first.
+            </td>
+          </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
-  <button type="submit" class="btn btn-primary">Save GRN &amp; Update Stock</button>
+
+  <button type="submit"
+    style="display:flex;align-items:center;justify-content:center;gap:8px;padding:15px 28px;font-size:16px;font-weight:700;border-radius:10px;border:none;background:var(--green-dark);color:#fff;cursor:pointer;min-height:52px">
+    ✅ Save GRN &amp; Update Stock
+  </button>
+
 </form>
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
+<script>
+const ALL_PRODUCTS = {{ products_json|safe }};
+
+// Map: select element id -> TomSelect instance
+const tsInstances = {};
+
+function getProductsForSupplier(supplierId) {
+  if (!supplierId) return ALL_PRODUCTS;
+  return ALL_PRODUCTS.filter(p => p.supplier_id === parseInt(supplierId));
+}
+
+function buildOptions(products) {
+  // Returns array of {value, text} for tom-select
+  return products.map(p => ({
+    value: String(p.id),
+    text: p.sku ? p.sku + ' — ' + p.name : p.name,
+  }));
+}
+
+function initOrUpdateTomSelect(sel, products) {
+  const id = sel.id;
+  const savedVal = sel.value;
+
+  if (tsInstances[id]) {
+    // Update existing instance's options
+    const ts = tsInstances[id];
+    ts.clearOptions();
+    ts.addOptions(buildOptions(products));
+    ts.refreshOptions(false);
+    // Restore value if still valid
+    const stillValid = products.some(p => String(p.id) === String(savedVal));
+    ts.setValue(stillValid ? savedVal : '', true);
+  } else {
+    // First-time init: populate the native select then hand to TomSelect
+    sel.innerHTML = '<option value="">Type to search product…</option>';
+    products.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.sku ? `${p.sku} — ${p.name}` : p.name;
+      if (String(p.id) === String(savedVal)) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    tsInstances[id] = new TomSelect(sel, {
+      maxOptions: null,
+      allowEmptyOption: true,
+      placeholder: 'Type to search product…',
+      searchField: ['text'],
+    });
+  }
+}
+
+function onSupplierChange() {
+  const supplierId = document.getElementById('id_supplier').value;
+  const filtered   = getProductsForSupplier(supplierId);
+
+  // Notice visibility
+  document.getElementById('supplierNotice')
+    .classList.toggle('visible', !supplierId);
+  document.getElementById('noProductsRow')
+    .classList.toggle('visible', !!supplierId && filtered.length === 0);
+
+  // Update every product select
+  document.querySelectorAll('.formset-row select[id$="-product"]').forEach(sel => {
+    initOrUpdateTomSelect(sel, filtered);
+  });
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  const supplierSel = document.getElementById('id_supplier');
+  if (supplierSel) {
+    supplierSel.addEventListener('change', onSupplierChange);
+    onSupplierChange(); // run immediately so selects are initialised on load
+  }
+});
+</script>
+{% endblock %}
+
 {% endblock %}

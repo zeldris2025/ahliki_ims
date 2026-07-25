@@ -9,7 +9,7 @@
 <div class="card">
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Invoice #</th><th>Customer</th><th>Total</th><th>Tax</th><th>Status</th><th>Due Date</th><th>Created</th><th></th></tr></thead>
+      <thead><tr><th>Invoice #</th><th>Customer</th><th>Total</th><th>Tax</th><th>Status</th><th>Dispatch</th><th>Due Date</th><th>Created</th><th></th></tr></thead>
       <tbody>
       {% for inv in invoices %}
       <tr>
@@ -22,6 +22,10 @@
           {% elif inv.status == 'unpaid' %}<span class="badge badge-amber">Unpaid</span>
           {% elif inv.status == 'overdue' %}<span class="badge badge-red">Overdue</span>
           {% else %}<span class="badge badge-gray">Void</span>{% endif %}
+        </td>
+        <td>
+          {% if inv.dispatch_status == 'dispatched' %}<span class="badge badge-green">Dispatched</span>
+          {% else %}<span class="badge badge-amber">Pending</span>{% endif %}
         </td>
         <td style="font-size:12px">{{ inv.due_date|default:"—" }}</td>
         <td style="font-size:12px">{{ inv.created_at|date:"d M Y" }}</td>

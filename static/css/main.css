@@ -141,3 +141,271 @@ tr.low-stock td { background: #fff7ed !important; }
   .charts-grid { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr; }
 }
+
+/* ── Mobile & Tablet responsive ─────────────────────────────────────────── */
+
+/* Hamburger button — hidden on desktop */
+.hamburger-btn {
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--gray-700);
+  font-size: 22px;
+  padding: 4px 6px;
+  line-height: 1;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.hamburger-btn:hover { background: var(--gray-100); }
+
+/* Sidebar overlay (tap-to-close on mobile) */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 99;
+}
+.sidebar-overlay.open { display: block; }
+
+@media (max-width: 768px) {
+  /* Show hamburger */
+  .hamburger-btn { display: block; }
+
+  /* Sidebar becomes a full-height drawer */
+  .sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    z-index: 200;
+  }
+  .sidebar.open { transform: translateX(0); }
+
+  /* Main fills full width */
+  .main { margin-left: 0 !important; }
+
+  /* Content padding tighter on small screens */
+  .content { padding: 14px 12px; }
+  .topbar { padding: 0 12px; }
+
+  /* Page headers stack vertically */
+  .page-header { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .page-header > div:last-child { width: 100%; display: flex; gap: 8px; flex-wrap: wrap; }
+  .page-header .btn { flex: 1; min-width: 120px; justify-content: center; text-align: center; }
+
+  /* Stats: 2-up on tablet, 1-up on very small */
+  .stats-grid { grid-template-columns: 1fr 1fr !important; gap: 10px; }
+
+  /* Tables: horizontal scroll */
+  .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { min-width: 500px; }
+
+  /* Cards */
+  .card { border-radius: 8px; }
+}
+
+@media (max-width: 480px) {
+  .stats-grid { grid-template-columns: 1fr !important; }
+  .content { padding: 10px; }
+}
+
+/* ── WMS Mobile Styles ────────────────────────────────────────────────────── */
+
+/* Touch-friendly buttons in WMS */
+.wms-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 16px 20px;
+  font-size: 16px;
+  font-weight: 700;
+  border-radius: 10px;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s;
+  min-height: 56px;
+}
+.wms-action-btn.primary { background: var(--green-dark); color: #fff; }
+.wms-action-btn.primary:hover { background: var(--green-mid); text-decoration: none; color: #fff; }
+.wms-action-btn.secondary { background: var(--gray-100); color: var(--gray-700); border: 1px solid var(--gray-200); }
+.wms-action-btn.secondary:hover { background: var(--gray-200); text-decoration: none; }
+.wms-action-btn.scanner { background: #1d4ed8; color: #fff; font-size: 18px; }
+.wms-action-btn.scanner:hover { background: #1e40af; color: #fff; text-decoration: none; }
+
+/* WMS 2-col → 1-col on mobile */
+.wms-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 768px) {
+  .wms-grid-2 { grid-template-columns: 1fr; gap: 14px; }
+}
+
+/* Large shelf badge buttons (shelf selector grid) */
+.shelf-btn-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+@media (max-width: 768px) {
+  .shelf-btn-grid { grid-template-columns: repeat(5, 1fr); gap: 5px; }
+}
+@media (max-width: 480px) {
+  .shelf-btn-grid { grid-template-columns: repeat(4, 1fr); gap: 4px; }
+}
+
+.shelf-btn {
+  display: flex; align-items: center; justify-content: center;
+  padding: 10px 4px;
+  background: var(--green-light);
+  border: 1px solid var(--green-border);
+  border-radius: 6px;
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--green-dark);
+  text-decoration: none;
+  min-height: 44px;
+  transition: all 0.1s;
+}
+.shelf-btn:hover, .shelf-btn:active {
+  background: var(--green-mid);
+  color: #fff;
+  text-decoration: none;
+}
+
+/* WMS form field sizing — touch-friendly */
+.wms-form-field input,
+.wms-form-field select,
+.wms-form-field textarea {
+  font-size: 16px !important; /* prevents iOS zoom */
+  padding: 12px 14px !important;
+  min-height: 48px;
+}
+
+/* Scanner container */
+.scanner-container { width: 100%; border-radius: 8px; overflow: hidden; }
+#reader video { border-radius: 8px; }
+
+/* Role badge */
+.role-wms_operator { background: #ccfbf1; color: #0f766e; }
+
+/* ── WMS Operator panel mode ─────────────────────────────────────────────── */
+/* Sidebar is always hidden until ☰ is clicked, regardless of screen size   */
+.wms-op-layout .sidebar {
+  transform: translateX(-100%);
+  transition: transform 0.22s ease;
+}
+.wms-op-layout .sidebar.open {
+  transform: translateX(0);
+}
+.wms-op-layout .main {
+  margin-left: 0 !important;
+}
+.wms-op-layout .hamburger-btn {
+  display: flex !important;    /* show on desktop too */
+}
+
+/* ── WMS Dashboard big action cards ───────────────────────────────────────── */
+.wms-home {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 8px 0 24px;
+}
+
+.wms-welcome {
+  margin-bottom: 28px;
+}
+.wms-welcome h1 {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--gray-900);
+}
+.wms-welcome p {
+  font-size: 14px;
+  color: var(--gray-500);
+  margin-top: 4px;
+}
+
+.wms-btn-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.wms-big-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 28px 16px;
+  border-radius: 16px;
+  text-decoration: none;
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  transition: transform 0.12s, box-shadow 0.12s;
+  min-height: 140px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+}
+.wms-big-card:hover, .wms-big-card:active {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.13);
+  text-decoration: none;
+}
+.wms-big-card:active { transform: scale(0.97); }
+
+.wms-big-card .card-icon  { font-size: 44px; line-height: 1; }
+.wms-big-card .card-label { font-size: 17px; font-weight: 800; color: inherit; }
+.wms-big-card .card-sub   { font-size: 12px; opacity: 0.72; color: inherit; }
+
+/* Card colour themes */
+.wms-card-green  { background: #d1fae5; color: #064e3b; }
+.wms-card-blue   { background: #dbeafe; color: #1e3a8a; }
+.wms-card-amber  { background: #fef3c7; color: #78350f; }
+.wms-card-purple { background: #ede9fe; color: #4c1d95; }
+.wms-card-teal   { background: #ccfbf1; color: #134e4a; }
+
+/* Full-width check-in shortcut */
+.wms-checkin-shortcut {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  padding: 18px;
+  background: var(--green-dark);
+  color: #fff;
+  border-radius: 14px;
+  font-size: 18px;
+  font-weight: 800;
+  text-decoration: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  transition: background 0.15s, transform 0.1s;
+  min-height: 64px;
+}
+.wms-checkin-shortcut:hover { background: var(--green-mid); color: #fff; text-decoration: none; }
+.wms-checkin-shortcut:active { transform: scale(0.98); }
+
+/* Recent activity strip */
+.wms-recent { margin-top: 24px; }
+.wms-recent-title { font-size: 13px; font-weight: 700; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+.wms-recent-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px;
+  background: #fff; border: 1px solid var(--gray-200); border-radius: 10px;
+  margin-bottom: 6px; font-size: 13px;
+}
+.wms-recent-icon { font-size: 20px; flex-shrink: 0; }
+.wms-recent-main { flex: 1; min-width: 0; }
+.wms-recent-main strong { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wms-recent-meta { color: var(--gray-500); font-size: 11px; }
+
+@media (max-width: 480px) {
+  .wms-big-card { min-height: 120px; padding: 22px 12px; }
+  .wms-big-card .card-icon { font-size: 36px; }
+  .wms-big-card .card-label { font-size: 15px; }
+  .wms-btn-grid { gap: 10px; }
+}
+

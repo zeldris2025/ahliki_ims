@@ -56,10 +56,33 @@
           {% elif invoice.status == 'overdue' %}<span class="badge badge-red">Overdue</span>
           {% else %}<span class="badge badge-gray">Void</span>{% endif %}
         </td></tr>
+        <tr><td style="color:var(--gray-500);padding:6px 0">Dispatch</td><td>
+          {% if invoice.dispatch_status == 'dispatched' %}
+          <span class="badge badge-green">Dispatched ✓</span>
+          {% else %}
+          <span class="badge badge-amber">Pending Dispatch</span>
+          {% endif %}
+        </td></tr>
+        {% if invoice.dispatch_status == 'dispatched' %}
+        <tr><td style="color:var(--gray-500);padding:6px 0">Dispatched by</td><td>{{ invoice.dispatched_by.get_full_name|default:invoice.dispatched_by.username }}</td></tr>
+        <tr><td style="color:var(--gray-500);padding:6px 0">Dispatched at</td><td>{{ invoice.dispatched_at|date:"d M Y H:i" }}</td></tr>
+        <tr><td style="color:var(--gray-500);padding:6px 0">Truck Plate #</td><td>
+          {% if invoice.truck_plate %}
+          <span style="font-family:monospace;font-weight:700;background:#f3f4f6;padding:2px 8px;border-radius:4px;letter-spacing:1px">{{ invoice.truck_plate }}</span>
+          {% else %}—{% endif %}
+        </td></tr>
+        {% endif %}
         <tr><td style="color:var(--gray-500);padding:6px 0">Due Date</td><td>{{ invoice.due_date|default:"—" }}</td></tr>
         <tr><td style="color:var(--gray-500);padding:6px 0">Issued by</td><td>{{ invoice.cashier.get_full_name|default:invoice.cashier.username }}</td></tr>
         {% if invoice.from_quote %}<tr><td style="color:var(--gray-500);padding:6px 0">From Quote</td><td><a href="{% url 'quote_detail' invoice.from_quote.pk %}">{{ invoice.from_quote.quote_number }}</a></td></tr>{% endif %}
       </table>
+      {% if invoice.dispatch_status == 'pending' %}
+      <div style="margin-top:14px">
+        <a href="{% url 'warehouse_dispatch_detail' invoice.pk %}" class="btn btn-primary" style="width:100%;justify-content:center">
+          🚚 Go to Dispatch Checklist
+        </a>
+      </div>
+      {% endif %}
     </div>
   </div>
 </div>

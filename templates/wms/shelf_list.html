@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+{% block title %}Shelf Locations — Ahliki WMS{% endblock %}
+{% block topbar_title %}🗄️ Shelf Locations{% endblock %}
+
+{% block extra_css %}
+<style>
+.shelf-row-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--gray-200); }
+@media (max-width: 600px) {
+  .shelf-row-grid { grid-template-columns: 1fr; gap: 0; background: none; }
+  .shelf-cell { border-bottom: 1px solid var(--gray-200) !important; border-radius: 0 !important; }
+}
+.shelf-cell { background: #fff; padding: 14px 16px; }
+.shelf-checkin-btn {
+  display: flex; align-items: center; justify-content: center;
+  padding: 10px; background: var(--green-light); border: 1px solid var(--green-border);
+  border-radius: 7px; font-weight: 700; font-size: 13px; color: var(--green-dark);
+  text-decoration: none; margin-top: 8px; min-height: 40px; transition: all 0.1s;
+}
+.shelf-checkin-btn:hover { background: var(--green-mid); color: #fff; text-decoration: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Shelf Locations</h1>
+    <p>A–Z rows, 3 stories each (A1, A2, A3 … Z1, Z2, Z3)</p>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a href="{% url 'shelf_qr_print' %}" class="btn btn-secondary">🖨 Print QR Codes</a>
+    <a href="{% url 'wms_checkin' %}" class="btn btn-primary">📍 Check-In</a>
+  </div>
+</div>
+
+{% for letter, rows in shelf_by_letter.items %}
+<div class="card" style="margin-bottom:14px">
+  <div class="card-header">
+    <h2 style="font-size:18px;font-weight:800;color:var(--green-dark)">Row {{ letter }}</h2>
+  </div>
+  <div class="shelf-row-grid">
+    {% for row in rows %}
+    <div class="shelf-cell">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:20px;font-weight:800;color:var(--green-dark)">{{ row.shelf.code }}</span>
+        <span class="badge {% if row.count %}badge-blue{% else %}badge-gray{% endif %}">
+          {{ row.count }} pallet{{ row.count|pluralize }}
+        </span>
+      </div>
+      {% if row.pallets %}
+      <ul style="list-style:none;font-size:12px;color:var(--gray-700);margin-bottom:6px">
+        {% for p in row.pallets %}
+        <li style="padding:2px 0;border-bottom:1px solid var(--gray-100)">
+          <strong>{{ p.lot_number }}</strong> — {{ p.product.name }} ({{ p.quantity }} x {{ p.product.unit }})
+          {% if p.expiry_date %}<br><span style="color:var(--gray-500)">Exp: {{ p.expiry_date|date:"d M Y" }}</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <span style="font-size:12px;color:var(--gray-400)">Empty</span>
+      {% endif %}
+      <a href="{% url 'wms_checkin_shelf' row.shelf.code %}" class="shelf-checkin-btn">📍 Check-In to {{ row.shelf.code }}</a>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+
+{% endblock %}

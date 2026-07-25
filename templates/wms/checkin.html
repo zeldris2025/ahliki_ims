@@ -1,0 +1,190 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Check-In{% if shelf %} → {{ shelf.code }}{% endif %} — Ahliki WMS{% endblock %}
+{% block topbar_title %}📍 Check-In{% if shelf %} to {{ shelf.code }}{% endif %}{% endblock %}
+
+{% block extra_css %}
+<style>
+.checkin-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 768px) {
+  .checkin-layout { grid-template-columns: 1fr; gap: 14px; }
+  .checkin-right { order: -1; }
+  #checkin-form input, #checkin-form select, #checkin-form textarea { font-size: 16px !important; padding: 14px 12px !important; min-height: 52px; }
+  .submit-btn { padding: 18px !important; font-size: 18px !important; min-height: 60px; }
+  .scan-btn { padding: 16px !important; font-size: 16px !important; min-height: 56px; }
+  .shelf-quick { grid-template-columns: repeat(5, 1fr) !important; gap: 4px !important; }
+  .shelf-btn { min-height: 48px !important; font-size: 14px !important; }
+}
+@media (max-width: 420px) { .shelf-quick { grid-template-columns: repeat(4, 1fr) !important; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Check-In Pallet{% if shelf %} → {{ shelf.code }}{% endif %}</h1>
+    <p>Scan pallet QR or enter lot number to assign to a shelf</p>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a href="{% url 'shelf_list' %}" class="btn btn-secondary">🗄️ Shelves</a>
+    <a href="{% url 'wms_transfer' %}" class="btn btn-secondary">↔️ Transfer</a>
+  </div>
+</div>
+
+<div class="checkin-layout">
+
+  <!-- ── Left: Scanner + form ── -->
+  <div>
+    <!-- QR Scanner (prominent on mobile) -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-body" style="padding:14px">
+        <button onclick="toggleScanner()" id="scan-btn"
+          style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:16px;font-size:16px;font-weight:700;border-radius:10px;border:none;background:#1d4ed8;color:#fff;cursor:pointer;min-height:56px;transition:background 0.15s"
+          class="scan-btn">
+          📷 Scan Pallet QR Code
+        </button>
+        <div id="reader" class="scanner-container" style="display:none;margin-top:10px"></div>
+        <p id="scan-result" style="font-size:13px;color:var(--gray-500);margin-top:8px;min-height:20px"></p>
+      </div>
+    </div>
+
+    <!-- Form -->
+    <div class="card">
+      <div class="card-header"><h2>Assign to Shelf</h2></div>
+      <div class="card-body">
+        <form method="post" id="checkin-form">
+          {% csrf_token %}
+          {% for field in form %}
+          <div class="form-group wms-form-field" style="margin-bottom:16px">
+            <label style="font-weight:600;font-size:13px;display:block;margin-bottom:6px">
+              {{ field.label }}{% if field.field.required %} <span style="color:var(--red)">*</span>{% endif %}
+            </label>
+            {{ field }}
+            {% if field.errors %}<span style="color:var(--red);font-size:12px;margin-top:4px;display:block">{{ field.errors.0 }}</span>{% endif %}
+          </div>
+          {% endfor %}
+          <button type="submit"
+            style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:16px;font-size:17px;font-weight:700;border-radius:10px;border:none;background:var(--green-dark);color:#fff;cursor:pointer;min-height:56px"
+            class="submit-btn">
+            ✅ Check-In Pallet
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Right: Shelf info / quick select ── -->
+  <div class="checkin-right">
+    {% if shelf %}
+    <div class="card">
+      <div class="card-header">
+        <h2>Shelf <strong style="color:var(--green-dark);font-size:18px">{{ shelf.code }}</strong> — Current Pallets</h2>
+        <span class="badge badge-blue">{{ current_pallets|length }}</span>
+      </div>
+      {% if current_pallets %}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Lot #</th><th>Product</th><th>Qty</th><th>Expiry</th><th></th></tr></thead>
+          <tbody>
+          {% for p in current_pallets %}
+          <tr>
+            <td><strong>{{ p.lot_number }}</strong></td>
+            <td style="font-size:12px">{{ p.product.name }}</td>
+            <td>{{ p.quantity }} x {{ p.product.unit }}</td>
+            <td style="font-size:12px">{% if p.expiry_date %}{{ p.expiry_date|date:"d M Y" }}{% else %}—{% endif %}</td>
+            <td>
+              <a href="{% url 'pallet_edit' p.lot_number %}"
+                 style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;background:var(--green-light);color:var(--green-dark);border:1px solid var(--green-border);border-radius:6px;font-size:12px;font-weight:700;text-decoration:none">
+                ✏️ Edit
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div style="text-align:center;padding:28px;color:var(--gray-500)">
+        <div style="font-size:32px;margin-bottom:6px">🗄️</div>
+        Shelf {{ shelf.code }} is empty
+      </div>
+      {% endif %}
+    </div>
+    {% else %}
+    <div class="card">
+      <div class="card-header"><h2>Quick Shelf Select</h2></div>
+      <div class="card-body">
+        <p style="font-size:13px;color:var(--gray-500);margin-bottom:10px">Tap a shelf or scan its QR code to open check-in for that shelf.</p>
+        <div class="shelf-btn-grid shelf-quick" style="max-height:380px;overflow-y:auto">
+          {% for shelf in shelves %}
+          <a href="{% url 'wms_checkin_shelf' shelf.code %}" class="shelf-btn"
+             onclick="preserveLot(event, this)">{{ shelf.code }}</a>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+{% block extra_js %}
+<script>
+let scanner = null, scanning = false;
+
+function toggleScanner() {
+  if (!scanning) startScanner(); else stopScanner();
+}
+
+function startScanner() {
+  const btn = document.getElementById('scan-btn');
+  const reader = document.getElementById('reader');
+  reader.style.display = 'block';
+  btn.textContent = '⏹ Stop Scanner';
+  btn.style.background = '#dc2626';
+  scanning = true;
+  scanner = new Html5Qrcode("reader");
+  scanner.start(
+    { facingMode: "environment" },
+    { fps: 10, qrbox: { width: 220, height: 220 } },
+    (decodedText) => {
+      document.getElementById('id_lot_number').value = decodedText.trim();
+      document.getElementById('scan-result').textContent = '✅ Scanned: ' + decodedText.trim();
+      stopScanner();
+    },
+    () => {}
+  ).catch(err => {
+    document.getElementById('scan-result').textContent = '⚠ Camera unavailable — enter lot number manually.';
+    stopScanner();
+  });
+}
+
+function stopScanner() {
+  if (scanner) { scanner.stop().catch(() => {}); scanner = null; }
+  scanning = false;
+  const btn = document.getElementById('scan-btn');
+  btn.textContent = '📷 Scan Pallet QR Code';
+  btn.style.background = '#1d4ed8';
+  document.getElementById('reader').style.display = 'none';
+}
+
+// Pre-fill lot from ?lot= URL param
+const lotParam = new URLSearchParams(window.location.search).get('lot');
+if (lotParam) {
+  const f = document.getElementById('id_lot_number');
+  if (f) { f.value = lotParam; f.focus(); }
+}
+
+// When tapping a shelf from the quick grid, carry the lot number across
+function preserveLot(e, anchor) {
+  const lot = (document.getElementById('id_lot_number') || {}).value || '';
+  if (lot.trim()) {
+    e.preventDefault();
+    window.location.href = anchor.href + '?lot=' + encodeURIComponent(lot.trim());
+  }
+  // If no lot number yet, let the normal navigation happen
+}
+</script>
+{% endblock %}
+{% endblock %}

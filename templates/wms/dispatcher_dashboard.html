@@ -1,0 +1,106 @@
+{% extends 'base.html' %}
+{% block title %}Dispatcher Dashboard — Ah Liki{% endblock %}
+{% block topbar_title %}Dispatcher Dashboard{% endblock %}
+
+{% block extra_css %}
+<style>
+.dis-btn-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+  margin-top: 24px;
+}
+.dis-big-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  border-radius: 16px;
+  text-decoration: none;
+  color: inherit;
+  transition: transform 0.15s, box-shadow 0.15s;
+  min-height: 140px;
+  cursor: pointer;
+  border: none;
+}
+.dis-big-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
+.dis-big-card .card-icon { font-size: 40px; margin-bottom: 10px; }
+.dis-big-card .card-label { font-size: 17px; font-weight: 800; }
+.dis-big-card .card-sub { font-size: 12px; margin-top: 4px; opacity: 0.8; }
+
+.dis-card-teal   { background: #ccfbf1; color: #134e4a; }
+.dis-card-blue   { background: #dbeafe; color: #1e3a8a; }
+.dis-card-orange { background: #ffedd5; color: #7c2d12; }
+.dis-card-purple { background: #ede9fe; color: #4c1d95; }
+
+.dis-pending-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  width: 100%;
+  margin-top: 16px;
+  padding: 28px 24px;
+  border-radius: 16px;
+  background: #1a3a2a;
+  color: #fff;
+  text-decoration: none;
+  font-size: 20px;
+  font-weight: 800;
+  transition: background 0.15s, transform 0.15s;
+  cursor: pointer;
+  border: none;
+}
+.dis-pending-btn:hover { background: #22543d; transform: translateY(-2px); }
+.dis-pending-badge {
+  background: #fbbf24;
+  color: #1a3a2a;
+  border-radius: 999px;
+  padding: 3px 14px;
+  font-size: 15px;
+  font-weight: 900;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Hi, {{ request.user.first_name|default:request.user.username }}! 👋</h1>
+    <p>{{ today|date:"l, d F Y" }} &nbsp;·&nbsp; WMS Dispatcher</p>
+  </div>
+</div>
+
+<!-- 4 big action cards in a 2×2 grid -->
+<div class="dis-btn-grid">
+  <a href="{% url 'warehouse_dispatch_list' %}" class="dis-big-card dis-card-teal">
+    <span class="card-icon">🎫</span>
+    <span class="card-label">Picking Ticket</span>
+    <span class="card-sub">Select an order to print</span>
+  </a>
+  <a href="{% url 'warehouse_dispatch_list' %}#tab-log" class="dis-big-card dis-card-blue">
+    <span class="card-icon">📖</span>
+    <span class="card-label">Dispatch Log</span>
+    <span class="card-sub">View all dispatched orders</span>
+  </a>
+  <a href="{% url 'stock_movements' %}" class="dis-big-card dis-card-orange">
+    <span class="card-icon">🔄</span>
+    <span class="card-label">Stock Movements</span>
+    <span class="card-sub">In / out history</span>
+  </a>
+  <a href="{% url 'shelf_list' %}" class="dis-big-card dis-card-purple">
+    <span class="card-icon">🗄️</span>
+    <span class="card-label">Shelf Locations</span>
+    <span class="card-sub">A1 – Z3 shelves</span>
+  </a>
+</div>
+
+<!-- Large bottom button for Pending Dispatch -->
+<a href="{% url 'warehouse_dispatch_list' %}" class="dis-pending-btn">
+  <span>📋 Pending Dispatch</span>
+  {% if pending_count %}
+  <span class="dis-pending-badge">{{ pending_count }}</span>
+  {% endif %}
+</a>
+{% endblock %}

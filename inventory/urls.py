@@ -42,6 +42,12 @@ urlpatterns = [
     path('invoices/<int:pk>/', views.invoice_detail, name='invoice_detail'),
     path('invoices/<int:pk>/pay/', views.invoice_mark_paid, name='invoice_mark_paid'),
 
+    # Warehouse Dispatch
+    path('warehouse/dispatch/', views.warehouse_dispatch_list, name='warehouse_dispatch_list'),
+    path('warehouse/dispatch/export/', views.warehouse_dispatch_export, name='warehouse_dispatch_export'),
+    path('warehouse/dispatch/<int:pk>/', views.warehouse_dispatch_detail, name='warehouse_dispatch_detail'),
+    path('warehouse/dispatch/<int:pk>/submit/', views.warehouse_dispatch_submit, name='warehouse_dispatch_submit'),
+
     # Stock
     path('stock/movements/', views.stock_movements, name='stock_movements'),
     path('stock/adjust/', views.stock_adjust, name='stock_adjust'),
@@ -65,4 +71,40 @@ urlpatterns = [
     # API
     path('api/product/<str:sku>/', views.api_product_lookup, name='api_product_lookup'),
     path('api/products/', views.api_products_all, name='api_products_all'),
+
+    # WMS — Pallets
+    path('wms/pallets/', views.pallet_list, name='pallet_list'),
+    path('wms/pallets/create/', views.pallet_create, name='pallet_create'),
+    path('wms/pallets/<int:pk>/label/', views.pallet_label, name='pallet_label'),
+    path('wms/pallets/<str:lot_number>/edit/', views.pallet_edit, name='pallet_edit'),
+
+    # WMS — Shelves
+    path('wms/shelves/', views.shelf_list, name='shelf_list'),
+    path('wms/shelves/qr-print/', views.shelf_qr_print, name='shelf_qr_print'),
+
+    # WMS — Check-In
+    path('wms/checkin/', views.wms_checkin, name='wms_checkin'),
+    path('wms/checkin/<str:shelf_code>/', views.wms_checkin, name='wms_checkin_shelf'),
+
+    # WMS — Transfer
+    path('wms/transfer/', views.wms_transfer, name='wms_transfer'),
+
+    # WMS — Picking Ticket
+    path('wms/picking/<int:invoice_pk>/', views.picking_ticket, name='picking_ticket'),
+
+    # WMS — Manager Dashboard
+    path('wms/manager/', views.manager_dashboard, name='manager_dashboard'),
+
+    # WMS Operator Dashboard
+    path('wms/', views.wms_dashboard, name='wms_dashboard'),
+
+    # WMS Dispatcher Dashboard
+    path('wms/dispatcher/', views.wms_dispatcher_dashboard, name='wms_dispatcher_dashboard'),
+
+    # Dispatch — Comment & Edit Order
+    path('warehouse/dispatch/<int:pk>/comment/', views.dispatcher_add_comment, name='dispatcher_add_comment'),
+    path('warehouse/dispatch/<int:pk>/edit/', views.dispatcher_edit_order, name='dispatcher_edit_order'),
+
+    # WMS — API
+    path('api/pallet/<str:lot_number>/', views.api_pallet_lookup, name='api_pallet_lookup'),
 ]

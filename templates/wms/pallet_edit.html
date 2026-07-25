@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+{% block title %}Edit Pallet {{ pallet.lot_number }} — Ahliki WMS{% endblock %}
+{% block topbar_title %}✏️ Edit Pallet{% endblock %}
+
+{% block extra_css %}
+<style>
+@media (max-width: 768px) {
+  .edit-form input, .edit-form select, .edit-form textarea {
+    font-size: 16px !important; padding: 13px 12px !important; min-height: 50px;
+  }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Edit Pallet</h1>
+    <p style="font-family:monospace;font-size:14px;font-weight:700;color:var(--green-dark)">{{ pallet.lot_number }}</p>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a href="{% url 'pallet_label' pallet.pk %}" class="btn btn-secondary">🖨 Label</a>
+    <a href="{% url 'pallet_list' %}" class="btn btn-secondary">← Pallets</a>
+  </div>
+</div>
+
+<!-- Pallet summary (read-only) -->
+<div class="card" style="margin-bottom:16px;border-left:4px solid var(--green-mid)">
+  <div class="card-body" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;padding:14px 18px">
+    <div>
+      <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;margin-bottom:3px">Product</div>
+      <div style="font-size:14px;font-weight:600">{{ pallet.product.name }}</div>
+    </div>
+    <div>
+      <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;margin-bottom:3px">Supplier</div>
+      <div style="font-size:14px">{% if pallet.product.supplier %}{{ pallet.product.supplier.name }}{% else %}—{% endif %}</div>
+    </div>
+    <div>
+      <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;margin-bottom:3px">Current Shelf</div>
+      <div>
+        {% with loc=pallet.current_location %}
+        {% if loc %}<span class="badge badge-blue" style="font-size:16px;font-weight:800;padding:4px 12px">{{ loc.code }}</span>
+        {% else %}<span class="badge badge-amber">Unassigned</span>{% endif %}
+        {% endwith %}
+      </div>
+    </div>
+    <div>
+      <div style="font-size:11px;font-weight:700;color:var(--gray-500);text-transform:uppercase;margin-bottom:3px">Received</div>
+      <div style="font-size:13px">{{ pallet.created_at|date:"d M Y H:i" }}</div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit form -->
+<div class="card">
+  <div class="card-header"><h2>Update Pallet Info</h2></div>
+  <div class="card-body">
+    <form method="post" class="edit-form">
+      {% csrf_token %}
+      <div class="form-grid">
+        {% for field in form %}
+        <div class="form-group {% if field.name == 'notes' %}full-width{% endif %}" style="{% if field.name == 'notes' %}grid-column:1/-1{% endif %}">
+          <label style="font-weight:600;font-size:13px">
+            {{ field.label }}{% if field.field.required %} <span style="color:var(--red)">*</span>{% endif %}
+          </label>
+          {{ field }}
+          {% if field.errors %}<span style="color:var(--red);font-size:12px">{{ field.errors.0 }}</span>{% endif %}
+          {% if field.name == 'quantity' %}
+          <span style="font-size:12px;color:var(--gray-500)">Current: {{ pallet.quantity }} x {{ pallet.product.unit }}</span>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      <div style="margin-top:18px;display:flex;gap:8px;flex-wrap:wrap">
+        <button type="submit"
+          style="flex:1;min-width:180px;display:flex;align-items:center;justify-content:center;gap:8px;padding:14px 20px;font-size:16px;font-weight:700;border-radius:10px;border:none;background:var(--green-dark);color:#fff;cursor:pointer;min-height:52px">
+          ✅ Save Changes
+        </button>
+        <a href="{% url 'pallet_label' pallet.pk %}" class="btn btn-secondary" style="min-height:52px;display:flex;align-items:center">
+          Cancel
+        </a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,5 +1,5 @@
 from django import forms
-from .models import Product, Supplier, Category, GoodsReceivedNote, GRNItem, Sale, SaleItem, StockMovement
+from .models import Product, Supplier, Category, GoodsReceivedNote, GRNItem, Sale, SaleItem, StockMovement, Pallet, ShelfLocation
 
 
 class ProductForm(forms.ModelForm):
@@ -30,17 +30,17 @@ class CategoryForm(forms.ModelForm):
 class GRNForm(forms.ModelForm):
     class Meta:
         model = GoodsReceivedNote
-        fields = ['grn_number', 'supplier', 'purchase_order', 'received_at', 'notes']
+        fields = ['supplier', 'received_at', 'notes']
         widgets = {
             'received_at': forms.DateTimeInput(attrs={'type': 'datetime-local'}),
-            'notes': forms.Textarea(attrs={'rows': 2}),
+            'notes': forms.Textarea(attrs={'rows': 3, 'placeholder': 'Container number, delivery notes, any remarks…'}),
         }
 
 
 class GRNItemForm(forms.ModelForm):
     class Meta:
         model = GRNItem
-        fields = ['product', 'quantity_received', 'batch_number', 'expiry_date', 'unit_cost']
+        fields = ['product', 'quantity_received', 'expiry_date']
         widgets = {
             'expiry_date': forms.DateInput(attrs={'type': 'date'}),
         }
@@ -78,4 +78,63 @@ class StockAdjustForm(forms.ModelForm):
         widgets = {
             'notes': forms.Textarea(attrs={'rows': 2}),
             'expiry_date': forms.DateInput(attrs={'type': 'date'}),
+        }
+
+
+# ── WMS Forms ─────────────────────────────────────────────────────────────────
+
+class PalletForm(forms.ModelForm):
+    class Meta:
+        model = Pallet
+        fields = ['product', 'quantity', 'expiry_date', 'grn_item', 'notes']
+        widgets = {
+            'expiry_date': forms.DateInput(attrs={'type': 'date'}),
+            'notes': forms.Textarea(attrs={'rows': 2}),
+        }
+
+    def __init__(self, *args, grn=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if grn:
+            self.fields['grn_item'].queryset = GRNItem.objects.filter(grn=grn)
+            self.fields['grn_item'].required = False
+        else:
+            self.fields['grn_item'].queryset = GRNItem.objects.select_related('grn', 'product').order_by('-grn__received_at')
+            self.fields['grn_item'].required = False
+
+
+class CheckInForm(forms.Form):
+    lot_number = forms.CharField(
+        max_length=100,
+        label='Pallet Lot Number',
+        widget=forms.TextInput(attrs={'placeholder': 'Scan QR or type lot number', 'autocomplete': 'off'}),
+    )
+    shelf = forms.ModelChoiceField(
+        queryset=ShelfLocation.objects.all(),
+        label='Shelf Location',
+        empty_label='— select shelf —',
+    )
+    notes = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 2}))
+
+
+class TransferForm(forms.Form):
+    lot_number = forms.CharField(
+        max_length=100,
+        label='Pallet Lot Number',
+        widget=forms.TextInput(attrs={'placeholder': 'Scan QR or type lot number', 'autocomplete': 'off'}),
+    )
+    to_shelf = forms.ModelChoiceField(
+        queryset=ShelfLocation.objects.all(),
+        label='Transfer To Shelf',
+        empty_label='— select destination shelf —',
+    )
+    notes = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 2}))
+
+
+class PalletEditForm(forms.ModelForm):
+    class Meta:
+        model = Pallet
+        fields = ['quantity', 'expiry_date', 'notes']
+        widgets = {
+            'expiry_date': forms.DateInput(attrs={'type': 'date'}),
+            'notes': forms.Textarea(attrs={'rows': 2, 'placeholder': 'Optional remarks…'}),
         }

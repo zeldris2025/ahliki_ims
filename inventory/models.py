@@ -9,9 +9,12 @@ from django.dispatch import receiver
 class UserProfile(models.Model):
     ROLE_CHOICES = [
         ('admin', 'Admin'),
+        ('manager', 'Manager'),
         ('finance', 'Finance'),
-        ('warehouse', 'Warehouse Staff'),
-        ('cashier', 'Cashier'),
+        ('warehouse', 'Warehouse Lead'),
+        ('wms_operator', 'WMS Operator'),
+        ('wms_dispatcher', 'WMS Dispatcher'),
+        ('cashier', 'Sales / Cashier'),
     ]
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='cashier')
@@ -260,6 +263,10 @@ class Invoice(models.Model):
         ('overdue', 'Overdue'),
         ('void', 'Void'),
     ]
+    DISPATCH_STATUS_CHOICES = [
+        ('pending', 'Pending Dispatch'),
+        ('dispatched', 'Dispatched'),
+    ]
     invoice_number = models.CharField(max_length=100, unique=True)
     cashier = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='invoices')
     customer_name = models.CharField(max_length=200, blank=True)
@@ -267,6 +274,10 @@ class Invoice(models.Model):
     payment_method = models.CharField(max_length=50, default='cash',
         choices=[('cash','Cash'),('credit','Credit Account'),('eftpos','EFTPOS'),('cheque','Cheque')])
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='unpaid')
+    dispatch_status = models.CharField(max_length=20, choices=DISPATCH_STATUS_CHOICES, default='pending')
+    dispatched_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='dispatched_invoices')
+    dispatched_at = models.DateTimeField(null=True, blank=True)
+    truck_plate = models.CharField(max_length=50, blank=True, help_text='Delivery truck plate number')
     created_at = models.DateTimeField(default=timezone.now)
     due_date = models.DateField(null=True, blank=True)
     notes = models.TextField(blank=True)
@@ -298,3 +309,67 @@ class InvoiceItem(models.Model):
 
     def __str__(self):
         return f"{self.invoice.invoice_number} — {self.product.name}"
+
+
+# ── WMS: PALLETS & SHELF LOCATIONS ────────────────────────────────────────────
+
+class ShelfLocation(models.Model):
+    code = models.CharField(max_length=10, unique=True)   # e.g. A1, B2, Z3
+    letter = models.CharField(max_length=1)                # A–Z
+    story = models.PositiveSmallIntegerField()             # 1, 2, or 3
+
+    class Meta:
+        ordering = ['letter', 'story']
+
+    def __str__(self):
+        return self.code
+
+    def current_pallets(self):
+        return Pallet.objects.filter(
+            location_history__shelf=self,
+            location_history__is_current=True,
+        )
+
+
+class Pallet(models.Model):
+    lot_number = models.CharField(max_length=100, unique=True)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='pallets')
+    grn_item = models.ForeignKey(GRNItem, on_delete=models.SET_NULL, null=True, blank=True, related_name='pallets')
+    quantity = models.PositiveIntegerField()
+    expiry_date = models.DateField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='pallets_created')
+    notes = models.TextField(blank=True)
+
+    def __str__(self):
+        return self.lot_number
+
+    @property
+    def current_location(self):
+        assignment = self.location_history.filter(is_current=True).first()
+        return assignment.shelf if assignment else None
+
+
+class PalletLocation(models.Model):
+    pallet = models.ForeignKey(Pallet, on_delete=models.CASCADE, related_name='location_history')
+    shelf = models.ForeignKey(ShelfLocation, on_delete=models.CASCADE, related_name='pallet_assignments')
+    assigned_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='shelf_assignments')
+    assigned_at = models.DateTimeField(auto_now_add=True)
+    is_current = models.BooleanField(default=True)
+    notes = models.TextField(blank=True)
+
+    def __str__(self):
+        return f"{self.pallet.lot_number} @ {self.shelf.code}"
+
+
+class DispatchComment(models.Model):
+    invoice = models.ForeignKey('Invoice', on_delete=models.CASCADE, related_name='comments')
+    author = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    body = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"Comment on {self.invoice.invoice_number} by {self.author}"

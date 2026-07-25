@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shelf QR Codes — Ahliki WMS</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: #f3f4f6; padding: 20px; }
+
+  .screen-actions { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; }
+  .screen-actions button, .screen-actions a {
+    padding: 9px 18px; border-radius: 7px; font-size: 13px; font-weight: 600;
+    cursor: pointer; border: none; text-decoration: none;
+  }
+  .btn-print { background: #1a3a2a; color: #fff; }
+  .btn-back  { background: #e5e7eb; color: #374151; }
+
+  h2.letter-heading {
+    font-size: 18px; font-weight: 800; color: #1a3a2a;
+    margin: 20px 0 10px; border-bottom: 2px solid #1a3a2a; padding-bottom: 4px;
+  }
+
+  .shelf-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .shelf-card {
+    background: #fff;
+    border: 2px solid #000;
+    border-radius: 8px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    page-break-inside: avoid;
+  }
+
+  .shelf-code {
+    font-size: 22px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    color: #1a3a2a;
+  }
+
+  .shelf-sub {
+    font-size: 10px;
+    color: #6b7280;
+    text-align: center;
+  }
+
+  @media print {
+    body { background: #fff; padding: 0; }
+    .screen-actions { display: none; }
+    h2.letter-heading { page-break-before: auto; }
+    .shelf-card { border: 2px solid #000; }
+    /* 6 per row when printing */
+    .shelf-grid { grid-template-columns: repeat(6, 1fr); gap: 8px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="screen-actions">
+  <button onclick="window.print()" class="btn-print">🖨 Print All QR Codes</button>
+  <a href="javascript:history.back()" class="btn-back">← Back</a>
+  <span style="font-size:13px;color:#6b7280">78 shelf labels: A1–Z3 (3 stories per row)</span>
+</div>
+
+{% regroup shelves by letter as letter_groups %}
+
+{% for lg in letter_groups %}
+<h2 class="letter-heading">Row {{ lg.grouper }}</h2>
+<div class="shelf-grid">
+  {% for shelf in lg.list %}
+  <div class="shelf-card">
+    <div class="shelf-code">{{ shelf.code }}</div>
+    <div id="qr-{{ shelf.code }}"></div>
+    <div class="shelf-sub">Story {{ shelf.story }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+
+<script>
+  {% for shelf in shelves %}
+  new QRCode(document.getElementById("qr-{{ shelf.code }}"), {
+    text: "{{ request.scheme }}://{{ request.get_host }}/wms/checkin/{{ shelf.code }}/",
+    width: 80,
+    height: 80,
+    colorDark: "#000000",
+    colorLight: "#ffffff",
+    correctLevel: QRCode.CorrectLevel.M
+  });
+  {% endfor %}
+</script>
+</body>
+</html>

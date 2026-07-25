@@ -8,6 +8,7 @@
 {% load custom_tags %}
 <link rel="stylesheet" href="{% static 'css/main.css' %}">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% block extra_css %}{% endblock %}
 <style>
   .user-menu { position: relative; }
   .user-btn { background: rgba(255,255,255,0.1); border: none; color: rgba(255,255,255,0.85); padding: 8px 12px; border-radius: 7px; cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 7px; width: 100%; text-align: left; font-family: inherit; transition: background 0.15s; }
@@ -29,6 +30,7 @@
   .profile-avatar-big { width: 72px; height: 72px; border-radius: 50%; background: var(--green-dark,#1a3a2a); display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 800; color: white; margin-bottom: 12px; }
   .role-badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; }
   .role-admin { background: #fef3c7; color: #92400e; }
+  .role-manager { background: #ede9fe; color: #5b21b6; }
   .role-finance { background: #fce7f3; color: #831843; }
   .role-warehouse { background: #dbeafe; color: #1e40af; }
   .role-cashier { background: #dcfce7; color: #166534; }
@@ -40,30 +42,117 @@
 {% with user_role=request.user|user_role %}
 {% with is_admin=request.user.is_superuser %}
 
-<div class="layout">
-  <aside class="sidebar">
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+<div class="layout{% if user_role == 'wms_operator' or user_role == 'wms_dispatcher' %} wms-op-layout{% endif %}">
+  <aside class="sidebar" id="sidebar">
     <div class="sidebar-brand">
       <div class="logo">
         <img src="{% static 'image/ahliki_logo.png' %}" alt="Ah Liki Logo" class="logo-image">
         <div>
           <div class="logo-text">Ah Liki</div>
-          <div class="logo-sub">Inventory System</div>
+          <div class="logo-sub">{% if user_role == 'wms_operator' %}WMS Operator{% elif user_role == 'wms_dispatcher' %}WMS Dispatcher{% else %}Inventory System{% endif %}</div>
         </div>
       </div>
     </div>
 
     <nav class="sidebar-nav">
 
+      <!-- ── WMS OPERATOR: Only sees WMS section ── -->
+      {% if user_role == 'wms_operator' %}
+      <div class="nav-section">Home</div>
+      <a href="{% url 'wms_dashboard' %}" class="{% if request.resolver_match.url_name == 'wms_dashboard' %}active{% endif %}">
+        <span class="icon">🏠</span> WMS Dashboard
+      </a>
+
+      <div class="nav-section">Receive Stock</div>
+      <a href="{% url 'grn_list' %}" class="{% if 'grn' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">📥</span> Receive Stock (GRN)
+      </a>
+      <a href="{% url 'grn_add' %}" class="{% if request.resolver_match.url_name == 'grn_add' %}active{% endif %}">
+        <span class="icon">➕</span> New GRN
+      </a>
+
+      <div class="nav-section">WMS Operations</div>
+      <a href="{% url 'wms_checkin' %}" class="{% if 'checkin' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">📍</span> Check-In Pallet
+      </a>
+      <a href="{% url 'wms_transfer' %}" class="{% if 'transfer' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">↔️</span> Transfer Pallet
+      </a>
+      <a href="{% url 'pallet_list' %}" class="{% if 'pallet' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">📦</span> Pallets
+      </a>
+      <a href="{% url 'shelf_list' %}" class="{% if 'shelf' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">🗄️</span> Shelf Locations
+      </a>
+
+      <!-- ── WMS DISPATCHER: Dispatch-focused nav ── -->
+      {% elif user_role == 'wms_dispatcher' %}
+      <div class="nav-section">Home</div>
+      <a href="{% url 'wms_dispatcher_dashboard' %}" class="{% if request.resolver_match.url_name == 'wms_dispatcher_dashboard' %}active{% endif %}">
+        <span class="icon">🏠</span> Dispatcher Dashboard
+      </a>
+
+      <div class="nav-section">Dispatch</div>
+      <a href="{% url 'warehouse_dispatch_list' %}" class="{% if 'dispatch' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">📋</span> Pending Dispatch
+      </a>
+
+      <div class="nav-section">WMS</div>
+      <a href="{% url 'warehouse_dispatch_list' %}" class="{% if 'picking_ticket' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">🎫</span> Picking Ticket
+      </a>
+      <a href="{% url 'shelf_list' %}" class="{% if 'shelf' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">🗄️</span> Shelf Locations
+      </a>
+      <a href="{% url 'stock_movements' %}" class="{% if 'stock_movements' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">🔄</span> Stock Movements
+      </a>
+
+      {% else %}
+      <!-- ── Full nav for all other roles ── -->
+
       <!-- ── OVERVIEW — admin, finance, and warehouse only ── -->
-      {% if is_admin or user_role == 'admin' or user_role == 'warehouse' or user_role == 'finance' or not user_role %}
+      {% if is_admin or user_role == 'admin' or user_role == 'warehouse' or user_role == 'finance' or user_role == 'manager' %}
       <div class="nav-section">Overview</div>
       <a href="{% url 'dashboard' %}" class="{% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">
         <span class="icon">📊</span> Dashboard
       </a>
       {% endif %}
 
-      <!-- ── PRODUCTS — admin/warehouse can manage; finance can edit prices ── -->
-      {% if is_admin or user_role == 'admin' or user_role == 'warehouse' %}
+      <!-- ── WAREHOUSE — admin, manager, and warehouse leads ── -->
+      {% if is_admin or user_role == 'admin' or user_role == 'manager' or user_role == 'warehouse' %}
+      <div class="nav-section">Warehouse</div>
+      <a href="{% url 'warehouse_dispatch_list' %}" class="{% if 'dispatch' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">🚚</span> Dispatch Orders
+      </a>
+      <a href="{% url 'grn_list' %}" class="{% if 'grn' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">📥</span> Receive Stock (GRN)
+      </a>
+      <a href="{% url 'stock_movements' %}" class="{% if 'stock_movements' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">🔄</span> Stock Movements
+      </a>
+      <a href="{% url 'stock_adjust' %}" class="{% if 'stock_adjust' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">⚖️</span> Adjust Stock
+      </a>
+
+      <div class="nav-section">WMS</div>
+      <a href="{% url 'pallet_list' %}" class="{% if 'pallet' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">📦</span> Pallets
+      </a>
+      <a href="{% url 'shelf_list' %}" class="{% if 'shelf' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">🗄️</span> Shelf Locations
+      </a>
+      <a href="{% url 'wms_checkin' %}" class="{% if 'checkin' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">📍</span> Check-In Pallet
+      </a>
+      <a href="{% url 'wms_transfer' %}" class="{% if 'transfer' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">↔️</span> Transfer Pallet
+      </a>
+      {% endif %}
+
+      <!-- ── PRODUCTS — admin/warehouse/manager can manage; finance can edit prices ── -->
+      {% if is_admin or user_role == 'admin' or user_role == 'manager' or user_role == 'warehouse' %}
       <div class="nav-section">Products</div>
       <a href="{% url 'product_list' %}" class="{% if 'product' in request.resolver_match.url_name %}active{% endif %}">
         <span class="icon">📦</span> Products
@@ -81,21 +170,8 @@
       </a>
       {% endif %}
 
-      <!-- ── WAREHOUSE — admin and warehouse only ── -->
-      {% if is_admin or user_role == 'admin' or user_role == 'warehouse' %}
-      <div class="nav-section">Warehouse</div>
-      <a href="{% url 'grn_list' %}" class="{% if 'grn' in request.resolver_match.url_name %}active{% endif %}">
-        <span class="icon">📥</span> Receive Stock (GRN)
-      </a>
-      <a href="{% url 'stock_movements' %}" class="{% if 'stock_movements' in request.resolver_match.url_name %}active{% endif %}">
-        <span class="icon">🔄</span> Stock Movements
-      </a>
-      <a href="{% url 'stock_adjust' %}" class="{% if 'stock_adjust' in request.resolver_match.url_name %}active{% endif %}">
-        <span class="icon">⚖️</span> Adjust Stock
-      </a>
-      {% endif %}
-
-      <!-- ── SALES — admin, warehouse, and cashier ── -->
+      <!-- ── SALES — admin and cashier only ── -->
+      {% if is_admin or user_role == 'admin' or user_role == 'cashier' %}
       <div class="nav-section">Sales</div>
       {% if user_role == 'cashier' %}
       <!-- Cashier: POS Terminal only -->
@@ -103,7 +179,7 @@
         <span class="icon">🖥️</span> POS Terminal
       </a>
       {% else %}
-      <!-- Admin & Warehouse: Full menu -->
+      <!-- Admin: Full menu -->
       <a href="{% url 'pos' %}" class="{% if 'pos' in request.resolver_match.url_name %}active{% endif %}">
         <span class="icon">🖥️</span> POS Terminal
       </a>
@@ -114,10 +190,16 @@
         <span class="icon">🧾</span> Sales History
       </a>
       {% endif %}
+      {% endif %}
 
-      <!-- ── MANAGEMENT — admin only ── -->
-      {% if is_admin or user_role == 'admin' %}
+      <!-- ── MANAGEMENT — admin and manager ── -->
+      {% if is_admin or user_role == 'admin' or user_role == 'manager' %}
       <div class="nav-section">Management</div>
+      {% if is_admin or user_role == 'admin' or user_role == 'manager' %}
+      <a href="{% url 'manager_dashboard' %}" class="{% if 'manager_dashboard' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">🏢</span> Manager View
+      </a>
+      {% endif %}
       <a href="{% url 'alert_list' %}" class="{% if 'alert' in request.resolver_match.url_name %}active{% endif %}">
         <span class="icon">🔔</span> Alerts
         {% if open_alerts_count %}<span class="badge badge-red" style="margin-left:auto">{{ open_alerts_count }}</span>{% endif %}
@@ -125,9 +207,11 @@
       <a href="{% url 'reports' %}" class="{% if 'reports' in request.resolver_match.url_name %}active{% endif %}">
         <span class="icon">📈</span> Reports
       </a>
+      {% if is_admin or user_role == 'admin' %}
       <a href="{% url 'user_list' %}" class="{% if 'user' in request.resolver_match.url_name %}active{% endif %}">
         <span class="icon">👥</span> Staff Users
       </a>
+      {% endif %}
 
       {% elif user_role == 'warehouse' %}
       <!-- Warehouse can see alerts but not reports/users -->
@@ -137,6 +221,8 @@
         {% if open_alerts_count %}<span class="badge badge-red" style="margin-left:auto">{{ open_alerts_count }}</span>{% endif %}
       </a>
       {% endif %}
+
+      {% endif %}{# end wms_operator else #}
 
     </nav>
 
@@ -168,9 +254,12 @@
 
   <div class="main">
     <div class="topbar">
-      <div class="topbar-title">{% block topbar_title %}{% endblock %}</div>
+      <div class="topbar-title">
+        <button class="hamburger-btn" onclick="toggleSidebar()" aria-label="Open menu">☰</button>
+        {% block topbar_title %}{% endblock %}
+      </div>
       <div class="topbar-right">
-        {% if is_admin or user_role == 'admin' or user_role == 'warehouse' %}
+        {% if is_admin or user_role == 'admin' or user_role == 'warehouse' or user_role == 'manager' %}
         <a href="{% url 'alert_list' %}" style="position:relative;color:var(--gray-700);text-decoration:none">
           🔔{% if open_alerts_count %}<span class="badge badge-red" style="position:absolute;top:-6px;right:-8px;padding:1px 5px">{{ open_alerts_count }}</span>{% endif %}
         </a>
@@ -196,13 +285,25 @@
 {% endwith %}
 {% endwith %}
 
+{% block extra_js %}{% endblock %}
 <script>
+/* Sidebar toggle (mobile) */
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebarOverlay').classList.toggle('open');
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebarOverlay').classList.remove('open');
+}
+/* User dropdown */
 function toggleUserMenu() {
   document.getElementById('userMenu').classList.toggle('open');
 }
 document.addEventListener('click', function(e) {
   const menu = document.getElementById('userMenu');
   if (menu && !menu.contains(e.target)) menu.classList.remove('open');
+  // close sidebar if click is outside (desktop — overlay handles mobile)
 });
 </script>
 </body>

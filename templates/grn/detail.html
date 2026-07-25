@@ -1,14 +1,36 @@
 {% extends 'base.html' %}
 {% block title %}{{ grn.grn_number }} — Ah Liki IMS{% endblock %}
 {% block topbar_title %}GRN Detail{% endblock %}
+{% block extra_css %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+{% endblock %}
 {% block content %}
 <div class="page-header">
-  <div><h1>{{ grn.grn_number }}</h1><p>{{ grn.supplier.name }} &mdash; {{ grn.received_at|date:"d M Y H:i" }}</p></div>
+  <div style="display:flex;align-items:center;gap:20px">
+    <div id="grn-qr" style="background:#fff;padding:6px;border:1px solid var(--gray-200);border-radius:8px;flex-shrink:0"></div>
+    <div>
+      <h1>{{ grn.grn_number }}</h1>
+      <p>{{ grn.supplier.name }} &mdash; {{ grn.received_at|date:"d M Y H:i" }}</p>
+    </div>
+  </div>
   <div style="display:flex;gap:8px">
     {% if grn.has_discrepancy %}<span class="badge badge-red" style="padding:8px 14px">⚠ Discrepancy</span>{% endif %}
+    <a href="{% url 'pallet_create' %}?grn={{ grn.pk }}" class="btn btn-primary">📦 Create Pallets</a>
     <a href="{% url 'grn_list' %}" class="btn btn-secondary">← Back</a>
   </div>
 </div>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    new QRCode(document.getElementById('grn-qr'), {
+      text: "{{ grn.grn_number }}",
+      width: 90,
+      height: 90,
+      colorDark: "#000000",
+      colorLight: "#ffffff",
+      correctLevel: QRCode.CorrectLevel.M
+    });
+  });
+</script>
 {% if grn.notes %}<div class="alert alert-info">{{ grn.notes }}</div>{% endif %}
 <div class="card">
   <div class="card-header"><h2>Items Received</h2></div>

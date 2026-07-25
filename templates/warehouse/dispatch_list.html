@@ -1,0 +1,246 @@
+{% extends 'base.html' %}
+{% block title %}Warehouse Dispatch — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Warehouse Dispatch{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Warehouse Dispatch</h1>
+    <p>Manage outgoing orders and keep a full dispatch log.</p>
+  </div>
+</div>
+
+<!-- Tab bar -->
+<div style="display:flex;gap:0;border-bottom:2px solid var(--gray-200);margin-bottom:24px">
+  <button
+    class="tab-btn"
+    id="tab-pending-btn"
+    onclick="switchTab('pending')"
+    style="padding:10px 22px;font-size:14px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:3px solid var(--green-mid,#2d7a4f);margin-bottom:-2px;color:var(--green-mid,#2d7a4f)"
+  >
+    📋 Pending Dispatch
+    {% if pending.count > 0 %}
+    <span class="badge badge-amber" style="margin-left:6px">{{ pending.count }}</span>
+    {% endif %}
+  </button>
+  <button
+    class="tab-btn"
+    id="tab-log-btn"
+    onclick="switchTab('log')"
+    style="padding:10px 22px;font-size:14px;font-weight:600;border:none;background:none;cursor:pointer;color:var(--gray-500);border-bottom:3px solid transparent;margin-bottom:-2px"
+  >
+    📖 Dispatch Log
+    <span class="badge badge-green" style="margin-left:6px">{{ dispatch_log.count }}</span>
+  </button>
+</div>
+
+<!-- ── PENDING TAB ── -->
+<div id="tab-pending">
+  <!-- Pending search bar -->
+  <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+    <input
+      type="text"
+      id="pendingSearch"
+      placeholder="Search invoice #, customer, account…"
+      oninput="filterPending()"
+      style="flex:1;min-width:180px;padding:8px 14px;border:1px solid var(--gray-200);border-radius:7px;font-size:13px;outline:none"
+    >
+    <span id="pendingCount" style="font-size:13px;color:var(--gray-500);white-space:nowrap">{{ pending.count }} pending</span>
+  </div>
+
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Invoice #</th>
+            <th>Customer</th>
+            <th>Account</th>
+            <th>Items</th>
+            <th>Total (incl. tax)</th>
+            <th>Created by</th>
+            <th>Date</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="pendingBody">
+        {% for inv in pending %}
+        <tr data-search="{{ inv.invoice_number|lower }} {{ inv.customer_name|lower }} {{ inv.account_number|lower }} {{ inv.cashier.get_full_name|lower|default:'' }} {{ inv.cashier.username|lower }}">
+          <td><strong>{{ inv.invoice_number }}</strong></td>
+          <td>{{ inv.customer_name|default:"Walk-in" }}</td>
+          <td>{{ inv.account_number|default:"—" }}</td>
+          <td>{{ inv.items.count }} item{{ inv.items.count|pluralize }}</td>
+          <td><strong>SAT${{ inv.total_amount }}</strong></td>
+          <td style="font-size:12px">{{ inv.cashier.get_full_name|default:inv.cashier.username }}</td>
+          <td style="font-size:12px">{{ inv.created_at|date:"d M Y H:i" }}</td>
+          <td>
+            <a href="{% url 'warehouse_dispatch_detail' inv.pk %}" class="btn btn-primary btn-sm">
+              Process Dispatch →
+            </a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr id="emptyPendingRow">
+          <td colspan="8" style="text-align:center;color:var(--gray-500);padding:40px">
+            <div style="font-size:36px;margin-bottom:10px">✅</div>
+            <strong>All clear!</strong><br>No invoices pending dispatch.
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div id="noPendingResults" style="display:none;text-align:center;padding:32px;color:var(--gray-500)">
+      No pending orders match your search.
+    </div>
+  </div>
+</div>
+
+<!-- ── DISPATCH LOG TAB ── -->
+<div id="tab-log" style="display:none">
+  <!-- Search / filter bar -->
+  <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+    <input
+      type="text"
+      id="logSearch"
+      placeholder="Search invoice, customer, plate…"
+      oninput="filterLog()"
+      style="flex:1;min-width:180px;padding:8px 14px;border:1px solid var(--gray-200);border-radius:7px;font-size:13px;outline:none"
+    >
+    <label style="font-size:13px;color:var(--gray-500);white-space:nowrap;display:flex;align-items:center;gap:6px">
+      From <input type="date" id="filterFrom" onchange="filterLog()" style="padding:7px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px">
+    </label>
+    <label style="font-size:13px;color:var(--gray-500);white-space:nowrap;display:flex;align-items:center;gap:6px">
+      To <input type="date" id="filterTo" onchange="filterLog()" style="padding:7px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px">
+    </label>
+  </div>
+
+  <div class="card">
+    <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <h2>Dispatch Log</h2>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span id="logCount" style="font-size:13px;color:var(--gray-500)">{{ dispatch_log.count }} record{{ dispatch_log.count|pluralize }}</span>
+        <button onclick="exportLog()" class="btn btn-secondary btn-sm" style="white-space:nowrap">⬇ Export CSV</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table id="logTable">
+        <thead>
+          <tr>
+            <th>Date &amp; Time</th>
+            <th>Invoice #</th>
+            <th>Customer</th>
+            <th>Inv. Amount</th>
+            <th>Checked Out By</th>
+            <th>Truck Plate #</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="logBody">
+        {% for inv in dispatch_log %}
+        <tr
+          data-search="{{ inv.invoice_number|lower }} {{ inv.customer_name|lower }} {{ inv.truck_plate|lower }} {{ inv.dispatched_by.get_full_name|lower|default:'' }} {{ inv.dispatched_by.username|lower|default:'' }}"
+          data-date="{{ inv.dispatched_at|date:'Y-m-d'|default:'' }}"
+        >
+          <td style="white-space:nowrap">{{ inv.dispatched_at|date:"d M Y H:i"|default:"—" }}</td>
+          <td><strong>{{ inv.invoice_number }}</strong></td>
+          <td>{{ inv.customer_name|default:"Walk-in" }}</td>
+          <td><strong>SAT${{ inv.total_amount }}</strong></td>
+          <td>{{ inv.dispatched_by.get_full_name|default:inv.dispatched_by.username|default:"—" }}</td>
+          <td>
+            {% if inv.truck_plate %}
+            <span style="font-family:monospace;font-weight:700;background:var(--gray-100,#f3f4f6);padding:3px 10px;border-radius:4px;letter-spacing:1px;font-size:13px">
+              {{ inv.truck_plate }}
+            </span>
+            {% else %}
+            <span style="color:var(--gray-400)">—</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="{% url 'warehouse_dispatch_detail' inv.pk %}" class="btn btn-sm btn-secondary">View</a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7" style="text-align:center;color:var(--gray-500);padding:40px">No dispatch records yet.</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div id="noResults" style="display:none;text-align:center;padding:32px;color:var(--gray-500)">
+      No records match your search.
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Tab switching ──────────────────────────────────────────────────────────
+function switchTab(tab) {
+  document.getElementById('tab-pending').style.display = tab === 'pending' ? '' : 'none';
+  document.getElementById('tab-log').style.display     = tab === 'log'     ? '' : 'none';
+
+  const activeStyle   = 'padding:10px 22px;font-size:14px;font-weight:600;border:none;background:none;cursor:pointer;margin-bottom:-2px;border-bottom:3px solid var(--green-mid,#2d7a4f);color:var(--green-mid,#2d7a4f)';
+  const inactiveStyle = 'padding:10px 22px;font-size:14px;font-weight:600;border:none;background:none;cursor:pointer;margin-bottom:-2px;border-bottom:3px solid transparent;color:var(--gray-500)';
+
+  document.getElementById('tab-pending-btn').style.cssText = tab === 'pending' ? activeStyle : inactiveStyle;
+  document.getElementById('tab-log-btn').style.cssText     = tab === 'log'     ? activeStyle : inactiveStyle;
+
+  history.replaceState(null, '', tab === 'log' ? '?tab=log' : location.pathname);
+}
+
+// ── Pending search ─────────────────────────────────────────────────────────
+function filterPending() {
+  const q    = document.getElementById('pendingSearch').value.toLowerCase();
+  const rows = document.querySelectorAll('#pendingBody tr[data-search]');
+  let visible = 0;
+
+  rows.forEach(function(row) {
+    const show = !q || (row.dataset.search || '').includes(q);
+    row.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+
+  document.getElementById('pendingCount').textContent = visible + ' pending';
+  document.getElementById('noPendingResults').style.display =
+    (visible === 0 && rows.length > 0) ? '' : 'none';
+}
+
+// ── Log filtering ─────────────────────────────────────────────────────────
+function filterLog() {
+  const q    = document.getElementById('logSearch').value.toLowerCase();
+  const from = document.getElementById('filterFrom').value;
+  const to   = document.getElementById('filterTo').value;
+  const rows = document.querySelectorAll('#logBody tr[data-search]');
+  let visible = 0;
+
+  rows.forEach(function(row) {
+    const matchQ    = !q    || (row.dataset.search || '').includes(q);
+    const matchFrom = !from || (row.dataset.date || '') >= from;
+    const matchTo   = !to   || (row.dataset.date || '') <= to;
+    const show = matchQ && matchFrom && matchTo;
+    row.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+
+  document.getElementById('logCount').textContent = visible + ' record' + (visible !== 1 ? 's' : '');
+  document.getElementById('noResults').style.display = (visible === 0 && rows.length > 0) ? '' : 'none';
+}
+
+// ── Export CSV (passes active filters to server) ───────────────────────────
+function exportLog() {
+  const q    = document.getElementById('logSearch').value.trim();
+  const from = document.getElementById('filterFrom').value;
+  const to   = document.getElementById('filterTo').value;
+  const params = new URLSearchParams();
+  if (q)    params.set('q',    q);
+  if (from) params.set('from', from);
+  if (to)   params.set('to',   to);
+  const qs = params.toString();
+  window.location = '{% url "warehouse_dispatch_export" %}' + (qs ? '?' + qs : '');
+}
+
+// ── Auto-open tab from URL param ──────────────────────────────────────────
+if (new URLSearchParams(location.search).get('tab') === 'log') switchTab('log');
+</script>
+{% endblock %}

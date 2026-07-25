@@ -535,21 +535,21 @@ async function submitSale() {
   const data = await res.json();
   if (data.success) {
     closeModal('completeModal');
-    showReceipt(data.sale_number, data.total);
+    showReceipt(data.invoice_number, data.total);
     cart = [];
     renderCart();
   } else { alert('Error: ' + data.error); }
 }
 
 // ── RECEIPT ───────────────────────────────────────────────────────────────────
-function showReceipt(saleNum, total) {
+function showReceipt(invNum, total) {
   const items = cart.map(i => `  ${i.name.padEnd(22).substring(0,22)} x${i.qty}  SAT$${(i.qty * i.price).toFixed(2)}`).join('\n');
   const subtotal = parseFloat(total) / 1.15;
   const tax = parseFloat(total) - subtotal;
   document.getElementById('receiptContent').innerHTML = `
     <div style="text-align:center;margin-bottom:8px"><strong>AH LIKI WHOLESALE</strong><br>Apia, Samoa<br>Tel: +685 20699</div>
     <hr>
-    <div>Sale #: ${saleNum}</div>
+    <div>Invoice #: ${invNum}</div>
     <div>Date: ${new Date().toLocaleString('en-GB')}</div>
     <div>Cashier: {{ request.user.get_full_name|default:request.user.username }}</div>
     ${document.getElementById('customerName').value ? '<div>Customer: ' + document.getElementById('customerName').value + '</div>' : ''}

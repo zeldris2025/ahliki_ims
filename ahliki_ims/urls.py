@@ -22,6 +22,15 @@ def home_redirect(request):
     if request.user.is_superuser or profile.role in ['admin', 'finance', 'warehouse']:
         return redirect('dashboard')
 
+    if profile.role in ['manager']:
+        return redirect('manager_dashboard')
+
+    if profile.role == 'wms_operator':
+        return redirect('wms_dashboard')
+
+    if profile.role == 'wms_dispatcher':
+        return redirect('wms_dispatcher_dashboard')
+
     # Cashiers and any unknown roles go directly to POS
     return redirect('pos')
 

@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Picking Ticket — {{ invoice.invoice_number }}</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: #f3f4f6; padding: 20px; }
+
+  .screen-actions { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; }
+  .screen-actions button, .screen-actions a {
+    padding: 9px 18px; border-radius: 7px; font-size: 13px; font-weight: 600;
+    cursor: pointer; border: none; text-decoration: none;
+  }
+  .btn-print { background: #1a3a2a; color: #fff; }
+  .btn-back { background: #e5e7eb; color: #374151; }
+
+  .ticket-wrap { max-width: 800px; margin: 0 auto; background: #fff; border: 1px solid #ccc; border-radius: 8px; padding: 24px; }
+
+  /* Header */
+  .ticket-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #1a3a2a; padding-bottom: 14px; margin-bottom: 16px; }
+  .ticket-title { font-size: 22px; font-weight: 800; color: #1a3a2a; }
+  .ticket-sub { font-size: 13px; color: #6b7280; margin-top: 2px; }
+  .ticket-meta { text-align: right; font-size: 12px; color: #374151; }
+  .ticket-meta strong { font-size: 16px; display: block; }
+
+  /* Customer info */
+  .ticket-customer { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px; margin-bottom: 18px; font-size: 13px; }
+  .ticket-customer dt { font-weight: 700; color: #6b7280; font-size: 11px; text-transform: uppercase; }
+  .ticket-customer dd { margin-top: 2px; }
+
+  /* Picking lines */
+  .shelf-group { margin-bottom: 18px; page-break-inside: avoid; }
+  .shelf-group-header { display: flex; align-items: center; gap: 10px; background: #1a3a2a; color: #fff; padding: 8px 14px; border-radius: 6px 6px 0 0; }
+  .shelf-code-big { font-size: 22px; font-weight: 900; letter-spacing: 2px; }
+  .shelf-group-title { font-size: 14px; font-weight: 600; }
+
+  table.pick-table { width: 100%; border-collapse: collapse; }
+  table.pick-table th { background: #f3f4f6; padding: 9px 12px; font-size: 12px; font-weight: 700; color: #374151; border-bottom: 2px solid #e5e7eb; text-align: left; }
+  table.pick-table td { padding: 10px 12px; border-bottom: 1px solid #e5e7eb; font-size: 13px; vertical-align: middle; }
+  table.pick-table tr:last-child td { border-bottom: none; }
+
+  .check-box { width: 20px; height: 20px; border: 2px solid #374151; border-radius: 4px; display: inline-block; }
+
+  /* "No shelf" warning */
+  .no-shelf-row { background: #fffbeb; }
+  .no-shelf-row td { color: #92400e; }
+
+  /* Footer */
+  .ticket-footer { margin-top: 20px; border-top: 1px solid #e5e7eb; padding-top: 14px; display: flex; justify-content: space-between; font-size: 12px; color: #6b7280; }
+
+  /* Signature lines */
+  .signature-area { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 24px; }
+  .sig-line { border-top: 1px solid #9ca3af; padding-top: 6px; font-size: 12px; color: #6b7280; }
+
+  @media print {
+    body { background: #fff; padding: 0; }
+    .screen-actions { display: none; }
+    .ticket-wrap { border: none; border-radius: 0; padding: 16px; max-width: 100%; }
+    .shelf-group { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<div class="screen-actions">
+  <button onclick="window.print()" class="btn-print">🖨 Print Picking Ticket</button>
+  <a href="{% url 'warehouse_dispatch_detail' invoice.pk %}" class="btn-back">← Back to Dispatch</a>
+</div>
+
+<div class="ticket-wrap">
+
+  <!-- Header -->
+  <div class="ticket-header">
+    <div>
+      <div class="ticket-title">Ah Liki WMS — Picking Ticket</div>
+      <div class="ticket-sub">Pick earliest-expiry (FEFO) pallets first · Sort by shelf A → Z</div>
+    </div>
+    <div class="ticket-meta">
+      <strong>{{ invoice.invoice_number }}</strong>
+      {{ invoice.created_at|date:"d M Y H:i" }}<br>
+      Generated: {{ generated_at|date:"d M Y H:i" }}<br>
+      By: {{ generated_by.get_full_name|default:generated_by.username }}
+    </div>
+  </div>
+
+  <!-- Customer info -->
+  <dl class="ticket-customer">
+    <div>
+      <dt>Customer</dt>
+      <dd>{{ invoice.customer_name|default:"Walk-in" }}</dd>
+    </div>
+    <div>
+      <dt>Account #</dt>
+      <dd>{{ invoice.account_number|default:"—" }}</dd>
+    </div>
+    <div>
+      <dt>Payment</dt>
+      <dd>{{ invoice.get_payment_method_display }}</dd>
+    </div>
+  </dl>
+
+  <!-- Picking lines grouped by shelf -->
+  {% for line in ticket_lines %}
+  <div class="shelf-group">
+    <div class="shelf-group-header">
+      {% if line.shelf_locations %}
+        <span class="shelf-code-big">
+          {% for s in line.shelf_locations %}{{ s.code }}{% if not forloop.last %}, {% endif %}{% endfor %}
+        </span>
+        <span class="shelf-group-title">
+          {% if line.shelf_locations|length == 1 %}
+            Row {{ line.shelf_locations.0.letter }} — Story {{ line.shelf_locations.0.story }}
+          {% else %}
+            {{ line.shelf_locations|length }} shelf locations
+          {% endif %}
+        </span>
+      {% else %}
+        <span class="shelf-code-big">⚠</span>
+        <span class="shelf-group-title">Shelf not assigned</span>
+      {% endif %}
+    </div>
+    <table class="pick-table">
+      <thead>
+        <tr>
+          <th style="width:30px">✓</th>
+          <th>Product</th>
+          <th>SKU</th>
+          <th>Qty Required</th>
+          <th>Shelf Location(s)</th>
+          <th>Pick From (FEFO)</th>
+          <th>Expiry Date</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr {% if not line.shelf_locations %}class="no-shelf-row"{% endif %}>
+          <td><span class="check-box"></span></td>
+          <td><strong>{{ line.item.product.name }}</strong></td>
+          <td style="font-size:11px;color:#6b7280">{{ line.item.product.sku }}</td>
+          <td><strong>{{ line.item.quantity }}</strong> {{ line.item.product.unit }}</td>
+          <td>
+            {% for s in line.shelf_locations %}
+              <div style="font-size:12px;font-weight:700;background:#1a3a2a;color:#fff;display:inline-block;padding:2px 8px;border-radius:4px;margin:1px">{{ s.code }}</div>
+            {% empty %}
+              <span style="color:#92400e;font-size:11px">⚠ Shelf not assigned</span>
+            {% endfor %}
+          </td>
+          <td>
+            {% for p in line.pallets %}
+              <div style="font-size:11px;{% if forloop.first %}font-weight:700;{% endif %}">
+                {% if forloop.first %}⭐ {% endif %}{{ p.lot_number }}
+              </div>
+            {% empty %}
+              <span style="color:#92400e;font-size:11px">No pallet on shelf</span>
+            {% endfor %}
+          </td>
+          <td>
+            {% for p in line.pallets %}
+              {% if p.expiry_date %}
+              <div style="font-size:11px;{% if forloop.first %}font-weight:700;color:#b45309;{% endif %}">
+                {% if forloop.first %}⚠ {% endif %}{{ p.expiry_date|date:"d M Y" }}
+              </div>
+              {% else %}
+              <div style="font-size:11px;color:#9ca3af">—</div>
+              {% endif %}
+            {% endfor %}
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  {% empty %}
+  <div style="text-align:center;padding:24px;color:#6b7280">No items in this invoice.</div>
+  {% endfor %}
+
+  <!-- Signature area -->
+  <div class="signature-area">
+    <div class="sig-line">Picker: _____________________________ Date: ___________</div>
+    <div class="sig-line">Warehouse Lead: _____________________ Date: ___________</div>
+  </div>
+
+  <!-- Footer -->
+  <div class="ticket-footer">
+    <span>Ahliki WMS — Picking Ticket</span>
+    <span>Invoice: {{ invoice.invoice_number }}</span>
+    <span>Total Items: {{ ticket_lines|length }}</span>
+  </div>
+
+</div>
+</body>
+</html>

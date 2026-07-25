@@ -1,0 +1,169 @@
+{% extends 'base.html' %}
+{% block title %}Transfer Pallet — Ahliki WMS{% endblock %}
+{% block topbar_title %}↔️ Transfer Pallet{% endblock %}
+
+{% block extra_css %}
+<style>
+.transfer-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 768px) {
+  .transfer-layout { grid-template-columns: 1fr; gap: 14px; }
+  .transfer-info { order: -1; }
+  #transfer-form input, #transfer-form select, #transfer-form textarea { font-size: 16px !important; padding: 14px 12px !important; min-height: 52px; }
+  .transfer-submit { padding: 18px !important; font-size: 17px !important; min-height: 58px; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Transfer Pallet</h1>
+    <p>Move a pallet from its current shelf to a new location</p>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a href="{% url 'wms_checkin' %}" class="btn btn-secondary">📍 Check-In</a>
+    <a href="{% url 'shelf_list' %}" class="btn btn-secondary">🗄️ Shelves</a>
+  </div>
+</div>
+
+<div class="transfer-layout">
+
+  <!-- ── Left: Scanner + form ── -->
+  <div>
+    <!-- QR Scanner -->
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-body" style="padding:14px">
+        <button onclick="toggleScanner()" id="scan-btn"
+          style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:16px;font-size:16px;font-weight:700;border-radius:10px;border:none;background:#1d4ed8;color:#fff;cursor:pointer;min-height:56px">
+          📷 Scan Pallet QR Code
+        </button>
+        <div id="reader" class="scanner-container" style="display:none;margin-top:10px"></div>
+        <p id="scan-result" style="font-size:13px;color:var(--gray-500);margin-top:8px;min-height:20px"></p>
+      </div>
+    </div>
+
+    <!-- Transfer form -->
+    <div class="card">
+      <div class="card-header"><h2>Transfer Details</h2></div>
+      <div class="card-body">
+        <form method="post" id="transfer-form">
+          {% csrf_token %}
+          {% for field in form %}
+          <div class="form-group wms-form-field" style="margin-bottom:16px">
+            <label style="font-weight:600;font-size:13px;display:block;margin-bottom:6px">{{ field.label }}</label>
+            {{ field }}
+            {% if field.errors %}<span style="color:var(--red);font-size:12px;margin-top:4px;display:block">{{ field.errors.0 }}</span>{% endif %}
+          </div>
+          {% endfor %}
+          <button type="submit" class="transfer-submit"
+            style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:16px;font-size:17px;font-weight:700;border-radius:10px;border:none;background:var(--green-dark);color:#fff;cursor:pointer;min-height:56px">
+            ↔️ Confirm Transfer
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Right: Pallet info ── -->
+  <div class="transfer-info">
+    {% if pallet %}
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-header">
+        <h2>Pallet Info</h2>
+        <span class="badge badge-blue" style="font-size:13px;font-weight:700">{{ pallet.lot_number }}</span>
+      </div>
+      <div class="card-body" style="padding:14px">
+        <table style="width:100%">
+          <tr><td style="font-weight:600;padding:5px 0;width:40%;color:var(--gray-500);font-size:12px">Product</td><td style="font-size:14px;font-weight:600">{{ pallet.product.name }}</td></tr>
+          <tr><td style="font-weight:600;padding:5px 0;color:var(--gray-500);font-size:12px">Quantity</td><td>{{ pallet.quantity }} x {{ pallet.product.unit }}</td></tr>
+          <tr><td style="font-weight:600;padding:5px 0;color:var(--gray-500);font-size:12px">Expiry</td><td>{% if pallet.expiry_date %}{{ pallet.expiry_date|date:"d M Y" }}{% else %}—{% endif %}</td></tr>
+          <tr>
+            <td style="font-weight:600;padding:5px 0;color:var(--gray-500);font-size:12px">Current Shelf</td>
+            <td>
+              {% with loc=pallet.current_location %}
+              {% if loc %}<span class="badge badge-blue" style="font-size:18px;font-weight:900;padding:6px 14px">{{ loc.code }}</span>
+              {% else %}<span class="badge badge-amber">Not assigned</span>{% endif %}
+              {% endwith %}
+            </td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
+    <!-- Location history -->
+    <div class="card">
+      <div class="card-header"><h2>Location History</h2></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Shelf</th><th>By</th><th>Date</th><th>Status</th></tr></thead>
+          <tbody>
+          {% for loc in pallet.location_history.all %}
+          <tr>
+            <td><strong>{{ loc.shelf.code }}</strong></td>
+            <td style="font-size:12px">{{ loc.assigned_by.get_full_name|default:loc.assigned_by.username }}</td>
+            <td style="font-size:12px">{{ loc.assigned_at|date:"d M Y H:i" }}</td>
+            <td>{% if loc.is_current %}<span class="badge badge-green">Current</span>{% else %}<span class="badge badge-gray">Moved</span>{% endif %}</td>
+          </tr>
+          {% empty %}<tr><td colspan="4" style="text-align:center;color:var(--gray-500);padding:16px">No history.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="card">
+      <div class="card-body" style="text-align:center;padding:48px;color:var(--gray-500)">
+        <div style="font-size:48px;margin-bottom:10px">📦</div>
+        <p style="font-size:14px">Scan or enter a lot number to see pallet details.</p>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+{% block extra_js %}
+<script>
+let scanner = null, scanning = false;
+
+function toggleScanner() {
+  if (!scanning) {
+    const reader = document.getElementById('reader');
+    const btn = document.getElementById('scan-btn');
+    reader.style.display = 'block';
+    btn.textContent = '⏹ Stop Scanner';
+    btn.style.background = '#dc2626';
+    scanning = true;
+    scanner = new Html5Qrcode("reader");
+    scanner.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: { width: 220, height: 220 } },
+      (decodedText) => {
+        stopScanner();
+        window.location.href = '{% url "wms_transfer" %}?lot=' + encodeURIComponent(decodedText.trim());
+      },
+      () => {}
+    ).catch(err => {
+      document.getElementById('scan-result').textContent = '⚠ Camera unavailable.';
+      stopScanner();
+    });
+  } else { stopScanner(); }
+}
+
+function stopScanner() {
+  if (scanner) { scanner.stop().catch(() => {}); scanner = null; }
+  scanning = false;
+  const btn = document.getElementById('scan-btn');
+  btn.textContent = '📷 Scan Pallet QR Code';
+  btn.style.background = '#1d4ed8';
+  document.getElementById('reader').style.display = 'none';
+}
+
+const lotParam = new URLSearchParams(window.location.search).get('lot');
+if (lotParam) {
+  const f = document.getElementById('id_lot_number');
+  if (f) f.value = lotParam;
+}
+</script>
+{% endblock %}
+{% endblock %}

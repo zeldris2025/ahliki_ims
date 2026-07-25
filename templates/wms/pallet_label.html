@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pallet Label — {{ pallet.lot_number }}</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; background: #f3f4f6; display: flex; flex-direction: column; align-items: center; min-height: 100vh; padding: 20px; }
+
+  .screen-actions { display: flex; gap: 10px; margin-bottom: 20px; }
+  .screen-actions a, .screen-actions button { padding: 9px 18px; border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; text-decoration: none; }
+  .btn-print { background: #1a3a2a; color: #fff; }
+  .btn-back  { background: #e5e7eb; color: #374151; }
+
+  /* ── Label card ── */
+  .label {
+    width: 100mm;
+    border: 2px solid #000;
+    border-radius: 6px;
+    background: #fff;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .label-qr {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 4px;
+  }
+
+  .label-product {
+    font-size: 14px;
+    font-weight: 800;
+    text-align: center;
+    line-height: 1.2;
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 6px;
+    width: 100%;
+  }
+
+  .label-fields {
+    width: 100%;
+    font-size: 12px;
+    line-height: 1.7;
+  }
+
+  .label-field {
+    display: flex;
+    gap: 4px;
+  }
+
+  .label-field .lf-key {
+    font-weight: 700;
+    min-width: 70px;
+  }
+
+  .label-spacer { height: 8px; }
+
+  .label-footer {
+    width: 100%;
+    border-top: 1px solid #ccc;
+    padding-top: 6px;
+    font-size: 11px;
+    color: #555;
+  }
+
+  /* Print */
+  @media print {
+    body { background: #fff; padding: 0; }
+    .screen-actions { display: none; }
+    .label { border: 2px solid #000; page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<div class="screen-actions">
+  <button onclick="window.print()" class="btn-print">🖨 Print Label</button>
+  <a href="{% url 'pallet_list' %}" class="btn-back">← Back to Pallets</a>
+  <a href="{% url 'wms_checkin' %}?lot={{ pallet.lot_number }}" style="padding:9px 18px;border-radius:7px;font-size:13px;font-weight:600;background:#2563eb;color:#fff;text-decoration:none">📍 Check-In to Shelf</a>
+</div>
+
+<div class="label" id="label">
+
+  <div class="label-qr">
+    <div id="qr"></div>
+  </div>
+
+  <div class="label-product">{{ pallet.product.name }}</div>
+
+  <div class="label-fields">
+    <div class="label-field">
+      <span class="lf-key">Supplier:</span>
+      <span>{% if pallet.product.supplier %}{{ pallet.product.supplier.name }}{% else %}—{% endif %}</span>
+    </div>
+    <div class="label-field">
+      <span class="lf-key">Lot:</span>
+      <span>{{ pallet.lot_number }}</span>
+    </div>
+    <div class="label-field">
+      <span class="lf-key">Quantity:</span>
+      <span>{{ pallet.quantity }} x {{ pallet.product.unit }}</span>
+    </div>
+    <div class="label-field">
+      <span class="lf-key">Expiry:</span>
+      <span>{% if pallet.expiry_date %}{{ pallet.expiry_date|date:"d M Y" }}{% else %}—{% endif %}</span>
+    </div>
+  </div>
+
+  <div class="label-spacer"></div>
+
+  <div class="label-footer">
+    Date Created: {{ pallet.created_at|date:"d M Y H:i" }}
+  </div>
+</div>
+
+<script>
+  new QRCode(document.getElementById("qr"), {
+    text: "{{ pallet.lot_number }}",
+    width: 130,
+    height: 130,
+    colorDark: "#000000",
+    colorLight: "#ffffff",
+    correctLevel: QRCode.CorrectLevel.M
+  });
+  // Print automatically when navigated here after creation
+  {% if auto_print %}window.print();{% endif %}
+</script>
+</body>
+</html>

@@ -10,9 +10,11 @@ from django.http import JsonResponse, HttpResponse
 from django.utils import timezone
 
 from .models import (Product, Category, Supplier, GoodsReceivedNote, GRNItem,
-                     StockMovement, Sale, SaleItem, StockAlert, PurchaseOrder, UserProfile)
+                     StockMovement, Sale, SaleItem, StockAlert, PurchaseOrder, UserProfile,
+                     Pallet, ShelfLocation, PalletLocation, DispatchComment)
 from .forms import (ProductForm, SupplierForm, CategoryForm, GRNForm, GRNItemFormSet,
-                    SaleForm, SaleItemFormSet, StockAdjustForm)
+                    SaleForm, SaleItemFormSet, StockAdjustForm,
+                    PalletForm, CheckInForm, TransferForm, PalletEditForm)
 
 
 def role_required(*roles):
@@ -29,7 +31,10 @@ def role_required(*roles):
             if profile.role in roles:
                 return view_func(request, *args, **kwargs)
             messages.error(request, "You don't have permission to access that page.")
-            # Redirect to POS or home, not dashboard (to avoid redirect loops)
+            if profile.role == 'wms_operator':
+                return redirect('wms_checkin')
+            if profile.role == 'wms_dispatcher':
+                return redirect('wms_dispatcher_dashboard')
             if profile.role == 'cashier':
                 return redirect('pos')
             return redirect('pos')
@@ -60,6 +65,7 @@ def check_and_create_alerts(product):
 
 
 @login_required
+@role_required('admin', 'manager', 'finance', 'warehouse', 'cashier')
 def dashboard(request):
     products = Product.objects.filter(is_active=True)
     low_stock = [p for p in products if p.is_low_stock]
@@ -81,10 +87,28 @@ def dashboard(request):
     # Stock value
     stock_value = sum(p.stock_value for p in products)
 
+    # Warehouse-specific
+    pending_dispatch = Invoice.objects.filter(dispatch_status='pending').select_related('cashier').order_by('-created_at')[:8]
+    pending_dispatch_count = Invoice.objects.filter(dispatch_status='pending').count()
+    out_of_stock = [p for p in products if p.current_stock <= 0]
+
+    # Dispatch activity — last 7 days
+    dispatch_chart = []
+    for i in range(6, -1, -1):
+        d = today - timedelta(days=i)
+        count = Invoice.objects.filter(dispatch_status='dispatched', dispatched_at__date=d).count()
+        dispatch_chart.append({'date': d.strftime('%d %b'), 'count': count})
+
+    # Stock health breakdown
+    healthy_stock = products.count() - len(low_stock)
+    low_not_zero = len(low_stock) - len(out_of_stock)
+
     context = {
         'total_products': products.count(),
         'low_stock_count': len(low_stock),
-        'low_stock_products': low_stock[:5],
+        'low_stock_products': low_stock,
+        'out_of_stock': out_of_stock,
+        'out_of_stock_count': len(out_of_stock),
         'open_alerts_count': open_alerts.count(),
         'open_alerts': open_alerts,
         'recent_sales': recent_sales,
@@ -93,6 +117,11 @@ def dashboard(request):
         'sales_today_count': sales_today.count(),
         'sales_chart_json': json.dumps(sales_chart),
         'stock_value': stock_value,
+        'pending_dispatch': pending_dispatch,
+        'pending_dispatch_count': pending_dispatch_count,
+        'dispatch_chart_json': json.dumps(dispatch_chart),
+        'healthy_stock': healthy_stock,
+        'low_not_zero': low_not_zero,
     }
     return render(request, 'dashboard.html', context)
 
@@ -193,27 +222,29 @@ def category_add(request):
 # ── GRN (STOCK RECEIVING) ─────────────────────────────────────────────────────
 
 @login_required
-@role_required('admin', 'warehouse')
+@role_required('admin', 'warehouse', 'wms_operator')
 def grn_list(request):
     grns = GoodsReceivedNote.objects.select_related('supplier', 'received_by').order_by('-received_at')
     return render(request, 'grn/list.html', {'grns': grns})
 
 
 @login_required
-@role_required('admin', 'warehouse')
+@role_required('admin', 'warehouse', 'wms_operator')
 def grn_add(request):
     form = GRNForm(request.POST or None)
     formset = GRNItemFormSet(request.POST or None)
     if form.is_valid() and formset.is_valid():
         with transaction.atomic():
             grn = form.save(commit=False)
+            grn.grn_number = _gen_grn_number()
             grn.received_by = request.user
             grn.save()
             items = formset.save(commit=False)
             for item in items:
                 item.grn = grn
+                item.batch_number = _gen_batch_number()
+                item.unit_cost = 0
                 item.save()
-                # Create stock movement
                 StockMovement.objects.create(
                     product=item.product,
                     movement_type='in',
@@ -224,22 +255,18 @@ def grn_add(request):
                     performed_by=request.user,
                 )
                 check_and_create_alerts(item.product)
-            # Check for PO discrepancy
-            if grn.purchase_order:
-                grn.has_discrepancy = False
-                for po_item in grn.purchase_order.items.all():
-                    received = sum(i.quantity_received for i in grn.items.filter(product=po_item.product))
-                    if received != po_item.quantity_ordered:
-                        grn.has_discrepancy = True
-                        StockAlert.objects.create(
-                            product=po_item.product,
-                            alert_type='discrepancy',
-                            message=f"GRN {grn.grn_number}: ordered {po_item.quantity_ordered}, received {received} of {po_item.product.name}."
-                        )
-                grn.save()
         messages.success(request, f'GRN {grn.grn_number} saved. Stock updated.')
         return redirect('grn_detail', pk=grn.pk)
-    return render(request, 'grn/form.html', {'form': form, 'formset': formset})
+    return render(request, 'grn/form.html', {
+        'form': form,
+        'formset': formset,
+        'grn_preview': _gen_grn_number(),
+        'products_json': json.dumps(list(
+            Product.objects.filter(is_active=True)
+            .values('id', 'name', 'sku', 'supplier_id')
+            .order_by('name')
+        )),
+    })
 
 
 @login_required
@@ -344,7 +371,7 @@ def alert_resolve(request, pk):
 # ── REPORTS ───────────────────────────────────────────────────────────────────
 
 @login_required
-@role_required('admin')
+@role_required('admin', 'manager')
 def reports(request):
     products = Product.objects.filter(is_active=True)
     total_stock_value = sum(p.stock_value for p in products)
@@ -519,7 +546,7 @@ def pos(request):
     """Full POS terminal view for cashiers."""
     products = Product.objects.filter(is_active=True).select_related('category').order_by('name')
     categories = Category.objects.all()
-    recent_transactions = Sale.objects.order_by('-created_at')[:8]
+    recent_transactions = Invoice.objects.order_by('-created_at')[:8]
     return render(request, 'pos/pos.html', {
         'products': products,
         'categories': categories,
@@ -529,7 +556,7 @@ def pos(request):
 
 @login_required
 def pos_complete_sale(request):
-    """AJAX endpoint — receive cart JSON and save Sale + deduct stock."""
+    """AJAX endpoint — receive cart JSON, create Invoice and send to warehouse dispatch."""
     if request.method != 'POST':
         return JsonResponse({'error': 'POST required'}, status=405)
     import json as _json
@@ -543,35 +570,38 @@ def pos_complete_sale(request):
     if not cart:
         return JsonResponse({'error': 'Cart is empty'}, status=400)
 
-    errors = []
     with transaction.atomic():
-        sale = Sale.objects.create(
-            sale_number=gen_number('SAL'),
+        invoice = Invoice.objects.create(
+            invoice_number=gen_number('INV'),
             cashier=request.user,
             customer_name=customer,
             account_number=account,
             payment_method=payment,
             notes=notes,
+            dispatch_status='pending',
         )
         for line in cart:
             try:
                 product = Product.objects.get(pk=line['product_id'])
             except Product.DoesNotExist:
-                errors.append(f"Product ID {line['product_id']} not found.")
-                continue
-            qty = int(line['qty'])
-            if product.current_stock < qty:
-                errors.append(f"Insufficient stock for {product.name}. Available: {product.current_stock}")
                 transaction.set_rollback(True)
-                return JsonResponse({'error': '\n'.join(errors)}, status=400)
-            SaleItem.objects.create(sale=sale, product=product, quantity=qty, unit_price=product.unit_price)
-            StockMovement.objects.create(
-                product=product, movement_type='out', quantity=-qty,
-                reference=sale.sale_number, performed_by=request.user,
+                return JsonResponse({'error': f"Product ID {line['product_id']} not found."}, status=400)
+            qty = int(line['qty'])
+            discount = Decimal(str(line.get('discount', 0)))
+            InvoiceItem.objects.create(
+                invoice=invoice,
+                product=product,
+                quantity=qty,
+                unit_price=product.unit_price,
+                discount_percent=discount,
             )
-            check_and_create_alerts(product)
-        sale.calculate_total()
-    return JsonResponse({'success': True, 'sale_number': sale.sale_number, 'total': str(sale.total_amount), 'sale_id': sale.pk})
+        invoice.calculate_total()
+    return JsonResponse({
+        'success': True,
+        'invoice_number': invoice.invoice_number,
+        'total': str(invoice.total_amount),
+        'invoice_id': invoice.pk,
+    })
 
 
 # ── QUOTES ────────────────────────────────────────────────────────────────────
@@ -629,6 +659,7 @@ def quote_convert(request, pk):
             customer_name=quote.customer_name,
             account_number=quote.account_number,
             notes=quote.notes,
+            dispatch_status='pending',
         )
         for qi in quote.items.all():
             InvoiceItem.objects.create(
@@ -636,22 +667,196 @@ def quote_convert(request, pk):
                 quantity=qi.quantity, unit_price=qi.unit_price,
                 discount_percent=qi.discount_percent,
             )
-            # Deduct stock
-            if qi.product.current_stock < qi.quantity:
-                messages.error(request, f"Not enough stock for {qi.product.name}. Conversion failed.")
-                transaction.set_rollback(True)
-                return redirect('quote_detail', pk=pk)
-            StockMovement.objects.create(
-                product=qi.product, movement_type='out', quantity=-qi.quantity,
-                reference=invoice.invoice_number, performed_by=request.user,
-            )
-            check_and_create_alerts(qi.product)
         invoice.calculate_total()
         quote.status = 'converted'
         quote.converted_to = invoice
         quote.save()
-    messages.success(request, f'Quote converted to Invoice {invoice.invoice_number}.')
+    messages.success(request, f'Quote converted to Invoice {invoice.invoice_number}. Sent to warehouse for dispatch.')
     return redirect('invoice_detail', pk=invoice.pk)
+
+
+# ── WAREHOUSE DISPATCH ─────────────────────────────────────────────────────────
+
+@login_required
+@role_required('admin', 'warehouse', 'wms_dispatcher')
+def warehouse_dispatch_list(request):
+    """List invoices pending dispatch and recently dispatched ones."""
+    pending = Invoice.objects.filter(dispatch_status='pending').select_related('cashier').order_by('-created_at')
+    dispatch_log = Invoice.objects.filter(dispatch_status='dispatched').select_related('cashier', 'dispatched_by').order_by('-dispatched_at')
+    return render(request, 'warehouse/dispatch_list.html', {
+        'pending': pending,
+        'dispatch_log': dispatch_log,
+    })
+
+
+@login_required
+@role_required('admin', 'warehouse', 'wms_dispatcher')
+def warehouse_dispatch_detail(request, pk):
+    """Show the dispatch checklist for a single invoice."""
+    invoice = get_object_or_404(Invoice, pk=pk)
+    items = invoice.items.select_related('product').all()
+    item_data = []
+    for item in items:
+        stock = item.product.current_stock
+        item_data.append({
+            'item': item,
+            'current_stock': stock,
+            'sufficient': stock >= item.quantity,
+            'default_dispatch_qty': min(item.quantity, stock) if stock > 0 else 0,
+        })
+    comments = invoice.comments.select_related('author').all()
+    return render(request, 'warehouse/dispatch_detail.html', {
+        'invoice': invoice,
+        'item_data': item_data,
+        'comments': comments,
+    })
+
+
+@login_required
+@role_required('admin', 'warehouse', 'wms_dispatcher')
+def warehouse_dispatch_submit(request, pk):
+    """Confirm dispatch — deduct stock for each checked item, mark invoice dispatched."""
+    invoice = get_object_or_404(Invoice, pk=pk)
+    if request.method != 'POST':
+        return redirect('warehouse_dispatch_detail', pk=pk)
+
+    if invoice.dispatch_status == 'dispatched':
+        messages.warning(request, 'This invoice has already been dispatched.')
+        return redirect('warehouse_dispatch_detail', pk=pk)
+
+    checked_item_ids = set(request.POST.getlist('checked_items'))
+    items = list(invoice.items.select_related('product').all())
+
+    # Collect dispatcher-entered quantities (may be partial for low-stock items)
+    dispatch_quantities = {}
+    for item in items:
+        qty_str = request.POST.get(f'dispatch_qty_{item.pk}', '').strip()
+        try:
+            dqty = int(qty_str)
+        except (ValueError, TypeError):
+            dqty = item.quantity
+        dispatch_quantities[item.pk] = dqty
+
+    errors = []
+    for item in items:
+        if str(item.pk) not in checked_item_ids:
+            errors.append(f"{item.product.name} has not been checked off.")
+        else:
+            dqty = dispatch_quantities[item.pk]
+            if dqty <= 0:
+                errors.append(f"Dispatch quantity for {item.product.name} must be at least 1.")
+            elif dqty > item.product.current_stock:
+                errors.append(
+                    f"Dispatch quantity for {item.product.name} ({dqty}) exceeds available stock "
+                    f"({item.product.current_stock} {item.product.unit})."
+                )
+
+    if errors:
+        for err in errors:
+            messages.error(request, err)
+        return redirect('warehouse_dispatch_detail', pk=pk)
+
+    adjustment_reason = request.POST.get('adjustment_reason', '').strip()
+
+    with transaction.atomic():
+        adjustments = []
+        for item in items:
+            dqty = dispatch_quantities[item.pk]
+            original_qty = item.quantity
+            if dqty != original_qty:
+                adjustments.append(
+                    f"\u2022 {item.product.name}: ordered {original_qty} {item.product.unit}, "
+                    f"dispatched {dqty} {item.product.unit} "
+                    f"(stock available: {item.product.current_stock} {item.product.unit})"
+                )
+                item.quantity = dqty
+                item.save(update_fields=['quantity'])
+            StockMovement.objects.create(
+                product=item.product,
+                movement_type='out',
+                quantity=-dqty,
+                reference=invoice.invoice_number,
+                performed_by=request.user,
+            )
+            check_and_create_alerts(item.product)
+
+        invoice.dispatch_status = 'dispatched'
+        invoice.dispatched_by = request.user
+        invoice.dispatched_at = timezone.now()
+        invoice.truck_plate = request.POST.get('truck_plate', '').strip()
+        invoice.save(update_fields=['dispatch_status', 'dispatched_by', 'dispatched_at', 'truck_plate'])
+
+        if adjustments:
+            invoice.calculate_total()
+
+        # Auto-comment recording partial dispatch details
+        if adjustments:
+            auto_body = "\u26a0\ufe0f Partial dispatch \u2014 quantities adjusted:\n" + "\n".join(adjustments)
+            if adjustment_reason:
+                auto_body += f"\n\nReason: {adjustment_reason}"
+            DispatchComment.objects.create(invoice=invoice, author=request.user, body=auto_body)
+        elif adjustment_reason:
+            DispatchComment.objects.create(invoice=invoice, author=request.user, body=adjustment_reason)
+
+    messages.success(request, f'Invoice {invoice.invoice_number} dispatched successfully. Stock has been updated.')
+    return redirect('warehouse_dispatch_detail', pk=pk)
+
+
+@login_required
+@role_required('admin', 'warehouse', 'wms_dispatcher')
+def warehouse_dispatch_export(request):
+    """Export the dispatch log as a CSV, with optional date/search filters."""
+    from datetime import datetime
+    qs = Invoice.objects.filter(dispatch_status='dispatched').select_related('cashier', 'dispatched_by').order_by('-dispatched_at')
+
+    q     = request.GET.get('q', '').strip().lower()
+    from_ = request.GET.get('from', '').strip()
+    to_   = request.GET.get('to', '').strip()
+
+    if from_:
+        try:
+            qs = qs.filter(dispatched_at__date__gte=datetime.strptime(from_, '%Y-%m-%d').date())
+        except ValueError:
+            pass
+    if to_:
+        try:
+            qs = qs.filter(dispatched_at__date__lte=datetime.strptime(to_, '%Y-%m-%d').date())
+        except ValueError:
+            pass
+    if q:
+        qs = qs.filter(
+            Q(invoice_number__icontains=q) |
+            Q(customer_name__icontains=q) |
+            Q(truck_plate__icontains=q) |
+            Q(dispatched_by__first_name__icontains=q) |
+            Q(dispatched_by__last_name__icontains=q) |
+            Q(dispatched_by__username__icontains=q)
+        )
+
+    filename = f"dispatch_log_{timezone.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+
+    writer = csv.writer(response)
+    writer.writerow(['Date & Time', 'Invoice #', 'Customer', 'Account #', 'Payment Method',
+                     'Invoice Amount (SAT$)', 'Tax (SAT$)', 'Items', 'Checked Out By', 'Truck Plate #'])
+    for inv in qs:
+        dispatched_by = ''
+        if inv.dispatched_by:
+            dispatched_by = inv.dispatched_by.get_full_name() or inv.dispatched_by.username
+        writer.writerow([
+            inv.dispatched_at.strftime('%d/%m/%Y %H:%M') if inv.dispatched_at else '',
+            inv.invoice_number,
+            inv.customer_name or 'Walk-in',
+            inv.account_number or '',
+            inv.get_payment_method_display(),
+            inv.total_amount,
+            inv.tax_amount,
+            inv.items.count(),
+            dispatched_by,
+            inv.truck_plate or '',
+        ])
+    return response
 
 
 # ── INVOICES ──────────────────────────────────────────────────────────────────
@@ -690,3 +895,479 @@ def api_products_all(request):
         obj = Product.objects.get(pk=p['id'])
         p['stock'] = obj.current_stock
     return JsonResponse({'products': products})
+
+
+# ── WMS: PALLETS ──────────────────────────────────────────────────────────────
+
+def _gen_grn_number():
+    """Auto-generate GRN number: GRN-YYYYMMDD-NNNN (sequential per day)."""
+    today_str = timezone.now().strftime('%Y%m%d')
+    prefix = f"GRN-{today_str}-"
+    count = GoodsReceivedNote.objects.filter(grn_number__startswith=prefix).count()
+    candidate = f"{prefix}{count + 1:04d}"
+    while GoodsReceivedNote.objects.filter(grn_number=candidate).exists():
+        count += 1
+        candidate = f"{prefix}{count:04d}"
+    return candidate
+
+
+def _gen_batch_number():
+    """Auto-generate batch number: BTH-YYYYMMDD-NNNN (sequential per day)."""
+    today_str = timezone.now().strftime('%Y%m%d')
+    prefix = f"BTH-{today_str}-"
+    count = GRNItem.objects.filter(batch_number__startswith=prefix).count()
+    candidate = f"{prefix}{count + 1:04d}"
+    while GRNItem.objects.filter(batch_number=candidate).exists():
+        count += 1
+        candidate = f"{prefix}{count:04d}"
+    return candidate
+
+
+def _gen_lot():
+    """Generate a unique lot number like LOT-20260705-A3B1."""
+    ts = timezone.now().strftime('%Y%m%d')
+    suffix = str(uuid.uuid4())[:4].upper()
+    candidate = f"LOT-{ts}-{suffix}"
+    while Pallet.objects.filter(lot_number=candidate).exists():
+        candidate = f"LOT-{ts}-{str(uuid.uuid4())[:4].upper()}"
+    return candidate
+
+
+# ── WMS OPERATOR DASHBOARD ───────────────────────────────────────────────────
+
+@login_required
+@role_required('admin', 'manager', 'warehouse', 'wms_operator')
+def wms_dashboard(request):
+    total_pallets = Pallet.objects.count()
+    assigned_ids = PalletLocation.objects.filter(is_current=True).values_list('pallet_id', flat=True)
+    unassigned_count = Pallet.objects.exclude(pk__in=assigned_ids).count()
+    recent_grns = GoodsReceivedNote.objects.select_related('supplier').order_by('-received_at')[:4]
+    recent_checkins = PalletLocation.objects.filter(is_current=True).select_related(
+        'pallet__product', 'shelf', 'assigned_by'
+    ).order_by('-assigned_at')[:4]
+    return render(request, 'wms/wms_dashboard.html', {
+        'total_pallets': total_pallets,
+        'unassigned_count': unassigned_count,
+        'recent_grns': recent_grns,
+        'recent_checkins': recent_checkins,
+        'today': date.today(),
+    })
+
+
+@login_required
+@role_required('admin', 'manager', 'warehouse', 'wms_operator')
+def pallet_list(request):
+    q = request.GET.get('q', '').strip()
+    pallets = Pallet.objects.select_related('product', 'created_by').order_by('-created_at')
+    if q:
+        pallets = pallets.filter(
+            Q(lot_number__icontains=q) |
+            Q(product__name__icontains=q) |
+            Q(product__sku__icontains=q)
+        )
+    # annotate current location
+    pallet_data = []
+    for p in pallets:
+        pallet_data.append({'pallet': p, 'location': p.current_location})
+    return render(request, 'wms/pallet_list.html', {'pallet_data': pallet_data, 'q': q, 'today': date.today()})
+
+
+@login_required
+@role_required('admin', 'manager', 'warehouse', 'wms_operator')
+def pallet_create(request):
+    grn_pk = request.GET.get('grn')
+    grn = get_object_or_404(GoodsReceivedNote, pk=grn_pk) if grn_pk else None
+    form = PalletForm(request.POST or None, grn=grn)
+    if form.is_valid():
+        pallet = form.save(commit=False)
+        pallet.lot_number = _gen_lot()
+        pallet.created_by = request.user
+        pallet.save()
+        messages.success(request, f'Pallet {pallet.lot_number} created. Print label and check it in to a shelf.')
+        return redirect('pallet_label', pk=pallet.pk)
+    return render(request, 'wms/pallet_create.html', {'form': form, 'grn': grn})
+
+
+@login_required
+@role_required('admin', 'manager', 'warehouse', 'wms_operator')
+def pallet_label(request, pk):
+    pallet = get_object_or_404(Pallet, pk=pk)
+    return render(request, 'wms/pallet_label.html', {'pallet': pallet})
+
+
+@login_required
+@role_required('admin', 'manager', 'warehouse', 'wms_operator')
+def pallet_edit(request, lot_number):
+    pallet = get_object_or_404(Pallet, lot_number=lot_number)
+    form = PalletEditForm(request.POST or None, instance=pallet)
+    if form.is_valid():
+        form.save()
+        messages.success(request, f'Pallet {pallet.lot_number} updated.')
+        return redirect('pallet_label', pk=pallet.pk)
+    return render(request, 'wms/pallet_edit.html', {'pallet': pallet, 'form': form})
+
+
+# ── WMS: SHELVES ──────────────────────────────────────────────────────────────
+
+@login_required
+@role_required('admin', 'manager', 'warehouse', 'wms_operator')
+def shelf_list(request):
+    shelves = ShelfLocation.objects.all()
+    shelf_data = []
+    for shelf in shelves:
+        pallets = list(Pallet.objects.filter(
+            location_history__shelf=shelf,
+            location_history__is_current=True,
+        ).select_related('product'))
+        shelf_data.append({'shelf': shelf, 'pallets': pallets, 'count': len(pallets)})
+
+    # Group by letter for the template
+    from collections import OrderedDict
+    shelf_by_letter = OrderedDict()
+    for row in shelf_data:
+        letter = row['shelf'].letter
+        shelf_by_letter.setdefault(letter, []).append(row)
+
+    return render(request, 'wms/shelf_list.html', {'shelf_data': shelf_data, 'shelf_by_letter': shelf_by_letter})
+
+
+@login_required
+@role_required('admin', 'manager', 'warehouse', 'wms_operator')
+def shelf_qr_print(request):
+    shelves = ShelfLocation.objects.all()
+    return render(request, 'wms/shelf_qr_print.html', {'shelves': shelves})
+
+
+# ── WMS: CHECK-IN ─────────────────────────────────────────────────────────────
+
+@login_required
+@role_required('admin', 'manager', 'warehouse', 'wms_operator')
+def wms_checkin(request, shelf_code=None):
+    shelf = None
+    if shelf_code:
+        shelf = get_object_or_404(ShelfLocation, code=shelf_code.upper())
+
+    form = CheckInForm(request.POST or None, initial={'shelf': shelf} if shelf else {})
+    if shelf:
+        form.fields['shelf'].initial = shelf
+
+    if form.is_valid():
+        lot = form.cleaned_data['lot_number'].strip()
+        dest_shelf = form.cleaned_data['shelf']
+        notes = form.cleaned_data.get('notes', '')
+        try:
+            pallet = Pallet.objects.get(lot_number=lot)
+        except Pallet.DoesNotExist:
+            form.add_error('lot_number', f'No pallet found with lot number "{lot}".')
+        else:
+            with transaction.atomic():
+                # Mark any current assignment as no longer current
+                PalletLocation.objects.filter(pallet=pallet, is_current=True).update(is_current=False)
+                PalletLocation.objects.create(
+                    pallet=pallet,
+                    shelf=dest_shelf,
+                    assigned_by=request.user,
+                    is_current=True,
+                    notes=notes,
+                )
+            messages.success(request, f'Pallet {pallet.lot_number} checked in to shelf {dest_shelf.code}.')
+            return redirect('wms_checkin_shelf', shelf_code=dest_shelf.code)
+
+    # Current pallets on the shelf
+    current_pallets = []
+    if shelf:
+        current_pallets = Pallet.objects.filter(
+            location_history__shelf=shelf,
+            location_history__is_current=True,
+        ).select_related('product')
+
+    return render(request, 'wms/checkin.html', {
+        'form': form,
+        'shelf': shelf,
+        'current_pallets': current_pallets,
+        'shelves': ShelfLocation.objects.all(),
+    })
+
+
+# ── WMS: TRANSFER ─────────────────────────────────────────────────────────────
+
+@login_required
+@role_required('admin', 'manager', 'warehouse', 'wms_operator')
+def wms_transfer(request):
+    form = TransferForm(request.POST or None)
+    pallet = None
+    if request.method == 'POST' and form.is_valid():
+        lot = form.cleaned_data['lot_number'].strip()
+        to_shelf = form.cleaned_data['to_shelf']
+        notes = form.cleaned_data.get('notes', '')
+        try:
+            pallet = Pallet.objects.get(lot_number=lot)
+        except Pallet.DoesNotExist:
+            form.add_error('lot_number', f'No pallet found with lot number "{lot}".')
+        else:
+            from_shelf = pallet.current_location
+            with transaction.atomic():
+                PalletLocation.objects.filter(pallet=pallet, is_current=True).update(is_current=False)
+                PalletLocation.objects.create(
+                    pallet=pallet,
+                    shelf=to_shelf,
+                    assigned_by=request.user,
+                    is_current=True,
+                    notes=f"Transferred from {from_shelf.code if from_shelf else 'unassigned'}: {notes}",
+                )
+            messages.success(request, f'Pallet {pallet.lot_number} transferred to shelf {to_shelf.code}.')
+            return redirect('wms_transfer')
+
+    elif request.method == 'GET' and request.GET.get('lot'):
+        lot = request.GET.get('lot', '').strip()
+        try:
+            pallet = Pallet.objects.get(lot_number=lot)
+        except Pallet.DoesNotExist:
+            pallet = None
+
+    return render(request, 'wms/transfer.html', {'form': form, 'pallet': pallet})
+
+
+# ── WMS: PICKING TICKET ───────────────────────────────────────────────────────
+
+@login_required
+@role_required('admin', 'manager', 'warehouse', 'wms_operator', 'wms_dispatcher')
+def picking_ticket(request, invoice_pk):
+    from .models import Invoice
+    invoice = get_object_or_404(Invoice, pk=invoice_pk)
+    items = invoice.items.select_related('product').all()
+
+    # For each item build a pick line with FEFO (earliest expiry first) pallets
+    ticket_lines = []
+    for item in items:
+        shelf_locations = (
+            ShelfLocation.objects
+            .filter(
+                pallet_assignments__pallet__product=item.product,
+                pallet_assignments__is_current=True,
+            )
+            .distinct()
+            .order_by('letter', 'story')
+        )
+        # Pallets on shelf for this product, sorted FEFO: dated pallets first (asc), undated last
+        pallets_on_shelf = (
+            Pallet.objects
+            .filter(
+                product=item.product,
+                location_history__is_current=True,
+            )
+            .prefetch_related('location_history__shelf')
+            .distinct()
+        )
+        pallets_sorted = sorted(
+            pallets_on_shelf,
+            key=lambda p: (p.expiry_date is None, p.expiry_date or date.max)
+        )
+        shelf_list = list(shelf_locations)
+        ticket_lines.append({
+            'item': item,
+            'shelf_locations': shelf_list,
+            'pallets': pallets_sorted,
+        })
+
+    # Sort lines: items with shelf assignments first, then A → Z by shelf letter
+    ticket_lines.sort(key=lambda x: (
+        0 if x['shelf_locations'] else 1,
+        x['shelf_locations'][0].letter if x['shelf_locations'] else 'ZZ',
+        x['shelf_locations'][0].story if x['shelf_locations'] else 99,
+    ))
+
+    return render(request, 'wms/picking_ticket.html', {
+        'invoice': invoice,
+        'ticket_lines': ticket_lines,
+        'generated_by': request.user,
+        'generated_at': timezone.now(),
+    })
+
+
+# ── WMS: MANAGER DASHBOARD ────────────────────────────────────────────────────
+
+@login_required
+@role_required('admin', 'manager')
+def manager_dashboard(request):
+    from datetime import date as dt_date, timedelta as dt_td
+
+    today = dt_date.today()
+    soon = today + dt_td(days=30)
+
+    total_pallets = Pallet.objects.count()
+    assigned_pallets = PalletLocation.objects.filter(is_current=True).values('pallet').distinct().count()
+    unassigned_pallets = total_pallets - assigned_pallets
+
+    total_shelves = ShelfLocation.objects.count()
+    occupied_shelves = (
+        ShelfLocation.objects
+        .filter(pallet_assignments__is_current=True)
+        .distinct()
+        .count()
+    )
+    free_shelves = total_shelves - occupied_shelves
+
+    products = Product.objects.filter(is_active=True)
+    low_stock = [p for p in products if p.is_low_stock]
+    out_of_stock = [p for p in products if p.current_stock <= 0]
+
+    expiring_pallets = Pallet.objects.filter(
+        expiry_date__lte=soon,
+        expiry_date__gte=today,
+    ).select_related('product').order_by('expiry_date')
+
+    expired_pallets = Pallet.objects.filter(
+        expiry_date__lt=today,
+    ).select_related('product').count()
+
+    open_alerts = StockAlert.objects.filter(is_resolved=False).select_related('product').order_by('-created_at')[:20]
+
+    recent_checkins = PalletLocation.objects.select_related(
+        'pallet__product', 'shelf', 'assigned_by'
+    ).order_by('-assigned_at')[:10]
+
+    from .models import Invoice as Inv
+    recent_dispatches = Inv.objects.filter(dispatch_status='dispatched').order_by('-dispatched_at')[:8]
+
+    # All pallets with locations for the full stock view
+    all_pallets = Pallet.objects.select_related('product', 'created_by').order_by('product__name', '-created_at')
+    pallet_stock = []
+    for p in all_pallets:
+        pallet_stock.append({'pallet': p, 'location': p.current_location})
+
+    context = {
+        'total_pallets': total_pallets,
+        'assigned_pallets': assigned_pallets,
+        'unassigned_pallets': unassigned_pallets,
+        'total_shelves': total_shelves,
+        'occupied_shelves': occupied_shelves,
+        'free_shelves': free_shelves,
+        'low_stock': low_stock,
+        'low_stock_count': len(low_stock),
+        'out_of_stock': out_of_stock,
+        'out_of_stock_count': len(out_of_stock),
+        'expiring_pallets': expiring_pallets,
+        'expiring_count': expiring_pallets.count(),
+        'expired_pallets': expired_pallets,
+        'open_alerts': open_alerts,
+        'open_alerts_count': open_alerts.count(),
+        'recent_checkins': recent_checkins,
+        'recent_dispatches': recent_dispatches,
+        'pallet_stock': pallet_stock,
+        'today': today,
+    }
+    return render(request, 'wms/manager_dashboard.html', context)
+
+
+# ── WMS: API ──────────────────────────────────────────────────────────────────
+
+@login_required
+def api_pallet_lookup(request, lot_number):
+    try:
+        pallet = Pallet.objects.select_related('product').get(lot_number=lot_number)
+        location = pallet.current_location
+        return JsonResponse({
+            'lot_number': pallet.lot_number,
+            'product': pallet.product.name,
+            'quantity': pallet.quantity,
+            'expiry_date': str(pallet.expiry_date) if pallet.expiry_date else None,
+            'current_shelf': location.code if location else None,
+        })
+    except Pallet.DoesNotExist:
+        return JsonResponse({'error': 'Pallet not found'}, status=404)
+
+
+# ── WMS DISPATCHER DASHBOARD ─────────────────────────────────────────────────
+
+@login_required
+@role_required('admin', 'manager', 'warehouse', 'wms_dispatcher')
+def wms_dispatcher_dashboard(request):
+    from .models import Invoice as Inv
+    pending_count = Inv.objects.filter(dispatch_status='pending').count()
+    return render(request, 'wms/dispatcher_dashboard.html', {
+        'pending_count': pending_count,
+        'today': date.today(),
+    })
+
+
+@login_required
+@role_required('admin', 'warehouse', 'wms_dispatcher')
+def dispatcher_add_comment(request, pk):
+    """Add a comment/note to a dispatch order."""
+    from .models import Invoice as Inv
+    invoice = get_object_or_404(Inv, pk=pk)
+    if request.method == 'POST':
+        body = request.POST.get('body', '').strip()
+        if body:
+            DispatchComment.objects.create(invoice=invoice, author=request.user, body=body)
+            messages.success(request, 'Comment added.')
+        else:
+            messages.warning(request, 'Comment cannot be empty.')
+    return redirect('warehouse_dispatch_detail', pk=pk)
+
+
+@login_required
+@role_required('admin', 'warehouse', 'wms_dispatcher')
+def dispatcher_edit_order(request, pk):
+    """Allow dispatcher to adjust item quantities for a pending dispatch order."""
+    from .models import Invoice as Inv, InvoiceItem
+    invoice = get_object_or_404(Inv, pk=pk, dispatch_status='pending')
+
+    if request.method == 'POST':
+        edit_reason = request.POST.get('edit_reason', '').strip()
+        if not edit_reason:
+            messages.error(request, 'A reason is required when editing order items.')
+            items = invoice.items.select_related('product').all()
+            item_data = [{'item': i, 'current_stock': i.product.current_stock} for i in items]
+            return render(request, 'warehouse/edit_order.html', {
+                'invoice': invoice,
+                'item_data': item_data,
+            })
+
+        with transaction.atomic():
+            changes = []
+            for item in invoice.items.all():
+                qty_str = request.POST.get(f'qty_{item.pk}', '').strip()
+                action = request.POST.get(f'action_{item.pk}', '')
+                if action == 'delete':
+                    changes.append(f'\u2022 Removed: {item.product.name} (was {item.quantity} {item.product.unit})')
+                    item.delete()
+                elif qty_str:
+                    try:
+                        new_qty = int(qty_str)
+                        if new_qty > 0:
+                            if new_qty != item.quantity:
+                                changes.append(
+                                    f'\u2022 {item.product.name}: {item.quantity} \u2192 {new_qty} {item.product.unit}'
+                                )
+                            item.quantity = new_qty
+                            item.save(update_fields=['quantity'])
+                        else:
+                            changes.append(f'\u2022 Removed: {item.product.name} (qty set to 0)')
+                            item.delete()
+                    except (ValueError, TypeError):
+                        pass
+            invoice.calculate_total()
+
+            # Save reason + change summary as a comment
+            comment_lines = [f'\u270f\ufe0f Order edited by {request.user.get_full_name() or request.user.username}.']
+            if changes:
+                comment_lines.append('Changes:')
+                comment_lines.extend(changes)
+            comment_lines.append(f'Reason: {edit_reason}')
+            DispatchComment.objects.create(
+                invoice=invoice,
+                author=request.user,
+                body='\n'.join(comment_lines),
+            )
+
+        messages.success(request, f'Order {invoice.invoice_number} updated successfully.')
+        return redirect('warehouse_dispatch_detail', pk=pk)
+
+    items = invoice.items.select_related('product').all()
+    item_data = [{'item': i, 'current_stock': i.product.current_stock} for i in items]
+    return render(request, 'warehouse/edit_order.html', {
+        'invoice': invoice,
+        'item_data': item_data,
+    })

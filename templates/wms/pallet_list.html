@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+{% block title %}Pallets — Ahliki WMS{% endblock %}
+{% block topbar_title %}Pallets{% endblock %}
+
+{% block extra_css %}
+<style>
+/* Card-based list on mobile */
+.pallet-table-wrap { display: block; }
+.pallet-cards { display: none; }
+
+@media (max-width: 768px) {
+  .pallet-table-wrap { display: none; }
+  .pallet-cards { display: block; }
+  .pallet-card {
+    background: #fff;
+    border: 1px solid var(--gray-200);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+  }
+  .pallet-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+  .pallet-card-lot { font-size: 15px; font-weight: 800; color: var(--green-dark); }
+  .pallet-card-body { font-size: 13px; color: var(--gray-700); line-height: 1.6; margin-bottom: 10px; }
+  .pallet-card-actions { display: flex; gap: 8px; }
+  .pallet-card-actions a { flex: 1; justify-content: center; text-align: center; min-height: 42px; display: flex; align-items: center; border-radius: 8px; font-weight: 600; font-size: 13px; text-decoration: none; transition: background 0.15s; }
+  .pallet-card-actions .act-label { background: var(--gray-100); color: var(--gray-700); border: 1px solid var(--gray-200); }
+  .pallet-card-actions .act-checkin { background: var(--green-light); color: var(--green-dark); border: 1px solid var(--green-border); }
+  .pallet-card-actions .act-label:hover { background: var(--gray-200); }
+  .pallet-card-actions .act-checkin:hover { background: var(--green-mid); color: #fff; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Pallets</h1>
+    <p>All pallets — track locations and print labels</p>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a href="{% url 'pallet_create' %}" class="btn btn-primary">+ New Pallet</a>
+    <a href="{% url 'shelf_list' %}" class="btn btn-secondary">🗄️ Shelves</a>
+  </div>
+</div>
+
+<form method="get" style="margin-bottom:16px;display:flex;gap:8px">
+  <input name="q" value="{{ q }}" placeholder="Search lot number or product…"
+    style="flex:1;padding:10px 12px;border:1px solid var(--gray-200);border-radius:7px;font-size:14px;font-family:inherit">
+  <button class="btn btn-secondary" type="submit">Search</button>
+  {% if q %}<a href="{% url 'pallet_list' %}" class="btn btn-secondary">✕</a>{% endif %}
+</form>
+
+<!-- Desktop table -->
+<div class="card pallet-table-wrap">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Lot Number</th><th>Product</th><th>Qty</th><th>Expiry</th><th>Shelf</th><th>Received</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in pallet_data %}
+      <tr>
+        <td><strong>{{ row.pallet.lot_number }}</strong></td>
+        <td>{{ row.pallet.product.name }}</td>
+        <td>{{ row.pallet.quantity }} x {{ row.pallet.product.unit }}</td>
+        <td>
+          {% if row.pallet.expiry_date %}
+            {% if row.pallet.expiry_date < today %}<span class="badge badge-red">Expired {{ row.pallet.expiry_date|date:"d M Y" }}</span>
+            {% else %}{{ row.pallet.expiry_date|date:"d M Y" }}{% endif %}
+          {% else %}<span class="badge badge-gray">—</span>{% endif %}
+        </td>
+        <td>
+          {% if row.location %}<span class="badge badge-blue" style="font-size:14px;font-weight:700">{{ row.location.code }}</span>
+          {% else %}<span class="badge badge-amber">⚠ Unassigned</span>{% endif %}
+        </td>
+        <td style="font-size:12px;color:var(--gray-500)">{{ row.pallet.created_at|date:"d M Y" }}</td>
+        <td style="display:flex;gap:6px">
+          <a href="{% url 'pallet_label' row.pallet.pk %}" class="btn btn-sm btn-secondary">🖨 Label</a>
+          <a href="{% url 'pallet_edit' row.pallet.lot_number %}" class="btn btn-sm btn-secondary">✏️ Edit</a>
+          <a href="{% url 'wms_checkin' %}?lot={{ row.pallet.lot_number }}" class="btn btn-sm btn-secondary">📍</a>
+          <a href="{% url 'wms_transfer' %}?lot={{ row.pallet.lot_number }}" class="btn btn-sm btn-secondary">↔️</a>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7" style="text-align:center;color:var(--gray-500);padding:28px">No pallets found.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Mobile card list -->
+<div class="pallet-cards">
+  {% for row in pallet_data %}
+  <div class="pallet-card">
+    <div class="pallet-card-header">
+      <span class="pallet-card-lot">{{ row.pallet.lot_number }}</span>
+      {% if row.location %}
+        <span class="badge badge-blue" style="font-size:15px;font-weight:800;padding:4px 12px">{{ row.location.code }}</span>
+      {% else %}
+        <span class="badge badge-amber">⚠ Unassigned</span>
+      {% endif %}
+    </div>
+    <div class="pallet-card-body">
+      <strong>{{ row.pallet.product.name }}</strong><br>
+      Qty: {{ row.pallet.quantity }} x {{ row.pallet.product.unit }}
+      {% if row.pallet.expiry_date %} &nbsp;·&nbsp;
+        {% if row.pallet.expiry_date < today %}
+          <span style="color:var(--red);font-weight:700">Expired {{ row.pallet.expiry_date|date:"d M Y" }}</span>
+        {% else %}Exp: {{ row.pallet.expiry_date|date:"d M Y" }}{% endif %}
+      {% endif %}
+    </div>
+    <div class="pallet-card-actions">
+      <a href="{% url 'pallet_label' row.pallet.pk %}" class="act-label">🖨 Label</a>      <a href="{% url 'pallet_edit' row.pallet.lot_number %}" class="act-label">✏️ Edit</a>      <a href="{% url 'wms_checkin' %}?lot={{ row.pallet.lot_number }}" class="act-checkin">📍 Check-In</a>
+      <a href="{% url 'wms_transfer' %}?lot={{ row.pallet.lot_number }}" class="act-label">↔️ Transfer</a>
+    </div>
+  </div>
+  {% empty %}
+  <div style="text-align:center;padding:32px;color:var(--gray-500)">No pallets found.</div>
+  {% endfor %}
+</div>
+{% endblock %}

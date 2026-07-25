@@ -1,0 +1,96 @@
+{% extends 'base.html' %}
+{% block title %}Edit Order {{ invoice.invoice_number }} — Ah Liki{% endblock %}
+{% block topbar_title %}Edit Dispatch Order{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Edit Order — {{ invoice.invoice_number }}</h1>
+    <p>Adjust item quantities or remove items that are out of stock before dispatching.</p>
+  </div>
+  <a href="{% url 'warehouse_dispatch_detail' invoice.pk %}" class="btn btn-secondary">← Back to Dispatch</a>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h2>Order Items</h2>
+  </div>
+  <form method="post">
+    {% csrf_token %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>SKU</th>
+            <th style="text-align:center">In Stock</th>
+            <th style="text-align:center">Current Qty</th>
+            <th style="text-align:center">New Qty</th>
+            <th style="text-align:center">Remove</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in item_data %}
+        <tr style="{% if row.current_stock < row.item.quantity %}background:#fff5f5{% endif %}">
+          <td><strong>{{ row.item.product.name }}</strong></td>
+          <td><code>{{ row.item.product.sku }}</code></td>
+          <td style="text-align:center;font-weight:700;{% if row.current_stock >= row.item.quantity %}color:#059669{% else %}color:#dc2626{% endif %}">
+            {{ row.current_stock }} {{ row.item.product.unit }}
+          </td>
+          <td style="text-align:center;font-weight:700">{{ row.item.quantity }} {{ row.item.product.unit }}</td>
+          <td style="text-align:center">
+            <input
+              type="number"
+              name="qty_{{ row.item.pk }}"
+              value="{{ row.item.quantity }}"
+              min="0"
+              max="{{ row.current_stock }}"
+              style="width:80px;padding:6px 10px;border:1px solid var(--gray-200);border-radius:7px;font-size:14px;text-align:center"
+            >
+          </td>
+          <td style="text-align:center">
+            <label style="cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px">
+              <input type="checkbox" name="action_{{ row.item.pk }}" value="delete"
+                style="width:18px;height:18px;accent-color:#dc2626">
+              <span style="font-size:12px;color:#dc2626">Remove</span>
+            </label>
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Required reason for editing -->
+    <div style="padding:16px 20px;border-top:1px solid var(--gray-200);background:#fffbeb">
+      <label style="display:block;font-size:12px;font-weight:700;color:#92400e;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.04em">
+        ✏️ Reason for editing this order <span style="color:#dc2626">*</span>
+      </label>
+      <textarea
+        name="edit_reason"
+        id="editReason"
+        rows="3"
+        required
+        placeholder="Explain why you are changing this order (e.g. 'Reduced egg qty from 10 to 8 — only 8 units left in warehouse')…"
+        style="width:100%;padding:10px 14px;border:1px solid #fde68a;border-radius:8px;font-size:13px;resize:vertical;font-family:inherit;outline:none;background:#fffde7"
+        oninput="document.getElementById('saveBtn').disabled = this.value.trim().length === 0"
+      ></textarea>
+      <p style="margin:4px 0 0;font-size:11px;color:#92400e">This note will be saved as a comment on the dispatch order for traceability.</p>
+    </div>
+
+    <div style="padding:16px 20px;border-top:1px solid var(--gray-200);display:flex;justify-content:flex-end;gap:10px">
+      <a href="{% url 'warehouse_dispatch_detail' invoice.pk %}" class="btn btn-secondary">Cancel</a>
+      <button type="submit" id="saveBtn" class="btn btn-primary" disabled
+        onclick="return confirm('Save changes to order {{ invoice.invoice_number }}?')">
+        💾 Save Changes
+      </button>
+    </div>
+  </form>
+</div>
+
+<script>
+  // Keep save button in sync on page load (in case browser restores textarea content)
+  const ta = document.getElementById('editReason');
+  document.getElementById('saveBtn').disabled = ta.value.trim().length === 0;
+</script>
+{% endblock %}
