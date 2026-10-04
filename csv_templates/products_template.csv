@@ -1,0 +1,3 @@
+sku,name,category,supplier,unit_price,cost_price,reorder_level,unit,barcode,description,is_active
+BEV-001,Cola 1.5L,Beverages,Samoa Beverages,8.50,6.00,24,each,9412345678901,"Bottled cola, 1.5 litre",yes
+DRY-001,Rice 10kg,Dry Goods,Pacific Foods Ltd,45.00,36.00,10,bag,,Long grain white rice,yes

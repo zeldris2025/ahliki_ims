@@ -64,6 +64,11 @@
     <span class="card-label">Pallets</span>
     <span class="card-sub">{{ total_pallets }} total{% if unassigned_count %} · {{ unassigned_count }} unassigned{% endif %}</span>
   </a>
+  <a href="{% url 'warehouse_container_list' %}" class="wms-big-card wms-card-purple">
+    <span class="card-icon">🚢</span>
+    <span class="card-label">Containers</span>
+    <span class="card-sub">{{ containers_awaiting }} to check in{% if containers_open %} · {{ containers_open }} open{% endif %}</span>
+  </a>
   <a href="{% url 'wms_transfer' %}" class="wms-big-card wms-card-purple">
     <span class="card-icon">↔️</span>
     <span class="card-label">Transfer</span>

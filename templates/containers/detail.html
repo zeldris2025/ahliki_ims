@@ -1,0 +1,242 @@
+{% extends 'base.html' %}
+{% block title %}{{ container.container_number }} — Container{% endblock %}
+{% block topbar_title %}Container {{ container.container_number }}{% endblock %}
+
+{% block extra_css %}
+<style>
+.flow { display:flex; gap:6px; flex-wrap:wrap; margin:18px 0 24px; }
+.flow-step { flex:1; min-width:120px; padding:10px 12px; border-radius:9px; background:var(--gray-100,#f1f5f9);
+  border:1px solid var(--gray-200); font-size:12px; color:var(--gray-500); }
+.flow-step.done { background:#dcfce7; border-color:#86efac; color:#166534; }
+.flow-step.current { background:#dbeafe; border-color:#93c5fd; color:#1e40af; font-weight:700; }
+.flow-step strong { display:block; font-size:13px; margin-bottom:2px; }
+.flow-step span { font-size:11px; opacity:.85; }
+.meta-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:14px; }
+.meta-grid div span { display:block; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--gray-500); }
+.meta-grid div strong { font-size:14px; }
+.progress-bar { height:8px; background:var(--gray-200); border-radius:99px; overflow:hidden; }
+.progress-bar i { display:block; height:100%; background:var(--green-mid,#2d7a4f); }
+.comment { border-left:3px solid var(--gray-200); padding:8px 0 8px 12px; margin-bottom:12px; }
+.comment.damage { border-left-color:var(--red,#dc2626); background:#fef2f2; border-radius:0 8px 8px 0; padding-right:10px; }
+.comment .who { font-size:12px; color:var(--gray-500); margin-bottom:3px; }
+.comment .body { font-size:14px; white-space:pre-wrap; }
+.action-bar { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
+.action-bar button, .action-bar .btn { min-height:46px; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>{{ container.container_number }} {% include 'containers/_status_badge.html' with container=container %}</h1>
+    <p>
+      {{ container.supplier.name|default:"No supplier" }}
+      {% if container.vessel %} &nbsp;·&nbsp; {{ container.vessel }}{% endif %}
+      {% if container.container_type %} &nbsp;·&nbsp; {{ container.container_type }}{% endif %}
+    </p>
+  </div>
+  <div style="display:flex;gap:8px">
+    {% if perms.can_edit %}<a href="{% url 'container_edit' container.pk %}" class="btn btn-secondary">✏️ Edit manifest</a>{% endif %}
+    <a href="{% url 'container_list' %}" class="btn btn-secondary">← Containers</a>
+  </div>
+</div>
+
+{% if damage_count %}
+<div class="alert alert-danger" style="margin-bottom:14px">
+  ⚠️ {{ damage_count }} damage report{{ damage_count|pluralize }} logged against this container — see the comments below.
+</div>
+{% endif %}
+
+<!-- Flow tracker -->
+<div class="flow">
+  <div class="flow-step {% if container.status == 'at_wharf' %}current{% else %}done{% endif %}">
+    <strong>1 · At Wharf</strong>
+    <span>{{ container.created_by.get_full_name|default:container.created_by.username|default:"—" }} · {{ container.created_at|date:"d M H:i" }}</span>
+  </div>
+  <div class="flow-step {% if container.status == 'checked_in' %}current{% elif container.checked_in_at %}done{% endif %}">
+    <strong>2 · Checked In at HQ</strong>
+    <span>{% if container.checked_in_at %}{{ container.checked_in_by.get_full_name|default:container.checked_in_by.username }} · {{ container.checked_in_at|date:"d M H:i" }}{% else %}Waiting{% endif %}</span>
+  </div>
+  <div class="flow-step {% if container.status == 'opened' %}current{% elif container.opened_at %}done{% endif %}">
+    <strong>3 · Opened</strong>
+    <span>{% if container.opened_at %}{{ container.opened_by.get_full_name|default:container.opened_by.username }} · {{ container.opened_at|date:"d M H:i" }}{% else %}Not opened{% endif %}</span>
+  </div>
+  <div class="flow-step {% if container.status == 'palletized' %}current{% elif container.status == 'closed' %}done{% endif %}">
+    <strong>4 · Palletized</strong>
+    <span>{% if container.palletized_at %}{{ container.palletized_at|date:"d M H:i" }}{% else %}{{ container.palletized_quantity }} / {{ container.total_quantity }} units{% endif %}</span>
+  </div>
+  <div class="flow-step {% if container.status == 'closed' %}done{% endif %}">
+    <strong>5 · Closed</strong>
+    <span>{% if container.closed_at %}{{ container.closed_by.get_full_name|default:container.closed_by.username }} · {{ container.closed_at|date:"d M H:i" }}{% else %}Open{% endif %}</span>
+  </div>
+</div>
+
+<!-- Stage actions -->
+<div class="action-bar">
+  {% if perms.can_check_in %}
+  <form method="post" action="{% url 'container_check_in' container.pk %}" style="margin:0">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary" style="padding:12px 26px;font-size:15px;font-weight:700">
+      📥 Check In Container
+    </button>
+  </form>
+  {% endif %}
+
+  {% if perms.can_open %}
+  <form method="post" action="{% url 'container_open' container.pk %}" style="margin:0"
+        onsubmit="return confirm('Open {{ container.container_number }}? This raises a GRN and puts the full manifest on hand as stock.');">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary" style="padding:12px 26px;font-size:15px;font-weight:700">
+      📂 Open Container
+    </button>
+  </form>
+  {% endif %}
+
+  {% if container.grn %}
+  <a href="{% url 'grn_detail' container.grn.pk %}" class="btn btn-secondary" style="display:flex;align-items:center">
+    📥 {{ container.grn.grn_number }}
+  </a>
+  {% endif %}
+
+  {% if perms.can_close %}
+  <button type="button" class="btn btn-primary" style="padding:12px 26px;font-size:15px;font-weight:700;background:var(--green-dark)"
+          onclick="document.getElementById('closeBox').scrollIntoView({behavior:'smooth'});document.getElementById('closing_comment').focus()">
+    🔒 Close Container
+  </button>
+  {% endif %}
+</div>
+
+<!-- Manifest -->
+<div class="card">
+  <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+    <h2>Contents</h2>
+    <div style="min-width:200px;flex:1;max-width:320px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--gray-500);margin-bottom:4px">
+        <span>Palletized</span>
+        <span>{{ container.palletized_quantity }} / {{ container.total_quantity }} units</span>
+      </div>
+      <div class="progress-bar">
+        <i style="width:{% widthratio container.palletized_quantity container.total_quantity|default:1 100 %}%"></i>
+      </div>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>SKU</th>
+          <th>Qty</th>
+          <th>Expiry</th>
+          <th>Palletized</th>
+          <th>Pallets</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for d in item_data %}
+        <tr>
+          <td><strong>{{ d.item.product.name }}</strong>{% if d.item.notes %}<br><span style="font-size:12px;color:var(--gray-500)">{{ d.item.notes }}</span>{% endif %}</td>
+          <td style="font-size:12px">{{ d.item.product.sku }}</td>
+          <td>{{ d.item.quantity }} {{ d.item.product.unit }}</td>
+          <td style="font-size:12px">{{ d.item.expiry_date|date:"d M Y"|default:"—" }}</td>
+          <td>
+            {% if d.remaining == 0 %}<span class="badge badge-green">✅ {{ d.palletized }}</span>
+            {% elif d.palletized > 0 %}<span class="badge badge-amber">{{ d.palletized }} / {{ d.item.quantity }}</span>
+            {% else %}<span class="badge badge-gray">0</span>{% endif %}
+          </td>
+          <td style="font-size:12px">
+            {% for p in d.pallets %}
+              <a href="{% url 'pallet_label' p.pk %}">{{ p.lot_number }}</a> ({{ p.quantity }}){% if not forloop.last %}<br>{% endif %}
+            {% empty %}—{% endfor %}
+          </td>
+          <td>
+            {% if perms.can_palletize and d.remaining > 0 %}
+            <a href="{% url 'container_palletize' container.pk d.item.pk %}" class="btn btn-primary btn-sm">🧱 Palletize</a>
+            {% endif %}
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="7" style="text-align:center;color:var(--gray-400);padding:26px">No items on this manifest.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if container.notes %}
+<div class="card" style="margin-top:16px">
+  <div class="card-header"><h2>Broker Notes</h2></div>
+  <div class="card-body" style="font-size:14px;white-space:pre-wrap">{{ container.notes }}</div>
+</div>
+{% endif %}
+
+<!-- Comments -->
+<div class="card" style="margin-top:16px">
+  <div class="card-header"><h2>Comments &amp; Damage Reports</h2></div>
+  <div class="card-body">
+    {% for c in comments %}
+    <div class="comment{% if c.is_damage %} damage{% endif %}">
+      <div class="who">
+        {% if c.is_damage %}⚠️ <strong style="color:var(--red,#dc2626)">Damage report</strong> · {% endif %}
+        {{ c.author.get_full_name|default:c.author.username|default:"System" }} · {{ c.created_at|date:"d M Y H:i" }}
+      </div>
+      <div class="body">{{ c.body }}</div>
+    </div>
+    {% empty %}
+    <p style="color:var(--gray-400);font-size:13px">No comments yet.</p>
+    {% endfor %}
+
+    {% if perms.can_comment %}
+    <form method="post" action="{% url 'container_add_comment' container.pk %}" style="margin-top:14px">
+      {% csrf_token %}
+      <div class="form-group">
+        <label>{{ comment_form.body.label }}</label>
+        {{ comment_form.body }}
+        {% if comment_form.body.errors %}<span style="color:var(--red);font-size:12px">{{ comment_form.body.errors.0 }}</span>{% endif %}
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:8px 0 12px">
+        {{ comment_form.is_damage }} {{ comment_form.is_damage.label }}
+      </label>
+      <button type="submit" class="btn btn-primary">💬 Add Comment</button>
+    </form>
+    {% else %}
+    <p style="color:var(--gray-400);font-size:13px;margin-top:10px">This container is closed — comments are locked.</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Close container -->
+{% if perms.can_close %}
+<div class="card" id="closeBox" style="margin-top:16px;border-left:4px solid var(--green-dark)">
+  <div class="card-header"><h2>Close Container</h2></div>
+  <div class="card-body">
+    <p style="font-size:13px;color:var(--gray-500);margin-bottom:12px">
+      Everything is out and palletized. Add a final note if anything came out broken or short, then close the container.
+    </p>
+    <form method="post" action="{% url 'container_close' container.pk %}">
+      {% csrf_token %}
+      <div class="form-group">
+        <label>Closing comment (optional)</label>
+        <textarea name="closing_comment" id="closing_comment" rows="3"
+          placeholder="e.g. 2 cartons of rice split on the bottom layer — moved to the damage bay."
+          style="width:100%;padding:10px;border:1px solid var(--gray-200);border-radius:8px;font-size:14px"></textarea>
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:8px 0 12px">
+        <input type="checkbox" name="closing_is_damage" value="1"> Flag this note as a damaged / broken goods report
+      </label>
+      <button type="submit" class="btn btn-primary" style="background:var(--green-dark);padding:12px 26px;font-size:15px;font-weight:700"
+        onclick="return confirm('Close {{ container.container_number }}? No further comments can be added afterwards.')">
+        🔒 Close Container
+      </button>
+    </form>
+  </div>
+</div>
+{% elif container.status == 'opened' %}
+<div class="alert alert-info" style="margin-top:16px">
+  ℹ️ {{ container.remaining_quantity }} unit{{ container.remaining_quantity|pluralize }} still to palletize before this container can be closed.
+</div>
+{% endif %}
+
+{% endblock %}

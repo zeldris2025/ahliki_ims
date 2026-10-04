@@ -148,9 +148,15 @@
           </td>
           <td>
             {% for p in line.pallets %}
-              <div style="font-size:11px;{% if forloop.first %}font-weight:700;{% endif %}">
-                {% if forloop.first %}⭐ {% endif %}{{ p.lot_number }}
+              {% with shelf=p.current_location %}
+              <div style="font-size:11px;{% if forloop.first %}font-weight:700;{% endif %}display:flex;align-items:center;gap:6px;margin-bottom:3px">
+                {% if forloop.first %}⭐ {% endif %}
+                <span>{{ p.lot_number }}</span>
+                {% if shelf %}
+                  <span style="background:#1a3a2a;color:#fff;border-radius:4px;padding:1px 7px;font-size:10px;font-weight:800;letter-spacing:1px">{{ shelf.code }}</span>
+                {% endif %}
               </div>
+              {% endwith %}
             {% empty %}
               <span style="color:#92400e;font-size:11px">No pallet on shelf</span>
             {% endfor %}

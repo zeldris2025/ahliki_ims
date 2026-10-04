@@ -1,0 +1,411 @@
+{% extends 'base.html' %}
+{% block title %}Upload Invoice — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Upload Invoice{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Upload Sales Invoice</h1>
+    <p style="color:var(--gray-500)">Drop the Ah Liki PDF — all fields fill in automatically.</p>
+  </div>
+  <a href="{% url 'invoice_list' %}" class="btn btn-secondary">← Invoices</a>
+</div>
+
+<div style="max-width:780px">
+  <form method="post" enctype="multipart/form-data" id="uploadForm">
+    {% csrf_token %}
+
+    <!-- PDF drop zone -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><h2>📄 Invoice PDF</h2></div>
+      <div class="card-body">
+        <label
+          for="id_invoice_file"
+          id="dropZone"
+          style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;
+                 border:2px dashed var(--gray-200);border-radius:10px;padding:36px 20px;
+                 cursor:pointer;transition:border-color .2s,background .2s"
+        >
+          <span style="font-size:38px" id="dropIcon">📥</span>
+          <span style="font-weight:600;font-size:15px" id="dropLabel">Click to choose PDF or drag &amp; drop here</span>
+          <span style="font-size:12px;color:var(--gray-400)" id="dropSub">Ah Liki Wholesale invoice — fields fill automatically</span>
+          <input type="file" name="invoice_file" id="id_invoice_file" accept=".pdf,application/pdf" style="display:none">
+        </label>
+        <div id="parseStatus" style="display:none;margin-top:12px;padding:10px 14px;border-radius:8px;font-size:13px;font-weight:600"></div>
+        {% if form.invoice_file.errors %}
+        <p style="color:#dc2626;font-size:13px;margin:6px 0 0">{{ form.invoice_file.errors|join:", " }}</p>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Invoice Details -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
+        <h2>Invoice Details</h2>
+        <span id="autoFilledBadge" style="display:none" class="badge badge-green">✨ Auto-filled from PDF</span>
+      </div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+
+          <div class="form-group">
+            <label for="{{ form.invoice_number.id_for_label }}" style="font-weight:600">
+              Invoice # <span style="color:#dc2626">*</span>
+            </label>
+            <input type="text" name="invoice_number" id="id_invoice_number"
+              value="{{ form.invoice_number.value|default:'' }}"
+              placeholder="e.g. 72928"
+              style="width:100%;padding:8px 12px;border:1px solid var(--gray-200);border-radius:7px;font-size:14px;box-sizing:border-box">
+            {% if form.invoice_number.errors %}
+            <p style="color:#dc2626;font-size:13px;margin:4px 0 0">{{ form.invoice_number.errors|join:", " }}</p>
+            {% endif %}
+          </div>
+
+          <div class="form-group">
+            <label for="{{ form.due_date.id_for_label }}" style="font-weight:600">Valid To / Due Date</label>
+            <input type="date" name="due_date" id="id_due_date"
+              value="{{ form.due_date.value|default:'' }}"
+              style="width:100%;padding:8px 12px;border:1px solid var(--gray-200);border-radius:7px;font-size:14px;box-sizing:border-box">
+          </div>
+
+          <div class="form-group">
+            <label for="{{ form.customer_name.id_for_label }}" style="font-weight:600">Customer Name</label>
+            <input type="text" name="customer_name" id="id_customer_name"
+              value="{{ form.customer_name.value|default:'' }}"
+              placeholder="e.g. Taumeasina Resort"
+              style="width:100%;padding:8px 12px;border:1px solid var(--gray-200);border-radius:7px;font-size:14px;box-sizing:border-box">
+          </div>
+
+          <div class="form-group">
+            <label for="{{ form.account_number.id_for_label }}" style="font-weight:600">Account #</label>
+            <input type="text" name="account_number" id="id_account_number"
+              value="{{ form.account_number.value|default:'' }}"
+              placeholder="e.g. TWN-001"
+              style="width:100%;padding:8px 12px;border:1px solid var(--gray-200);border-radius:7px;font-size:14px;box-sizing:border-box">
+          </div>
+
+          <div class="form-group">
+            <label for="{{ form.salesperson.id_for_label }}" style="font-weight:600">Salesperson</label>
+            <input type="text" name="salesperson" id="id_salesperson"
+              value="{{ form.salesperson.value|default:'' }}"
+              placeholder="e.g. Ropati"
+              style="width:100%;padding:8px 12px;border:1px solid var(--gray-200);border-radius:7px;font-size:14px;box-sizing:border-box">
+          </div>
+
+          <div class="form-group">
+            <label for="{{ form.sales_territory.id_for_label }}" style="font-weight:600">Sales Territory</label>
+            <input type="text" name="sales_territory" id="id_sales_territory"
+              value="{{ form.sales_territory.value|default:'' }}"
+              placeholder="e.g. TWN"
+              style="width:100%;padding:8px 12px;border:1px solid var(--gray-200);border-radius:7px;font-size:14px;box-sizing:border-box">
+          </div>
+
+          <div class="form-group">
+            <label for="{{ form.payment_method.id_for_label }}" style="font-weight:600">Payment Method</label>
+            <select name="payment_method" id="id_payment_method"
+              style="width:100%;padding:8px 12px;border:1px solid var(--gray-200);border-radius:7px;font-size:14px;box-sizing:border-box">
+              <option value="cash">Cash</option>
+              <option value="credit" selected>Credit Account</option>
+              <option value="eftpos">EFTPOS</option>
+              <option value="cheque">Cheque</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="{{ form.payment_terms.id_for_label }}" style="font-weight:600">Payment Terms</label>
+            <input type="text" name="payment_terms" id="id_payment_terms"
+              value="{{ form.payment_terms.value|default:'' }}"
+              placeholder="e.g. Net 7 days"
+              style="width:100%;padding:8px 12px;border:1px solid var(--gray-200);border-radius:7px;font-size:14px;box-sizing:border-box">
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- Totals -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><h2>Amounts</h2></div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <div class="form-group">
+            <label for="{{ form.total_amount.id_for_label }}" style="font-weight:600">Total Incl. VAT (SAT$)</label>
+            <input type="number" step="0.01" name="total_amount" id="id_total_amount"
+              value="{{ form.total_amount.value|default:'' }}"
+              placeholder="0.00"
+              style="width:100%;padding:8px 12px;border:1px solid var(--gray-200);border-radius:7px;font-size:14px;box-sizing:border-box">
+          </div>
+          <div class="form-group">
+            <label for="id_tax_amount" style="font-weight:600">15% VAT Amount (SAT$)</label>
+            <input type="number" step="0.01" name="tax_amount" id="id_tax_amount"
+              value="{{ form.tax_amount.value|default:'' }}"
+              placeholder="0.00"
+              style="width:100%;padding:8px 12px;border:1px solid var(--gray-200);border-radius:7px;font-size:14px;box-sizing:border-box">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Items preview -->
+    <div class="card" id="itemsCard" style="margin-bottom:16px;display:none">
+      <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
+        <h2>📦 Invoice Items</h2>
+        <span id="itemMatchSummary" style="font-size:13px;color:var(--gray-500)"></span>
+      </div>
+      <div class="table-wrap">
+        <table id="itemsTable">
+          <thead>
+            <tr>
+              <th>SKU</th>
+              <th>Description</th>
+              <th style="text-align:center">Qty</th>
+              <th>Unit</th>
+              <th style="text-align:right">Unit Price</th>
+              <th style="text-align:center">Catalogue check</th>
+            </tr>
+          </thead>
+          <tbody id="itemsBody"></tbody>
+        </table>
+      </div>
+      <p style="padding:10px 20px;font-size:12px;color:var(--gray-400);margin:0">
+        Each line's <strong>SKU</strong>, <strong>description</strong> and <strong>unit</strong> is compared with the product catalogue; capitalisation is ignored.
+        <span class="badge badge-green" style="font-size:11px">Matched</span> — the fields agree and the line will be tracked.
+        <span class="badge badge-amber" style="font-size:11px">Check</span> — a product was found but a field differs, or several products fit; the catalogue value is shown beneath.
+        <span class="badge badge-red" style="font-size:11px">Not in catalogue</span> — visible on the PDF but not added as a line item.
+        The catalogue does not store Ah Liki <code>AL…</code> codes, so lines normally match on description and unit — that is noted, not flagged.
+      </p>
+      <!-- Hidden field carries extracted items to the server -->
+      <input type="hidden" name="extracted_items" id="id_extracted_items" value="">
+    </div>
+
+    <!-- Notes -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header"><h2>Notes</h2></div>
+      <div class="card-body">
+        <textarea name="notes" id="id_notes" rows="2"
+          placeholder="Any remarks about this invoice…"
+          style="width:100%;padding:8px 12px;border:1px solid var(--gray-200);border-radius:7px;font-size:14px;resize:vertical;box-sizing:border-box"
+        >{{ form.notes.value|default:'' }}</textarea>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:12px;justify-content:flex-end">
+      <a href="{% url 'invoice_list' %}" class="btn btn-secondary">Cancel</a>
+      <button type="submit" class="btn btn-primary" style="min-width:200px">
+        📤 Upload &amp; Send to Dispatch
+      </button>
+    </div>
+
+  </form>
+</div>
+
+<script>
+const PARSE_URL = "{% url 'invoice_parse_pdf' %}";
+const CSRF = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+const dropZone  = document.getElementById('dropZone');
+const fileInput = document.getElementById('id_invoice_file');
+const dropIcon  = document.getElementById('dropIcon');
+const dropLabel = document.getElementById('dropLabel');
+const dropSub   = document.getElementById('dropSub');
+const statusEl  = document.getElementById('parseStatus');
+const badge     = document.getElementById('autoFilledBadge');
+
+const FIELDS = {
+  invoice_number:  'id_invoice_number',
+  due_date:        'id_due_date',
+  customer_name:   'id_customer_name',
+  salesperson:     'id_salesperson',
+  sales_territory: 'id_sales_territory',
+  payment_method:  'id_payment_method',
+  payment_terms:   'id_payment_terms',
+  total_amount:    'id_total_amount',
+  tax_amount:      'id_tax_amount',
+};
+
+function setStatus(msg, type) {
+  const styles = {
+    loading: ['#eff6ff','#1d4ed8'],
+    success: ['#d1fae5','#065f46'],
+    warn:    ['#fef3c7','#92400e'],
+    error:   ['#fff1f2','#be123c'],
+  };
+  const [bg, col] = styles[type] || styles.warn;
+  statusEl.style.cssText = `display:block;background:${bg};color:${col};border:1px solid ${col}40;padding:10px 14px;border-radius:8px;font-size:13px;font-weight:600`;
+  statusEl.textContent = msg;
+}
+
+function esc(value) {
+  return String(value === undefined || value === null ? '' : value)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Shows the catalogue's own value underneath the invoice value.
+// 'unrecorded' means the catalogue simply has no Ah Liki code for the product —
+// that is normal here, so it is shown in grey rather than as a mismatch.
+function cataloguePart(verdict, catalogueValue) {
+  if (verdict === 'match' || verdict === 'unknown' || !catalogueValue) return '';
+  const colour = verdict === 'differs' ? '#be123c'
+               : verdict === 'close'   ? '#92400e'
+               : 'var(--gray-400)';
+  const label  = verdict === 'unrecorded' ? 'catalogue' : 'catalogue says';
+  return `<div style="font-size:11px;color:${colour};margin-top:2px">
+            ${label}: ${esc(catalogueValue)}
+          </div>`;
+}
+
+function statusBadge(it, hasDiff) {
+  if (!it.matched) return '<span class="badge badge-red">Not in catalogue</span>';
+  const score = `<div style="font-size:11px;color:var(--gray-400);margin-top:2px">${it.match_score}% match</div>`;
+  if (hasDiff) return `<span class="badge badge-amber">Check</span>${score}`;
+  return `<span class="badge badge-green">Matched</span>${score}`;
+}
+
+function highlight(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.style.background = '#ecfdf5';
+  el.style.borderColor = '#10b981';
+  setTimeout(() => { el.style.background = ''; el.style.borderColor = ''; }, 2500);
+}
+
+async function parsePDF(file) {
+  setStatus('⏳ Reading PDF…', 'loading');
+  badge.style.display = 'none';
+
+  const fd = new FormData();
+  fd.append('pdf', file);
+  fd.append('csrfmiddlewaretoken', CSRF);
+
+  let json;
+  try {
+    const resp = await fetch(PARSE_URL, { method: 'POST', body: fd });
+    json = await resp.json();
+  } catch {
+    setStatus('⚠️ Network error — please fill in the fields manually.', 'warn');
+    return;
+  }
+
+  if (!json.success) {
+    setStatus('⚠️ Could not extract data from this PDF — please fill in manually.', 'warn');
+    return;
+  }
+
+  let filled = 0;
+  for (const [key, elId] of Object.entries(FIELDS)) {
+    const val = json.data[key];
+    if (val === undefined || val === null || val === '') continue;
+    const el = document.getElementById(elId);
+    if (!el) continue;
+    if (el.tagName === 'SELECT') {
+      for (const opt of el.options) { if (opt.value === val) { opt.selected = true; break; } }
+    } else {
+      el.value = val;
+    }
+    highlight(elId);
+    filled++;
+  }
+
+  if (filled > 0) {
+    setStatus(`✅ ${filled} fields filled from PDF — please review before submitting.`, 'success');
+    badge.style.display = 'inline-flex';
+  } else {
+    setStatus('⚠️ PDF was read but no fields could be extracted — please fill in manually.', 'warn');
+  }
+
+  // ── Render items preview ───────────────────────────────────────
+  const items = json.data.items || [];
+  const itemsCard = document.getElementById('itemsCard');
+  const itemsBody = document.getElementById('itemsBody');
+  const matchSummary = document.getElementById('itemMatchSummary');
+
+  if (items.length > 0) {
+    itemsBody.innerHTML = '';
+    let matched = 0, flagged = 0;
+    for (const it of items) {
+      const fm = it.field_matches || {};
+      const hasDiff = it.ambiguous
+        || ['sku', 'description', 'unit'].some(f => fm[f] === 'differs' || fm[f] === 'close');
+      if (it.matched && !hasDiff) matched++;
+      else if (it.matched) flagged++;
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>
+          <code>${esc(it.sku)}</code>
+          ${cataloguePart(fm.sku, it.catalogue_sku)}
+        </td>
+        <td style="font-size:13px">
+          ${esc(it.description)}
+          ${cataloguePart(fm.description, it.catalogue_name)}
+        </td>
+        <td style="text-align:center;font-weight:700">${esc(it.quantity)}</td>
+        <td style="font-size:12px;color:var(--gray-500)">
+          ${esc(it.unit)}
+          ${cataloguePart(fm.unit, it.catalogue_unit)}
+        </td>
+        <td style="text-align:right">SAT$${parseFloat(it.unit_price).toFixed(2)}</td>
+        <td style="text-align:center">${statusBadge(it, hasDiff)}</td>`;
+      itemsBody.appendChild(tr);
+
+      if (it.matched && (it.warnings || []).length) {
+        const warn = document.createElement('tr');
+        warn.innerHTML = `
+          <td colspan="6" style="background:#fffbeb;color:#92400e;font-size:12px;padding:6px 12px">
+            ⚠️ ${(it.warnings || []).map(esc).join(' ')}
+          </td>`;
+        itemsBody.appendChild(warn);
+      }
+      if (it.matched && (it.notes || []).length) {
+        const note = document.createElement('tr');
+        note.innerHTML = `
+          <td colspan="6" style="background:var(--gray-50,#f9fafb);color:var(--gray-500);font-size:12px;padding:6px 12px">
+            ℹ️ ${(it.notes || []).map(esc).join(' ')}
+          </td>`;
+        itemsBody.appendChild(note);
+      }
+    }
+    const parts = [`${matched} of ${items.length} fully matched`];
+    if (flagged) parts.push(`${flagged} need${flagged === 1 ? 's' : ''} checking`);
+    matchSummary.textContent = parts.join(' · ');
+    itemsCard.style.display = 'block';
+    document.getElementById('id_extracted_items').value = JSON.stringify(items);
+  } else {
+    itemsCard.style.display = 'none';
+  }
+}
+
+function applyFile(file) {
+  if (!file || !file.name.toLowerCase().endsWith('.pdf')) {
+    setStatus('⚠️ Please select a PDF file.', 'warn');
+    return;
+  }
+  dropIcon.textContent  = '📄';
+  dropLabel.textContent = file.name;
+  dropSub.textContent   = (file.size / 1024).toFixed(1) + ' KB';
+  parsePDF(file);
+}
+
+fileInput.addEventListener('change', () => applyFile(fileInput.files[0]));
+
+dropZone.addEventListener('dragover', e => {
+  e.preventDefault();
+  dropZone.style.borderColor = '#10b981';
+  dropZone.style.background  = '#f0fdf4';
+});
+dropZone.addEventListener('dragleave', () => {
+  dropZone.style.borderColor = '';
+  dropZone.style.background  = '';
+});
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.style.borderColor = '';
+  dropZone.style.background  = '';
+  const file = e.dataTransfer.files[0];
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  fileInput.files = dt.files;
+  applyFile(file);
+});
+</script>
+{% endblock %}

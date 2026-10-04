@@ -175,6 +175,117 @@ WORKFLOW 4: FINANCIAL REPORTING
 
 ---
 
+## CUSTOMS BROKER WORKFLOW
+
+```
+┌─────────────────────────────────────────────────────────┐
+│              CUSTOMS BROKER WORKFLOW                     │
+└─────────────────────────────────────────────────────────┘
+
+WORKFLOW: LODGING A CONTAINER AT THE WHARF
+══════════════════════════════════════════
+
+    CONTAINER LANDS AT THE WHARF
+      │
+      ├─→ OPEN "Containers → New Container"
+      │
+      ├─→ RECORD THE CONTAINER
+      │   ├─→ Container Number  (e.g. MSKU1234567)
+      │   ├─→ Supplier          (required — the GRN is raised against it)
+      │   ├─→ Vessel / Voyage   (optional)
+      │   ├─→ B/L Number        (optional)
+      │   └─→ Wharf Arrival Date
+      │
+      ├─→ RECORD THE CONTENTS (one line per item)
+      │   ├─→ Item / Product
+      │   ├─→ Quantity
+      │   ├─→ Expiry Date  ← OPTIONAL, blank for non-perishables
+      │   └─→ Notes        ← OPTIONAL
+      │
+      ├─→ SAVE  →  Status: 🚢 AT WHARF
+      │
+      └─→ [Manifest can still be edited until the warehouse OPENS it]
+
+    The container now appears in the warehouse "Containers" tab,
+    waiting to be checked in.
+```
+
+---
+
+## CONTAINER WORKFLOW (WHARF → HQ → SHELF)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│      END-TO-END CONTAINER FLOW ACROSS BOTH ROLES        │
+└─────────────────────────────────────────────────────────┘
+
+  CUSTOMS BROKER                 WAREHOUSE / WMS
+  ──────────────                 ───────────────
+
+  1. Lodge container
+     + full manifest
+     │
+     └─→ 🚢 AT WHARF ──────────→ 2. Warehouse → Containers
+                                     "Awaiting Check-In" tab
+                                     │
+                                     └─→ [ 📥 CHECK IN ]
+                                            │
+                                            ▼
+                                     🏢 CHECKED IN AT HQ
+                                     (who + when recorded)
+                                            │
+                                     3. Click the container,
+                                        then [ 📂 OPEN ]
+                                            │
+                                            ├─→ GRN auto-generated ✓
+                                            ├─→ Batch numbers assigned ✓
+                                            ├─→ STOCK GOES ON HAND ✓
+                                            └─→ Expiry alerts checked ✓
+                                            │
+                                            ▼
+                                     📂 OPENED
+                                            │
+                                     4. Palletize each line
+                                        [ 🧱 PALLETIZE ]
+                                        ├─→ Choose quantity
+                                        │   (a line can be split
+                                        │    across several pallets)
+                                        ├─→ Lot number generated ✓
+                                        └─→ Print pallet label
+                                            │
+                                            ▼
+                                     5. Check pallet in to a shelf
+                                        (existing WMS Check-In flow)
+                                            │
+                                     [when every unit is palletized]
+                                            ▼
+                                     🧱 PALLETIZED
+                                            │
+                                     6. Add comments / damage reports
+                                        ⚠️ Flag broken or short goods
+                                            │
+                                     7. [ 🔒 CLOSE CONTAINER ]
+                                        (optional closing note)
+                                            │
+                                            ▼
+                                     ✅ CLOSED
+                                        Comments locked
+
+
+RULES ENFORCED BY THE SYSTEM
+════════════════════════════
+
+  • The broker may only amend a manifest while the container is
+    AT WHARF or CHECKED IN — never after it is opened.
+  • A container cannot be palletized until it has been opened.
+  • A pallet can never exceed the quantity left on its manifest line.
+  • A container cannot be CLOSED until every unit is palletized.
+  • Once CLOSED, no further comments can be added.
+  • Opening a container twice will not duplicate its GRN or stock.
+```
+
+---
+
 ## WAREHOUSE WORKFLOW
 
 ```

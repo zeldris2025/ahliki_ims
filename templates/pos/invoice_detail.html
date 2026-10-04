@@ -9,54 +9,92 @@
   </div>
   <div style="display:flex;gap:8px">
     {% if invoice.status == 'unpaid' or invoice.status == 'overdue' %}
-    <button onclick="document.getElementById('payModal').classList.add('open')" class="btn btn-primary">✅ Mark as Paid</button>
+    <button onclick="document.getElementById('payModal').style.display='flex'" class="btn btn-primary">✅ Mark as Paid</button>
     {% endif %}
-    <button onclick="window.print()" class="btn btn-secondary">🖨 Print</button>
+    {% if invoice.invoice_file %}
+    <a href="{{ invoice.invoice_file.url }}" target="_blank" class="btn btn-secondary">📄 View PDF</a>
+    {% endif %}
     <a href="{% url 'invoice_list' %}" class="btn btn-secondary">← Back</a>
   </div>
 </div>
 
 <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
-  <div class="card">
-    <div class="card-header"><h2>Invoice Items</h2></div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Product</th><th>SKU</th><th>Qty</th><th>Unit Price</th><th>Disc%</th><th>Line Total</th></tr></thead>
-        <tbody>
-        {% for item in invoice.items.all %}
-        <tr>
-          <td>{{ item.product.name }}</td>
-          <td><code>{{ item.product.sku }}</code></td>
-          <td>{{ item.quantity }}</td>
-          <td>SAT${{ item.unit_price }}</td>
-          <td>{% if item.discount_percent %}{{ item.discount_percent }}%{% else %}—{% endif %}</td>
-          <td><strong>SAT${{ item.line_total|floatformat:2 }}</strong></td>
-        </tr>
-        {% endfor %}
-        </tbody>
-        <tfoot>
-          <tr><td colspan="5" style="text-align:right;padding:8px 14px;color:var(--gray-500)">Subtotal</td><td style="padding:8px 14px">SAT${{ invoice.total_amount|floatformat:2 }}</td></tr>
-          <tr><td colspan="5" style="text-align:right;padding:4px 14px;color:var(--gray-500)">VAGST 15%</td><td style="padding:4px 14px">SAT${{ invoice.tax_amount }}</td></tr>
-          <tr style="border-top:2px solid var(--gray-200)"><td colspan="5" style="text-align:right;font-weight:700;padding:10px 14px">TOTAL</td><td style="font-weight:800;font-size:18px;padding:10px 14px">SAT${{ invoice.total_amount }}</td></tr>
-        </tfoot>
-      </table>
+
+  <!-- Left: PDF viewer or items table -->
+  <div>
+    {% if invoice.invoice_file %}
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><h2>📄 Invoice Document</h2></div>
+      <div style="padding:0">
+        <iframe
+          src="{{ invoice.invoice_file.url }}"
+          style="width:100%;height:680px;border:none;border-radius:0 0 10px 10px"
+          title="Invoice {{ invoice.invoice_number }}"
+        ></iframe>
+      </div>
     </div>
+    {% elif invoice.items.all %}
+    <div class="card">
+      <div class="card-header"><h2>Invoice Items</h2></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Product</th><th>SKU</th><th>Qty</th><th>Unit Price</th><th>Disc%</th><th>Line Total</th></tr></thead>
+          <tbody>
+          {% for item in invoice.items.all %}
+          <tr>
+            <td>{{ item.product.name }}</td>
+            <td><code>{{ item.product.sku }}</code></td>
+            <td>{{ item.quantity }}</td>
+            <td>SAT${{ item.unit_price }}</td>
+            <td>{% if item.discount_percent %}{{ item.discount_percent }}%{% else %}—{% endif %}</td>
+            <td><strong>SAT${{ item.line_total|floatformat:2 }}</strong></td>
+          </tr>
+          {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr><td colspan="5" style="text-align:right;padding:8px 14px;color:var(--gray-500)">Subtotal</td><td style="padding:8px 14px">SAT${{ invoice.total_amount|floatformat:2 }}</td></tr>
+            <tr><td colspan="5" style="text-align:right;padding:4px 14px;color:var(--gray-500)">VAGST 15%</td><td style="padding:4px 14px">SAT${{ invoice.tax_amount }}</td></tr>
+            <tr style="border-top:2px solid var(--gray-200)"><td colspan="5" style="text-align:right;font-weight:700;padding:10px 14px">TOTAL</td><td style="font-weight:800;font-size:18px;padding:10px 14px">SAT${{ invoice.total_amount }}</td></tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="card">
+      <div class="card-body" style="text-align:center;padding:40px;color:var(--gray-400)">
+        No document or line items attached to this invoice.
+      </div>
+    </div>
+    {% endif %}
   </div>
+
+  <!-- Right: Info -->
   <div class="card">
     <div class="card-header"><h2>Invoice Info</h2></div>
     <div class="card-body">
       <table style="width:100%;border-collapse:collapse">
-        <tr><td style="color:var(--gray-500);padding:6px 0">Invoice #</td><td><strong>{{ invoice.invoice_number }}</strong></td></tr>
-        <tr><td style="color:var(--gray-500);padding:6px 0">Customer</td><td>{{ invoice.customer_name|default:"Walk-in" }}</td></tr>
-        <tr><td style="color:var(--gray-500);padding:6px 0">Account #</td><td>{{ invoice.account_number|default:"—" }}</td></tr>
-        <tr><td style="color:var(--gray-500);padding:6px 0">Payment</td><td><span class="badge badge-blue">{{ invoice.get_payment_method_display }}</span></td></tr>
-        <tr><td style="color:var(--gray-500);padding:6px 0">Status</td><td>
+        <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Invoice #</td><td><strong>{{ invoice.invoice_number }}</strong></td></tr>
+        <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Customer</td><td>{{ invoice.customer_name|default:"—" }}</td></tr>
+        <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Account #</td><td>{{ invoice.account_number|default:"—" }}</td></tr>
+        {% if invoice.salesperson %}
+        <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Salesperson</td><td>{{ invoice.salesperson }}</td></tr>
+        {% endif %}
+        {% if invoice.sales_territory %}
+        <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Territory</td><td>{{ invoice.sales_territory }}</td></tr>
+        {% endif %}
+        {% if invoice.payment_terms %}
+        <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Payment Terms</td><td>{{ invoice.payment_terms }}</td></tr>
+        {% endif %}
+        <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Payment</td><td><span class="badge badge-blue">{{ invoice.get_payment_method_display }}</span></td></tr>
+        <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Total</td><td><strong>SAT${{ invoice.total_amount }}</strong></td></tr>
+        <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">VAT</td><td>SAT${{ invoice.tax_amount }}</td></tr>
+        <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Status</td><td>
           {% if invoice.status == 'paid' %}<span class="badge badge-green">Paid ✓</span>
           {% elif invoice.status == 'unpaid' %}<span class="badge badge-amber">Unpaid</span>
           {% elif invoice.status == 'overdue' %}<span class="badge badge-red">Overdue</span>
           {% else %}<span class="badge badge-gray">Void</span>{% endif %}
         </td></tr>
-        <tr><td style="color:var(--gray-500);padding:6px 0">Dispatch</td><td>
+        <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Dispatch</td><td>
           {% if invoice.dispatch_status == 'dispatched' %}
           <span class="badge badge-green">Dispatched ✓</span>
           {% else %}
@@ -64,41 +102,45 @@
           {% endif %}
         </td></tr>
         {% if invoice.dispatch_status == 'dispatched' %}
-        <tr><td style="color:var(--gray-500);padding:6px 0">Dispatched by</td><td>{{ invoice.dispatched_by.get_full_name|default:invoice.dispatched_by.username }}</td></tr>
-        <tr><td style="color:var(--gray-500);padding:6px 0">Dispatched at</td><td>{{ invoice.dispatched_at|date:"d M Y H:i" }}</td></tr>
-        <tr><td style="color:var(--gray-500);padding:6px 0">Truck Plate #</td><td>
-          {% if invoice.truck_plate %}
+        <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Dispatched by</td><td>{{ invoice.dispatched_by.get_full_name|default:invoice.dispatched_by.username }}</td></tr>
+        <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Dispatched at</td><td>{{ invoice.dispatched_at|date:"d M Y H:i" }}</td></tr>
+        {% if invoice.truck_plate %}
+        <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Truck Plate</td><td>
           <span style="font-family:monospace;font-weight:700;background:#f3f4f6;padding:2px 8px;border-radius:4px;letter-spacing:1px">{{ invoice.truck_plate }}</span>
-          {% else %}—{% endif %}
         </td></tr>
         {% endif %}
-        <tr><td style="color:var(--gray-500);padding:6px 0">Due Date</td><td>{{ invoice.due_date|default:"—" }}</td></tr>
-        <tr><td style="color:var(--gray-500);padding:6px 0">Issued by</td><td>{{ invoice.cashier.get_full_name|default:invoice.cashier.username }}</td></tr>
-        {% if invoice.from_quote %}<tr><td style="color:var(--gray-500);padding:6px 0">From Quote</td><td><a href="{% url 'quote_detail' invoice.from_quote.pk %}">{{ invoice.from_quote.quote_number }}</a></td></tr>{% endif %}
+        {% endif %}
+        <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Due Date</td><td>{{ invoice.due_date|default:"—" }}</td></tr>
+        <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Uploaded by</td><td>{{ invoice.cashier.get_full_name|default:invoice.cashier.username }}</td></tr>
       </table>
+      {% if invoice.notes %}
+      <div style="margin-top:12px;padding:10px;background:var(--gray-50,#f9fafb);border-radius:7px;font-size:13px;color:var(--gray-600)">
+        {{ invoice.notes }}
+      </div>
+      {% endif %}
       {% if invoice.dispatch_status == 'pending' %}
       <div style="margin-top:14px">
         <a href="{% url 'warehouse_dispatch_detail' invoice.pk %}" class="btn btn-primary" style="width:100%;justify-content:center">
-          🚚 Go to Dispatch Checklist
+          🚚 Go to Dispatch
         </a>
       </div>
       {% endif %}
     </div>
   </div>
+
 </div>
 
 <!-- Mark Paid Modal -->
 <div id="payModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
-<script>document.getElementById('payModal').style.display='flex'; document.getElementById('payModal').style.display='none';</script>
   <div style="background:white;border-radius:12px;padding:24px;width:360px">
     <h2 style="margin-bottom:16px;font-size:16px">Mark Invoice as Paid</h2>
     <form method="post" action="{% url 'invoice_mark_paid' invoice.pk %}">{% csrf_token %}
       <div class="form-group"><label>Payment Method</label>
         <select name="payment_method">
           <option value="cash">Cash</option>
+          <option value="credit">Credit Account</option>
           <option value="eftpos">EFTPOS</option>
           <option value="cheque">Cheque</option>
-          <option value="credit">Credit Account</option>
         </select>
       </div>
       <div style="display:flex;gap:8px;margin-top:16px">
@@ -108,7 +150,4 @@
     </form>
   </div>
 </div>
-<script>
-document.querySelector('[onclick*="payModal"]') && (document.getElementById('payModal').style.display = 'none');
-</script>
 {% endblock %}

@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block title %}Dispatch {{ invoice.invoice_number }} — Ah Liki IMS{% endblock %}
-{% block topbar_title %}Dispatch Checklist{% endblock %}
+{% block topbar_title %}Dispatch{% endblock %}
 {% block content %}
 
 <div class="page-header">
@@ -9,8 +9,10 @@
     <p>{{ invoice.customer_name|default:"Walk-in" }} &mdash; {{ invoice.created_at|date:"d M Y H:i" }}</p>
   </div>
   <div style="display:flex;gap:8px">
-    <a href="{% url 'picking_ticket' invoice.pk %}" class="btn btn-secondary">🎫 Picking Ticket</a>
-    <button onclick="window.print()" class="btn btn-secondary">🖨 Print</button>
+    {% if invoice.invoice_file %}
+    <a href="{{ invoice.invoice_file.url }}" target="_blank" class="btn btn-secondary">📄 View PDF</a>
+    {% endif %}
+    {% if item_data %}<a href="{% url 'picking_ticket' invoice.pk %}" class="btn btn-secondary">🎫 Picking Ticket</a>{% endif %}
     <a href="{% url 'warehouse_dispatch_list' %}" class="btn btn-secondary">← Back to Dispatch</a>
   </div>
 </div>
@@ -23,272 +25,192 @@
     <strong>Dispatched</strong> — Processed by
     <strong>{{ invoice.dispatched_by.get_full_name|default:invoice.dispatched_by.username }}</strong>
     on {{ invoice.dispatched_at|date:"d M Y H:i" }}.
-    Stock has been deducted from the system.
   </div>
 </div>
 {% else %}
 <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:10px;padding:16px 20px;margin-bottom:24px;display:flex;align-items:center;gap:14px">
   <span style="font-size:26px">📋</span>
   <div>
-    <strong>Pending Dispatch</strong> — Check off each item as you pick it from the shelf.
-    If an item has less stock than ordered, adjust the <strong>Dispatch Qty</strong> and provide a reason.
+    <strong>Pending Dispatch</strong> —
+    {% if invoice.invoice_file %}Review the invoice PDF, prepare the order, then confirm dispatch below.
+    {% else %}Check off each item as you pick it from the shelf, then confirm dispatch.{% endif %}
   </div>
 </div>
 {% endif %}
 
 <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;align-items:start">
 
-  <!-- Checklist card -->
-  <div class="card">
-    <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
-      <h2>Order Checklist</h2>
+  <!-- Main panel: PDF or checklist -->
+  <div>
+    {% if invoice.invoice_file %}
+    <!-- PDF Invoice Viewer -->
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><h2>📄 Invoice Document</h2></div>
+      <div style="padding:0">
+        <iframe
+          src="{{ invoice.invoice_file.url }}"
+          style="width:100%;height:700px;border:none;border-radius:0 0 10px 10px"
+          title="Invoice {{ invoice.invoice_number }}"
+        ></iframe>
+      </div>
+    </div>
+    {% elif item_data %}
+    <!-- Legacy item checklist -->
+    <div class="card">
+      <div class="card-header" style="display:flex;align-items:center;justify-content:space-between">
+        <h2>Order Checklist</h2>
+        {% if invoice.dispatch_status != 'dispatched' %}
+        <span id="checkCount" style="font-size:13px;color:var(--gray-500)">0 of {{ item_data|length }} checked</span>
+        {% endif %}
+      </div>
+
       {% if invoice.dispatch_status != 'dispatched' %}
-      <span id="checkCount" style="font-size:13px;color:var(--gray-500)">0 of {{ item_data|length }} checked</span>
+      <form method="post" action="{% url 'warehouse_dispatch_submit' invoice.pk %}" id="dispatchForm">
+        {% csrf_token %}
+      {% endif %}
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              {% if invoice.dispatch_status != 'dispatched' %}<th style="width:44px;text-align:center">✓</th>{% endif %}
+              <th>Product</th><th>SKU</th>
+              <th style="text-align:center">Qty Ordered</th>
+              <th style="text-align:center">In Stock</th>
+              {% if invoice.dispatch_status != 'dispatched' %}<th style="text-align:center">Dispatch Qty</th>{% endif %}
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for row in item_data %}
+          <tr style="{% if not row.sufficient and row.current_stock == 0 %}background:#fff5f5{% elif not row.sufficient %}background:#fffbeb{% endif %}">
+            {% if invoice.dispatch_status != 'dispatched' %}
+            <td style="text-align:center">
+              <input type="checkbox" name="checked_items" value="{{ row.item.pk }}" id="chk-{{ row.item.pk }}" class="item-check"
+                {% if row.current_stock == 0 %}disabled title="No stock available"{% endif %}
+                onchange="updateState()" style="width:18px;height:18px;cursor:pointer">
+            </td>
+            {% endif %}
+            <td><label for="chk-{{ row.item.pk }}" style="font-weight:600;cursor:pointer">{{ row.item.product.name }}</label></td>
+            <td><code>{{ row.item.product.sku }}</code></td>
+            <td style="text-align:center;font-weight:700">{{ row.item.quantity }} {{ row.item.product.unit }}</td>
+            <td style="text-align:center;font-weight:700;{% if row.sufficient %}color:#059669{% else %}color:#dc2626{% endif %}">{{ row.current_stock }} {{ row.item.product.unit }}</td>
+            {% if invoice.dispatch_status != 'dispatched' %}
+            <td style="text-align:center">
+              {% if row.current_stock > 0 %}
+              <input type="number" name="dispatch_qty_{{ row.item.pk }}" id="dqty-{{ row.item.pk }}"
+                value="{{ row.default_dispatch_qty }}" min="1" max="{{ row.current_stock }}"
+                data-ordered="{{ row.item.quantity }}" data-item="{{ row.item.pk }}" class="dispatch-qty-input"
+                oninput="onQtyInput(this);updateState()"
+                style="width:75px;padding:5px 8px;border-radius:6px;font-size:14px;text-align:center;border:1px solid {% if row.sufficient %}var(--gray-200){% else %}#fca5a5{% endif %}">
+              {% else %}<span style="color:#9ca3af;font-size:12px">—</span>{% endif %}
+            </td>
+            {% endif %}
+            <td>
+              {% if row.sufficient %}<span class="badge badge-green">Ready</span>
+              {% elif row.current_stock > 0 %}<span class="badge badge-amber">Partial</span>
+              {% else %}<span class="badge badge-red">No Stock</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if invoice.dispatch_status != 'dispatched' %}
+      <div style="padding:16px 20px;border-top:1px solid var(--gray-200)">
+        <div id="adjustmentBanner" style="display:none;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;margin-bottom:14px">
+          <label style="display:block;font-size:12px;font-weight:700;color:#92400e;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.04em">⚠️ Quantities adjusted — reason required <span style="color:#dc2626">*</span></label>
+          <textarea name="adjustment_reason" id="adjustmentReason" rows="3" placeholder="Explain the adjustment…" style="width:100%;padding:8px 12px;border:1px solid #fde68a;border-radius:7px;font-size:13px;resize:vertical;font-family:inherit;background:#fffde7" oninput="updateState()"></textarea>
+        </div>
+        <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:180px">
+            <label style="display:block;font-size:12px;font-weight:600;color:var(--gray-500);margin-bottom:5px;text-transform:uppercase;letter-spacing:0.04em">Delivery Truck Plate #</label>
+            <input type="text" name="truck_plate" id="truckPlate" placeholder="e.g. S1234" maxlength="50"
+              style="width:100%;padding:8px 12px;border:1px solid var(--gray-200);border-radius:7px;font-size:14px;font-family:monospace;text-transform:uppercase;letter-spacing:1px"
+              oninput="this.value=this.value.toUpperCase();updateState()">
+            <p style="margin:4px 0 0;font-size:11px;color:var(--gray-400)">Required before submission.</p>
+          </div>
+          <div>
+            <button type="submit" id="submitBtn" class="btn btn-primary" disabled style="white-space:nowrap;min-width:160px"
+              onclick="return confirm('Confirm dispatch for {{ invoice.invoice_number }}?')">
+              ✅ Confirm Dispatch
+            </button>
+          </div>
+        </div>
+      </div>
+      </form>
       {% endif %}
     </div>
-
-    {% if invoice.dispatch_status != 'dispatched' %}
-    <form method="post" action="{% url 'warehouse_dispatch_submit' invoice.pk %}" id="dispatchForm">
-      {% csrf_token %}
     {% endif %}
 
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            {% if invoice.dispatch_status != 'dispatched' %}
-            <th style="width:44px;text-align:center">✓</th>
-            {% endif %}
-            <th>Product</th>
-            <th>SKU</th>
-            <th style="text-align:center">Qty Ordered</th>
-            <th style="text-align:center">In Stock</th>
-            {% if invoice.dispatch_status != 'dispatched' %}
-            <th style="text-align:center">Dispatch Qty</th>
-            {% endif %}
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-        {% for row in item_data %}
-        <tr style="{% if not row.sufficient and row.current_stock == 0 %}background:#fff5f5{% elif not row.sufficient %}background:#fffbeb{% endif %}">
-          {% if invoice.dispatch_status != 'dispatched' %}
-          <td style="text-align:center">
-            <input
-              type="checkbox"
-              name="checked_items"
-              value="{{ row.item.pk }}"
-              id="chk-{{ row.item.pk }}"
-              class="item-check"
-              {% if row.current_stock == 0 %}disabled title="No stock available — remove this item via Edit Order"{% endif %}
-              onchange="updateState()"
-              style="width:18px;height:18px;cursor:pointer"
-            >
-          </td>
-          {% endif %}
-          <td>
-            <label for="chk-{{ row.item.pk }}" style="font-weight:600;cursor:pointer">
-              {{ row.item.product.name }}
-            </label>
-          </td>
-          <td><code>{{ row.item.product.sku }}</code></td>
-          <td style="text-align:center;font-weight:700">
-            {{ row.item.quantity }} {{ row.item.product.unit }}
-          </td>
-          <td style="text-align:center;font-weight:700;{% if row.sufficient %}color:#059669{% else %}color:#dc2626{% endif %}">
-            {{ row.current_stock }} {{ row.item.product.unit }}
-          </td>
-          {% if invoice.dispatch_status != 'dispatched' %}
-          <td style="text-align:center">
-            {% if row.current_stock > 0 %}
-            <input
-              type="number"
-              name="dispatch_qty_{{ row.item.pk }}"
-              id="dqty-{{ row.item.pk }}"
-              value="{{ row.default_dispatch_qty }}"
-              min="1"
-              max="{{ row.current_stock }}"
-              data-ordered="{{ row.item.quantity }}"
-              data-item="{{ row.item.pk }}"
-              class="dispatch-qty-input"
-              oninput="onQtyInput(this);updateState()"
-              style="width:75px;padding:5px 8px;border-radius:6px;font-size:14px;text-align:center;border:1px solid {% if row.sufficient %}var(--gray-200){% else %}#fca5a5{% endif %};{% if not row.sufficient %}background:#fffbeb{% endif %}"
-            >
-            {% else %}
-            <span style="color:#9ca3af;font-size:12px">—</span>
-            {% endif %}
-          </td>
-          {% endif %}
-          <td>
-            {% if row.sufficient %}
-            <span class="badge badge-green">Ready</span>
-            {% elif row.current_stock > 0 %}
-            <span class="badge badge-amber">Partial</span>
-            {% else %}
-            <span class="badge badge-red">No Stock</span>
-            {% endif %}
-          </td>
-        </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-
-    {% if invoice.dispatch_status != 'dispatched' %}
-    <div style="padding:16px 20px;border-top:1px solid var(--gray-200)">
-
-      <!-- Adjustment reason — shown when any qty differs from ordered -->
-      <div id="adjustmentBanner" style="display:none;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;margin-bottom:14px">
-        <label style="display:block;font-size:12px;font-weight:700;color:#92400e;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.04em">
-          ⚠️ Quantities adjusted &mdash; reason required <span style="color:#dc2626">*</span>
-        </label>
-        <textarea
-          name="adjustment_reason"
-          id="adjustmentReason"
-          rows="3"
-          placeholder="Explain what happened (e.g. ‘Only 8 eggs available in warehouse, dispatched 8 instead of 10’)…"
-          style="width:100%;padding:8px 12px;border:1px solid #fde68a;border-radius:7px;font-size:13px;resize:vertical;font-family:inherit;outline:none;background:#fffde7"
-          oninput="updateState()"
-        ></textarea>
-        <p style="margin:4px 0 0;font-size:11px;color:#92400e">This will be automatically saved as a comment on this dispatch order.</p>
-      </div>
-
-      <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
-        <div style="flex:1;min-width:180px">
-          <label style="display:block;font-size:12px;font-weight:600;color:var(--gray-500);margin-bottom:5px;text-transform:uppercase;letter-spacing:0.04em">Delivery Truck Plate #</label>
-          <input
-            type="text"
-            name="truck_plate"
-            id="truckPlate"
-            placeholder="e.g. S1234"
-            maxlength="50"
-            style="width:100%;padding:8px 12px;border:1px solid var(--gray-200);border-radius:7px;font-size:14px;font-family:monospace;text-transform:uppercase;letter-spacing:1px;outline:none"
-            oninput="this.value=this.value.toUpperCase();updateState()"
-          >
-          <p style="margin:4px 0 0;font-size:11px;color:var(--gray-400)">Required before submission.</p>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
-          <p style="margin:0;font-size:12px;color:var(--gray-500);text-align:right">
-            Tick every item, enter the truck plate, then submit.
-          </p>
-          <button
-            type="submit"
-            id="submitBtn"
-            class="btn btn-primary"
-            disabled
-            style="white-space:nowrap;min-width:160px"
-            onclick="return confirm('Submit dispatch for {{ invoice.invoice_number }}? This will deduct stock and cannot be undone.')"
-          >
-            Submit Dispatch
+    {% if invoice.dispatch_status != 'dispatched' and invoice.invoice_file %}
+    <!-- Dispatch confirm form for PDF-based invoices -->
+    <div class="card">
+      <div class="card-header"><h2>Confirm Dispatch</h2></div>
+      <div class="card-body">
+        <form method="post" action="{% url 'warehouse_dispatch_submit' invoice.pk %}">
+          {% csrf_token %}
+          <div class="form-group" style="margin-bottom:16px">
+            <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px">Delivery Truck Plate # <span style="color:#dc2626">*</span></label>
+            <input type="text" name="truck_plate" placeholder="e.g. S1234" maxlength="50" required
+              style="width:100%;max-width:240px;padding:8px 12px;border:1px solid var(--gray-200);border-radius:7px;font-size:14px;font-family:monospace;text-transform:uppercase;letter-spacing:1px"
+              oninput="this.value=this.value.toUpperCase()">
+          </div>
+          <div class="form-group" style="margin-bottom:16px">
+            <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px">Notes (optional)</label>
+            <textarea name="adjustment_reason" rows="2" placeholder="Any notes about this dispatch…"
+              style="width:100%;padding:8px 12px;border:1px solid var(--gray-200);border-radius:7px;font-size:13px;resize:vertical;font-family:inherit"></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary"
+            onclick="return confirm('Confirm dispatch for {{ invoice.invoice_number }}?')">
+            ✅ Confirm Dispatch
           </button>
-        </div>
+        </form>
       </div>
     </div>
-    </form>
     {% endif %}
   </div>
 
-  <!-- Invoice info card -->
+  <!-- Right sidebar: Invoice info -->
   <div>
     <div class="card" style="margin-bottom:16px">
       <div class="card-header"><h2>Invoice Details</h2></div>
       <div class="card-body">
         <table style="width:100%;border-collapse:collapse">
-          <tr>
-            <td style="color:var(--gray-500);padding:7px 0;font-size:13px">Invoice #</td>
-            <td><strong>{{ invoice.invoice_number }}</strong></td>
-          </tr>
-          <tr>
-            <td style="color:var(--gray-500);padding:7px 0;font-size:13px">Customer</td>
-            <td>{{ invoice.customer_name|default:"Walk-in" }}</td>
-          </tr>
-          <tr>
-            <td style="color:var(--gray-500);padding:7px 0;font-size:13px">Account #</td>
-            <td>{{ invoice.account_number|default:"—" }}</td>
-          </tr>
-          <tr>
-            <td style="color:var(--gray-500);padding:7px 0;font-size:13px">Payment</td>
-            <td><span class="badge badge-blue">{{ invoice.get_payment_method_display }}</span></td>
-          </tr>
-          <tr>
-            <td style="color:var(--gray-500);padding:7px 0;font-size:13px">Total</td>
-            <td><strong>SAT${{ invoice.total_amount }}</strong></td>
-          </tr>
-          <tr>
-            <td style="color:var(--gray-500);padding:7px 0;font-size:13px">Dispatch</td>
-            <td>
-              {% if invoice.dispatch_status == 'dispatched' %}
-              <span class="badge badge-green">Dispatched ✓</span>
-              {% else %}
-              <span class="badge badge-amber">Pending</span>
-              {% endif %}
-            </td>
-          </tr>
-          <tr>
-            <td style="color:var(--gray-500);padding:7px 0;font-size:13px">Issued by</td>
-            <td>{{ invoice.cashier.get_full_name|default:invoice.cashier.username }}</td>
-          </tr>
+          <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Invoice #</td><td><strong>{{ invoice.invoice_number }}</strong></td></tr>
+          <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Customer</td><td>{{ invoice.customer_name|default:"Walk-in" }}</td></tr>
+          {% if invoice.account_number %}<tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Account #</td><td>{{ invoice.account_number }}</td></tr>{% endif %}
+          {% if invoice.salesperson %}<tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Salesperson</td><td>{{ invoice.salesperson }}</td></tr>{% endif %}
+          {% if invoice.sales_territory %}<tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Territory</td><td>{{ invoice.sales_territory }}</td></tr>{% endif %}
+          {% if invoice.payment_terms %}<tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Payment Terms</td><td>{{ invoice.payment_terms }}</td></tr>{% endif %}
+          <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Payment</td><td><span class="badge badge-blue">{{ invoice.get_payment_method_display }}</span></td></tr>
+          <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Total</td><td><strong>SAT${{ invoice.total_amount }}</strong></td></tr>
+          <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Dispatch</td><td>
+            {% if invoice.dispatch_status == 'dispatched' %}<span class="badge badge-green">Dispatched ✓</span>
+            {% else %}<span class="badge badge-amber">Pending</span>{% endif %}
+          </td></tr>
           {% if invoice.dispatch_status == 'dispatched' %}
-          <tr>
-            <td style="color:var(--gray-500);padding:7px 0;font-size:13px">Dispatched by</td>
-            <td>{{ invoice.dispatched_by.get_full_name|default:invoice.dispatched_by.username }}</td>
-          </tr>
-          <tr>
-            <td style="color:var(--gray-500);padding:7px 0;font-size:13px">Dispatched at</td>
-            <td>{{ invoice.dispatched_at|date:"d M Y H:i" }}</td>
-          </tr>
-          <tr>
-            <td style="color:var(--gray-500);padding:7px 0;font-size:13px">Truck Plate #</td>
-            <td>
-              {% if invoice.truck_plate %}
-              <span style="font-family:monospace;font-weight:700;background:var(--gray-100,#f3f4f6);padding:3px 10px;border-radius:4px;letter-spacing:1px">
-                {{ invoice.truck_plate }}
-              </span>
-              {% else %}—{% endif %}
-            </td>
-          </tr>
+          <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Dispatched by</td><td>{{ invoice.dispatched_by.get_full_name|default:invoice.dispatched_by.username }}</td></tr>
+          <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Dispatched at</td><td>{{ invoice.dispatched_at|date:"d M Y H:i" }}</td></tr>
+          {% if invoice.truck_plate %}
+          <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Truck Plate</td><td>
+            <span style="font-family:monospace;font-weight:700;background:var(--gray-100,#f3f4f6);padding:3px 10px;border-radius:4px;letter-spacing:1px">{{ invoice.truck_plate }}</span>
+          </td></tr>
           {% endif %}
+          {% endif %}
+          <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Due Date</td><td>{{ invoice.due_date|default:"—" }}</td></tr>
+          <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Uploaded by</td><td>{{ invoice.cashier.get_full_name|default:invoice.cashier.username }}</td></tr>
         </table>
       </div>
     </div>
-
-    {% if invoice.dispatch_status != 'dispatched' %}
-    <div class="card">
-      <div class="card-header"><h2>Instructions</h2></div>
-      <div class="card-body" style="font-size:13px;line-height:1.7;color:var(--gray-600)">
-        <ol style="margin:0;padding-left:18px">
-          <li>Collect all items listed on the left from the warehouse shelves.</li>
-          <li>Verify each item's quantity against <strong>Qty Ordered</strong>.</li>
-          <li>If stock is short, adjust the <strong>Dispatch Qty</strong> to what is actually available — a reason field will appear automatically.</li>
-          <li>Tick the checkbox next to each item once confirmed.</li>
-          <li>When all items are ticked, click <strong>Submit Dispatch</strong>.</li>
-          <li>Stock levels will be updated automatically. Any adjustments are saved as a comment.</li>
-        </ol>
-      </div>
-    </div>
-
-    <div class="card" style="margin-top:14px">
-      <div class="card-header"><h2>⚠️ Items Out of Stock?</h2></div>
-      <div class="card-body" style="font-size:13px;color:var(--gray-600);line-height:1.6">
-        If an item is unavailable or needs a quantity adjustment, use the edit button below
-        to reduce quantities or remove items before processing dispatch.
-      </div>
-      <div style="padding:12px 20px;border-top:1px solid var(--gray-200)">
-        <a href="{% url 'dispatcher_edit_order' invoice.pk %}" class="btn btn-secondary" style="width:100%;text-align:center">
-          ✏️ Edit Order Items
-        </a>
-      </div>
-    </div>
-    {% endif %}
   </div>
 
 </div>
 
-<!-- ── COMMENTS SECTION ─────────────────────────────────────────────── -->
+<!-- Comments -->
 <div class="card" style="margin-top:24px">
-  <div class="card-header">
-    <h2>💬 Comments &amp; Notes</h2>
-  </div>
+  <div class="card-header"><h2>💬 Comments &amp; Notes</h2></div>
   <div style="padding:16px 20px">
     {% if comments %}
     <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px">
@@ -299,107 +221,46 @@
             {{ comment.author.first_name|first|upper|default:comment.author.username|first|upper }}
           </div>
           <div>
-            <strong style="font-size:13px">{{ comment.author.get_full_name|default:comment.author.username }}</strong>
-            <span style="font-size:11px;color:var(--gray-400);margin-left:8px">{{ comment.created_at|date:"d M Y H:i" }}</span>
+            <span style="font-weight:600;font-size:13px">{{ comment.author.get_full_name|default:comment.author.username }}</span>
+            <span style="color:var(--gray-400);font-size:12px;margin-left:8px">{{ comment.created_at|date:"d M Y H:i" }}</span>
           </div>
         </div>
-        <p style="margin:0;font-size:13px;color:var(--gray-700);white-space:pre-line">{{ comment.body }}</p>
+        <p style="margin:0;font-size:13px;white-space:pre-wrap">{{ comment.body }}</p>
       </div>
       {% endfor %}
     </div>
-    {% else %}
-    <p style="font-size:13px;color:var(--gray-400);margin-bottom:16px">No comments yet. Be the first to add one.</p>
     {% endif %}
-
-    <form method="post" action="{% url 'dispatcher_add_comment' invoice.pk %}">
+    <form method="post" action="{% url 'warehouse_dispatch_detail' invoice.pk %}">
       {% csrf_token %}
-      <textarea
-        name="body"
-        rows="3"
-        placeholder="Add a comment or note about this dispatch order…"
-        required
-        style="width:100%;padding:10px 14px;border:1px solid var(--gray-200);border-radius:8px;font-size:13px;resize:vertical;font-family:inherit;outline:none"
-      ></textarea>
-      <div style="margin-top:8px;text-align:right">
-        <button type="submit" class="btn btn-primary" style="min-width:140px">
-          💬 Add Comment
-        </button>
-      </div>
+      <input type="hidden" name="add_comment" value="1">
+      <textarea name="comment_body" rows="2" placeholder="Add a comment…"
+        style="width:100%;padding:8px 12px;border:1px solid var(--gray-200);border-radius:7px;font-size:13px;resize:vertical;font-family:inherit;margin-bottom:8px"></textarea>
+      <button type="submit" class="btn btn-secondary">Add Comment</button>
     </form>
   </div>
 </div>
 
-{% if invoice.dispatch_status != 'dispatched' %}
+{% if item_data %}
 <script>
-  const totalCheckable = document.querySelectorAll('.item-check:not(:disabled)').length;
-  const totalItems = {{ item_data|length }};
-
-  function hasAdjustments() {
-    let adjusted = false;
-    document.querySelectorAll('.dispatch-qty-input').forEach(function(inp) {
-      if (parseInt(inp.value, 10) !== parseInt(inp.dataset.ordered, 10)) {
-        adjusted = true;
-      }
-    });
-    return adjusted;
-  }
-
-  function onQtyInput(inp) {
-    const max = parseInt(inp.max, 10);
-    const val = parseInt(inp.value, 10);
-    const row = inp.closest('tr');
-    const chk = document.getElementById('chk-' + inp.dataset.item);
-    if (val > max || val < 1 || isNaN(val)) {
-      inp.style.borderColor = '#dc2626';
-      inp.style.background = '#fff5f5';
-      if (chk) { chk.checked = false; chk.disabled = true; }
-    } else {
-      inp.style.borderColor = val < parseInt(inp.dataset.ordered, 10) ? '#f59e0b' : 'var(--gray-200)';
-      inp.style.background = val < parseInt(inp.dataset.ordered, 10) ? '#fffbeb' : '';
-      if (chk) { chk.disabled = false; }
-    }
-  }
-
-  function updateState() {
-    const checked = document.querySelectorAll('.item-check:checked').length;
-    const plate   = (document.getElementById('truckPlate').value || '').trim();
-    document.getElementById('checkCount').textContent = checked + ' of ' + totalItems + ' checked';
-
-    const adjusted = hasAdjustments();
-    const banner = document.getElementById('adjustmentBanner');
-    banner.style.display = adjusted ? 'block' : 'none';
-
-    const reason = adjusted
-      ? (document.getElementById('adjustmentReason').value || '').trim()
-      : 'ok';
-
-    const btn = document.getElementById('submitBtn');
-    const allChecked = (checked === totalCheckable) && totalCheckable > 0;
-    const ready = allChecked && plate.length > 0 && reason.length > 0;
-    btn.disabled = !ready;
-    btn.textContent = ready ? '\u2705 Submit Dispatch' : 'Submit Dispatch';
-  }
-
-  // Highlight row when checked
-  document.querySelectorAll('.item-check').forEach(function(chk) {
-    chk.addEventListener('change', function() {
-      const row = this.closest('tr');
-      if (this.checked) {
-        row.style.background = '#f0fdf4';
-        row.style.opacity = '0.75';
-      } else {
-        row.style.background = '';
-        row.style.opacity = '';
-      }
-    });
+const totalItems = {{ item_data|length }};
+function updateState() {
+  const checks = document.querySelectorAll('.item-check:not([disabled])');
+  const checked = document.querySelectorAll('.item-check:not([disabled]):checked');
+  document.getElementById('checkCount').textContent = checked.length + ' of ' + totalItems + ' checked';
+  const allChecked = checked.length === checks.length;
+  const tp = document.getElementById('truckPlate').value.trim();
+  let needReason = false;
+  document.querySelectorAll('.dispatch-qty-input').forEach(inp => {
+    if (parseInt(inp.value) !== parseInt(inp.dataset.ordered)) needReason = true;
   });
-
-  // Initialise qty inputs
-  document.querySelectorAll('.dispatch-qty-input').forEach(function(inp) {
-    onQtyInput(inp);
-  });
-
-  updateState();
+  const reasonOk = !needReason || (document.getElementById('adjustmentReason').value.trim().length > 0);
+  if (needReason) document.getElementById('adjustmentBanner').style.display = 'block';
+  else document.getElementById('adjustmentBanner').style.display = 'none';
+  document.getElementById('submitBtn').disabled = !(allChecked && tp && reasonOk);
+}
+function onQtyInput(el) { updateState(); }
+updateState();
 </script>
 {% endif %}
+
 {% endblock %}

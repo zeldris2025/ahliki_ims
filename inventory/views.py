@@ -2,19 +2,23 @@ import csv
 import json
 from datetime import date, timedelta
 from django.shortcuts import render, get_object_or_404, redirect
+from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import transaction
-from django.db.models import Sum, Count, Q
+from django.db.models import Sum, Count, Min, Q, Case, When, Value, IntegerField
 from django.http import JsonResponse, HttpResponse
 from django.utils import timezone
 
 from .models import (Product, Category, Supplier, GoodsReceivedNote, GRNItem,
                      StockMovement, Sale, SaleItem, StockAlert, PurchaseOrder, UserProfile,
-                     Pallet, ShelfLocation, PalletLocation, DispatchComment)
+                     Pallet, ShelfLocation, PalletLocation, DispatchComment,
+                     Container, ContainerItem, ContainerComment)
 from .forms import (ProductForm, SupplierForm, CategoryForm, GRNForm, GRNItemFormSet,
                     SaleForm, SaleItemFormSet, StockAdjustForm,
-                    PalletForm, CheckInForm, TransferForm, PalletEditForm)
+                    PalletForm, CheckInForm, TransferForm, PalletEditForm,
+                    ContainerForm, ContainerItemFormSet, ContainerCommentForm,
+                    ContainerPalletForm)
 
 
 def role_required(*roles):
@@ -35,9 +39,11 @@ def role_required(*roles):
                 return redirect('wms_checkin')
             if profile.role == 'wms_dispatcher':
                 return redirect('wms_dispatcher_dashboard')
+            if profile.role == 'custom_broker':
+                return redirect('container_list')
             if profile.role == 'cashier':
-                return redirect('pos')
-            return redirect('pos')
+                return redirect('invoice_upload')
+            return redirect('invoice_upload')
         return _wrapped
     return decorator
 
@@ -154,6 +160,111 @@ def product_add(request):
         messages.success(request, 'Product added successfully.')
         return redirect('product_list')
     return render(request, 'products/form.html', {'form': form, 'title': 'Add product'})
+
+
+# ── STOCK LOOKUP (cashier) ────────────────────────────────────────────────────
+
+# A batch expiring within this many days is flagged before it actually expires.
+EXPIRY_SOON_DAYS = 30
+
+# Enough rows to scan, few enough to stay instant while typing.
+LOOKUP_LIMIT = 40
+
+
+@login_required
+@role_required('admin', 'cashier', 'manager')
+def stock_lookup(request):
+    """Counter lookup — is this product in stock, and is any of it expired?"""
+    return render(request, 'products/stock_lookup.html', {})
+
+
+@login_required
+@role_required('admin', 'cashier', 'manager')
+def stock_lookup_search(request):
+    """JSON endpoint behind the lookup box — called on every keystroke.
+
+    Stock and expiry are aggregated in the database rather than through the
+    ``current_stock`` property, which would issue a query per product.
+    """
+    q = request.GET.get('q', '').strip()
+    if not q:
+        return JsonResponse({'results': [], 'query': q, 'truncated': False})
+
+    # Closest matches first — an alphabetical list would bury the product the
+    # cashier actually typed behind everything that merely contains the word.
+    relevance = Case(
+        When(sku__iexact=q, then=Value(0)),
+        When(name__iexact=q, then=Value(1)),
+        When(name__istartswith=q, then=Value(2)),
+        When(sku__istartswith=q, then=Value(3)),
+        default=Value(4),
+        output_field=IntegerField(),
+    )
+
+    products = (Product.objects.filter(is_active=True)
+                .filter(Q(name__icontains=q) | Q(sku__icontains=q) | Q(barcode__icontains=q))
+                .annotate(stock=Sum('stock_movements__quantity'), relevance=relevance)
+                .order_by('relevance', 'name'))
+
+    # One extra row tells us whether there were more matches than we show.
+    rows = list(products[:LOOKUP_LIMIT + 1])
+    truncated = len(rows) > LOOKUP_LIMIT
+    rows = rows[:LOOKUP_LIMIT]
+
+    today = date.today()
+    soon = today + timedelta(days=EXPIRY_SOON_DAYS)
+
+    # Expiry per product, for the handful of rows we are about to show.
+    expiry = {}
+    batches = (GRNItem.objects
+               .filter(product__in=rows, expiry_date__isnull=False)
+               .values('product_id')
+               .annotate(earliest=Min('expiry_date'),
+                         expired=Count('pk', filter=Q(expiry_date__lt=today))))
+    for row in batches:
+        expiry[row['product_id']] = row
+
+    results = []
+    for p in rows:
+        stock = p.stock or 0
+        batch = expiry.get(p.pk)
+        earliest = batch['earliest'] if batch else None
+        expired_batches = batch['expired'] if batch else 0
+
+        if expired_batches:
+            expiry_status = 'expired'
+        elif earliest and earliest <= soon:
+            expiry_status = 'expiring'
+        elif earliest:
+            expiry_status = 'ok'
+        else:
+            expiry_status = 'none'
+
+        if stock <= 0:
+            stock_status = 'out'
+        elif stock <= p.reorder_level:
+            stock_status = 'low'
+        else:
+            stock_status = 'in'
+
+        results.append({
+            'id': p.pk,
+            'sku': p.sku,
+            'name': p.name,
+            'unit': p.unit,
+            'price': f'{p.unit_price:.2f}',
+            'stock': stock,
+            'reorder_level': p.reorder_level,
+            'stock_status': stock_status,
+            'expiry_status': expiry_status,
+            'expired_batches': expired_batches,
+            'earliest_expiry': earliest.strftime('%d %b %Y') if earliest else '',
+            'days_to_expiry': (earliest - today).days if earliest else None,
+            'available': stock > 0 and expiry_status != 'expired',
+            'url': reverse('product_detail', args=[p.pk]),
+        })
+
+    return JsonResponse({'results': results, 'query': q, 'truncated': truncated})
 
 
 @login_required
@@ -528,91 +639,231 @@ def user_edit(request, pk):
     return render(request, 'users/edit.html', {'u': u, 'profile': profile})
 
 
-# ── POS (Cashier View) ─────────────────────────────────────────────────────────
+# ── INVOICE UPLOAD (replaces POS) ─────────────────────────────────────────────
 
 from .models import Quote, QuoteItem, Invoice, InvoiceItem
+from .forms import InvoiceUploadForm
+from .catalogue_match import annotate_items, compare_item, CatalogueIndex
 from decimal import Decimal
 import uuid
 
-def gen_number(prefix):
-    from django.utils import timezone
-    ts = timezone.now().strftime('%Y%m%d%H%M%S')
-    return f"{prefix}-{ts}-{str(uuid.uuid4())[:4].upper()}"
+
+def _parse_ahliki_invoice(file_obj):
+    """Extract fields and line items from an Ah Liki Wholesale PDF invoice using pdfplumber."""
+    import pdfplumber
+    import re
+
+    result = {}
+
+    with pdfplumber.open(file_obj) as pdf:
+        pages = pdf.pages
+        full_text = '\n'.join(page.extract_text() or '' for page in pages)
+
+        # ── Line items — try pdfplumber table extraction first ────────
+        extracted_items = []
+        for page in pages:
+            try:
+                tables = page.extract_tables()
+                for table in tables:
+                    for row in table:
+                        if not row or not row[0]:
+                            continue
+                        cell0 = str(row[0]).strip()
+                        if not re.match(r'^AL\d+$', cell0, re.IGNORECASE):
+                            continue
+                        sku = cell0.upper()
+                        description = str(row[1]).strip() if len(row) > 1 and row[1] else ''
+                        qty_cell = str(row[2]).strip() if len(row) > 2 and row[2] else ''
+                        price_cell = str(row[3]).strip() if len(row) > 3 and row[3] else ''
+
+                        qty_m = re.match(r'(\d+)', qty_cell)
+                        qty = int(qty_m.group(1)) if qty_m else 1
+                        unit = re.sub(r'^\d+\s*', '', qty_cell).strip()
+
+                        price = re.sub(r'[,$\s]', '', price_cell)
+                        try:
+                            unit_price = float(price)
+                        except (ValueError, TypeError):
+                            unit_price = 0.0
+
+                        extracted_items.append({
+                            'sku': sku,
+                            'description': description,
+                            'quantity': qty,
+                            'unit': unit,
+                            'unit_price': str(round(unit_price, 2)),
+                        })
+            except Exception:
+                pass
+
+        # ── Fallback: regex on raw text ───────────────────────────────
+        if not extracted_items:
+            # Each item line looks like:
+            # AL10000876 Farm Frite Seasoned Wedges Skin On 4*2.5Kg 4 CASE $88.18 $352.72
+            item_re = re.compile(
+                r'^(AL\d+)\s+(.+?)\s+(\d+)\s+([A-Z][A-Z0-9\-]*)\s+\$?([\d,]+\.\d{2})',
+                re.MULTILINE | re.IGNORECASE,
+            )
+            for m in item_re.finditer(full_text):
+                extracted_items.append({
+                    'sku': m.group(1).upper(),
+                    'description': m.group(2).strip(),
+                    'quantity': int(m.group(3)),
+                    'unit': m.group(4).upper(),
+                    'unit_price': m.group(5).replace(',', ''),
+                })
+
+    result['items'] = extracted_items
+
+    # ── Invoice number ────────────────────────────────────────
+    m = re.search(r'Sales Invoice\s+(\w+)', full_text, re.IGNORECASE)
+    if m:
+        result['invoice_number'] = m.group(1)
+
+    # ── Sales territory ───────────────────────────────────────
+    m = re.search(r'Sales Territory:\s*(\w+)', full_text, re.IGNORECASE)
+    if m:
+        result['sales_territory'] = m.group(1)
+
+    # ── Valid-to date, salesperson, payment terms ─────────────
+    m = re.search(
+        r'(\d{1,2}/\d{2}/\d{2})\s+([A-Z][A-Z]+)\s+(Net\s+\d+\s+days?)',
+        full_text, re.IGNORECASE,
+    )
+    if m:
+        date_str = m.group(1)
+        result['salesperson'] = m.group(2).title()
+        result['payment_terms'] = m.group(3).strip()
+        parts = date_str.split('/')
+        if len(parts) == 3:
+            d, mo, yr = parts
+            result['due_date'] = f"20{yr}-{mo.zfill(2)}-{d.zfill(2)}"
+
+    # ── Customer name ─────────────────────────────────────────
+    m = re.search(r'([A-Z][A-Z &\'\-]+?)\s{2,}Ah Liki Wholesale', full_text)
+    if not m:
+        m = re.search(r'^(.+?)\s+Ah Liki Wholesale', full_text, re.MULTILINE)
+    if m:
+        candidate = re.sub(r'Sales Territory:\s*\w+\s*', '', m.group(1), flags=re.IGNORECASE).strip()
+        if len(candidate) > 2:
+            result['customer_name'] = candidate.title()
+    if 'customer_name' not in result:
+        m = re.search(r'Sales Territory:\s*\w+\s*\n([A-Z][A-Z\s]+)', full_text)
+        if m:
+            result['customer_name'] = m.group(1).strip().split('\n')[0].strip().title()
+
+    # ── Totals ────────────────────────────────────────────────
+    m = re.search(r'Total\s*\$\s*Incl\.?\s*VAT\s+\$?([\d,]+\.?\d*)', full_text, re.IGNORECASE)
+    if m:
+        result['total_amount'] = m.group(1).replace(',', '')
+
+    m = re.search(r'15%\s*VAT\s+\$?([\d,]+\.?\d*)', full_text, re.IGNORECASE)
+    if m:
+        result['tax_amount'] = m.group(1).replace(',', '')
+
+    result['payment_method'] = 'credit'
+
+    return result
 
 
 @login_required
 @role_required('admin', 'cashier')
-def pos(request):
-    """Full POS terminal view for cashiers."""
-    products = Product.objects.filter(is_active=True).select_related('category').order_by('name')
-    categories = Category.objects.all()
-    recent_transactions = Invoice.objects.order_by('-created_at')[:8]
-    return render(request, 'pos/pos.html', {
-        'products': products,
-        'categories': categories,
-        'recent_transactions': recent_transactions,
-    })
-
-
-@login_required
-def pos_complete_sale(request):
-    """AJAX endpoint — receive cart JSON, create Invoice and send to warehouse dispatch."""
+def invoice_parse_pdf(request):
+    """AJAX endpoint — parse uploaded PDF and return extracted fields as JSON."""
     if request.method != 'POST':
         return JsonResponse({'error': 'POST required'}, status=405)
-    import json as _json
-    data = _json.loads(request.body)
-    cart = data.get('cart', [])
-    customer = data.get('customer_name', '').strip()
-    account = data.get('account_number', '').strip()
-    payment = data.get('payment_method', 'cash')
-    notes = data.get('notes', '')
 
-    if not cart:
-        return JsonResponse({'error': 'Cart is empty'}, status=400)
+    pdf_file = request.FILES.get('pdf')
+    if not pdf_file:
+        return JsonResponse({'error': 'No file provided'}, status=400)
 
-    with transaction.atomic():
-        invoice = Invoice.objects.create(
-            invoice_number=gen_number('INV'),
-            cashier=request.user,
-            customer_name=customer,
-            account_number=account,
-            payment_method=payment,
-            notes=notes,
-            dispatch_status='pending',
-        )
-        for line in cart:
-            try:
-                product = Product.objects.get(pk=line['product_id'])
-            except Product.DoesNotExist:
-                transaction.set_rollback(True)
-                return JsonResponse({'error': f"Product ID {line['product_id']} not found."}, status=400)
-            qty = int(line['qty'])
-            discount = Decimal(str(line.get('discount', 0)))
-            InvoiceItem.objects.create(
-                invoice=invoice,
-                product=product,
-                quantity=qty,
-                unit_price=product.unit_price,
-                discount_percent=discount,
-            )
-        invoice.calculate_total()
-    return JsonResponse({
-        'success': True,
-        'invoice_number': invoice.invoice_number,
-        'total': str(invoice.total_amount),
-        'invoice_id': invoice.pk,
-    })
+    if not pdf_file.name.lower().endswith('.pdf'):
+        return JsonResponse({'error': 'File must be a PDF'}, status=400)
 
-
-# ── QUOTES ────────────────────────────────────────────────────────────────────
-
-@login_required
-def quote_list(request):
-    quotes = Quote.objects.select_related('cashier').order_by('-created_at')
-    return render(request, 'pos/quote_list.html', {'quotes': quotes})
+    try:
+        data = _parse_ahliki_invoice(pdf_file)
+        # Compare SKU, description and unit of every line against the catalogue
+        annotate_items(data.get('items', []))
+        return JsonResponse({'success': True, 'data': data})
+    except Exception as exc:
+        return JsonResponse({'success': False, 'data': {}, 'error': str(exc)})
 
 
 @login_required
+@role_required('admin', 'cashier')
+def invoice_upload(request):
+    """Simple invoice upload view — upload the Ah Liki PDF invoice into the system."""
+    if request.method == 'POST':
+        form = InvoiceUploadForm(request.POST, request.FILES)
+        if form.is_valid():
+            invoice = form.save(commit=False)
+            invoice.cashier = request.user
+            invoice.dispatch_status = 'pending'
+            invoice.save()
+
+            # Create InvoiceItems from the extracted items JSON. The browser's
+            # match is only a preview — re-compare SKU/description/unit here so
+            # a tampered or stale payload can't attach the wrong product.
+            unmatched = 0
+            flagged = []
+            raw_items = request.POST.get('extracted_items', '').strip()
+            if raw_items:
+                import json as _json
+                try:
+                    item_list = _json.loads(raw_items)
+                except (ValueError, TypeError):
+                    item_list = []  # Bad JSON — just skip items
+                index = CatalogueIndex()
+                by_pk = {p.pk: p for p in index.products}
+                for it in item_list:
+                    if not isinstance(it, dict):
+                        continue
+                    match = compare_item(it, index=index)
+                    product = by_pk.get(match['product_id']) if match['matched'] else None
+                    if not product:
+                        unmatched += 1
+                        continue
+                    try:
+                        unit_price = Decimal(str(it.get('unit_price', product.unit_price)))
+                    except Exception:
+                        unit_price = product.unit_price
+                    try:
+                        quantity = int(it.get('quantity', 1))
+                    except (TypeError, ValueError):
+                        quantity = 1
+                    InvoiceItem.objects.create(
+                        invoice=invoice,
+                        product=product,
+                        quantity=max(quantity, 1),
+                        unit_price=unit_price,
+                        discount_percent=Decimal('0'),
+                    )
+                    fm = match['field_matches']
+                    if fm.get('unit') in ('differs', 'close'):
+                        flagged.append(f'{product.name} — unit "{it.get("unit", "")}" '
+                                       f'vs catalogue "{product.unit}"')
+                    elif fm.get('description') == 'differs':
+                        flagged.append(f'{product.name} — description differs from the catalogue')
+                    elif match.get('ambiguous'):
+                        flagged.append(f'{product.name} — several catalogue products fit this line')
+
+            item_count = invoice.items.count()
+            suffix = f' {item_count} item{"s" if item_count != 1 else ""} matched.' if item_count else ' PDF stored as reference.'
+            messages.success(request, f'Invoice {invoice.invoice_number} uploaded and sent to dispatch.{suffix}')
+            if unmatched:
+                messages.warning(
+                    request,
+                    f'{unmatched} line{"s" if unmatched != 1 else ""} had no catalogue match '
+                    'and were not added as line items — they remain visible on the PDF.')
+            for note in flagged[:10]:
+                messages.warning(request, f'Catalogue mismatch: {note}')
+            return redirect('invoice_detail', pk=invoice.pk)
+    else:
+        form = InvoiceUploadForm()
+    return render(request, 'pos/invoice_upload.html', {'form': form})
+
+
+
 def quote_new(request):
     products = Product.objects.filter(is_active=True).order_by('name')
     if request.method == 'POST':
@@ -692,8 +943,17 @@ def warehouse_dispatch_list(request):
 @login_required
 @role_required('admin', 'warehouse', 'wms_dispatcher')
 def warehouse_dispatch_detail(request, pk):
-    """Show the dispatch checklist for a single invoice."""
+    """Show the dispatch detail for a single invoice."""
     invoice = get_object_or_404(Invoice, pk=pk)
+
+    # Handle inline comment submission
+    if request.method == 'POST' and request.POST.get('add_comment'):
+        body = request.POST.get('comment_body', '').strip()
+        if body:
+            DispatchComment.objects.create(invoice=invoice, author=request.user, body=body)
+            messages.success(request, 'Comment added.')
+        return redirect('warehouse_dispatch_detail', pk=pk)
+
     items = invoice.items.select_related('product').all()
     item_data = []
     for item in items:
@@ -715,7 +975,7 @@ def warehouse_dispatch_detail(request, pk):
 @login_required
 @role_required('admin', 'warehouse', 'wms_dispatcher')
 def warehouse_dispatch_submit(request, pk):
-    """Confirm dispatch — deduct stock for each checked item, mark invoice dispatched."""
+    """Confirm dispatch — for PDF invoices just marks dispatched; for item invoices deducts stock."""
     invoice = get_object_or_404(Invoice, pk=pk)
     if request.method != 'POST':
         return redirect('warehouse_dispatch_detail', pk=pk)
@@ -724,8 +984,27 @@ def warehouse_dispatch_submit(request, pk):
         messages.warning(request, 'This invoice has already been dispatched.')
         return redirect('warehouse_dispatch_detail', pk=pk)
 
+    truck_plate = request.POST.get('truck_plate', '').strip()
+    if not truck_plate:
+        messages.error(request, 'Truck plate number is required.')
+        return redirect('warehouse_dispatch_detail', pk=pk)
+
     checked_item_ids = set(request.POST.getlist('checked_items'))
     items = list(invoice.items.select_related('product').all())
+
+    # PDF-uploaded invoices have no line items — skip item validation
+    if not items:
+        adjustment_reason = request.POST.get('adjustment_reason', '').strip()
+        with transaction.atomic():
+            invoice.dispatch_status = 'dispatched'
+            invoice.dispatched_by = request.user
+            invoice.dispatched_at = timezone.now()
+            invoice.truck_plate = truck_plate
+            invoice.save(update_fields=['dispatch_status', 'dispatched_by', 'dispatched_at', 'truck_plate'])
+            if adjustment_reason:
+                DispatchComment.objects.create(invoice=invoice, author=request.user, body=adjustment_reason)
+        messages.success(request, f'Invoice {invoice.invoice_number} dispatched successfully.')
+        return redirect('warehouse_dispatch_detail', pk=pk)
 
     # Collect dispatcher-entered quantities (may be partial for low-stock items)
     dispatch_quantities = {}
@@ -948,6 +1227,10 @@ def wms_dashboard(request):
     return render(request, 'wms/wms_dashboard.html', {
         'total_pallets': total_pallets,
         'unassigned_count': unassigned_count,
+        'containers_awaiting': Container.objects.filter(status=Container.STATUS_AT_WHARF).count(),
+        'containers_open': Container.objects.filter(
+            status__in=[Container.STATUS_CHECKED_IN, Container.STATUS_OPENED,
+                        Container.STATUS_PALLETIZED]).count(),
         'recent_grns': recent_grns,
         'recent_checkins': recent_checkins,
         'today': date.today(),
@@ -1371,3 +1654,346 @@ def dispatcher_edit_order(request, pk):
         'invoice': invoice,
         'item_data': item_data,
     })
+
+
+# ── CONTAINERS ────────────────────────────────────────────────────────────────
+#
+# Flow:  broker lodges manifest at the wharf  →  warehouse checks the container
+# in at HQ  →  warehouse opens it (raises the GRN, stock goes on hand)  →
+# warehouse palletizes each manifest line  →  comments/damage reports  →  close.
+
+BROKER_ROLES = ('admin', 'manager', 'custom_broker')
+CONTAINER_WAREHOUSE_ROLES = ('admin', 'manager', 'warehouse', 'wms_operator')
+CONTAINER_VIEW_ROLES = ('admin', 'manager', 'warehouse', 'wms_operator', 'custom_broker')
+
+
+def _user_role(user):
+    if user.is_superuser:
+        return 'admin'
+    profile, _ = UserProfile.objects.get_or_create(user=user)
+    return profile.role
+
+
+def _container_permissions(user, container):
+    """Work out which actions this user may take on this container right now."""
+    role = _user_role(user)
+    is_warehouse = role in CONTAINER_WAREHOUSE_ROLES
+    is_broker = role in BROKER_ROLES
+    return {
+        'can_edit': is_broker and container.is_editable,
+        'can_check_in': is_warehouse and container.status == Container.STATUS_AT_WHARF,
+        'can_open': is_warehouse and container.status == Container.STATUS_CHECKED_IN,
+        'can_palletize': is_warehouse and container.status in (
+            Container.STATUS_OPENED, Container.STATUS_PALLETIZED),
+        'can_close': is_warehouse and container.status == Container.STATUS_PALLETIZED,
+        'can_comment': (is_warehouse or is_broker) and container.status != Container.STATUS_CLOSED,
+    }
+
+
+@login_required
+@role_required(*CONTAINER_VIEW_ROLES)
+def container_list(request):
+    """Customs broker view — every container they have lodged, by stage."""
+    q = request.GET.get('q', '').strip()
+    containers = Container.objects.select_related('supplier', 'container_type', 'created_by').prefetch_related('items')
+    if q:
+        containers = containers.filter(
+            Q(container_number__icontains=q) |
+            Q(vessel__icontains=q) |
+            Q(container_type__name__icontains=q) |
+            Q(supplier__name__icontains=q)
+        )
+    return render(request, 'containers/list.html', {
+        'at_wharf': containers.filter(status=Container.STATUS_AT_WHARF),
+        'in_transit_to_hq': containers.filter(status=Container.STATUS_CHECKED_IN),
+        'in_progress': containers.filter(status__in=[Container.STATUS_OPENED, Container.STATUS_PALLETIZED]),
+        'closed': containers.filter(status=Container.STATUS_CLOSED),
+        'q': q,
+        'can_create': _user_role(request.user) in BROKER_ROLES,
+        'today': date.today(),
+    })
+
+
+@login_required
+@role_required(*BROKER_ROLES)
+def container_create(request):
+    """Customs broker lodges a container sitting at the wharf, with its manifest."""
+    form = ContainerForm(request.POST or None)
+    formset = ContainerItemFormSet(request.POST or None)
+    if request.method == 'POST':
+        if form.is_valid() and formset.is_valid():
+            items = [f for f in formset.forms
+                     if f.cleaned_data and not f.cleaned_data.get('DELETE')
+                     and f.cleaned_data.get('product')]
+            if not items:
+                messages.error(request, 'Add at least one item to the container manifest.')
+            else:
+                with transaction.atomic():
+                    container = form.save(commit=False)
+                    container.created_by = request.user
+                    container.status = Container.STATUS_AT_WHARF
+                    container.save()
+                    formset.instance = container
+                    formset.save()
+                messages.success(
+                    request,
+                    f'Container {container.container_number} lodged at the wharf with '
+                    f'{container.items.count()} line(s).')
+                return redirect('container_detail', pk=container.pk)
+    return render(request, 'containers/form.html', {
+        'form': form,
+        'formset': formset,
+        'container': None,
+        'products_json': json.dumps(list(
+            Product.objects.filter(is_active=True).values('id', 'name', 'sku').order_by('name')
+        )),
+    })
+
+
+@login_required
+@role_required(*BROKER_ROLES)
+def container_edit(request, pk):
+    """Amend a manifest — only while the container has not been opened."""
+    container = get_object_or_404(Container, pk=pk)
+    if not container.is_editable:
+        messages.error(request, f'Container {container.container_number} has been opened and can no longer be edited.')
+        return redirect('container_detail', pk=pk)
+
+    form = ContainerForm(request.POST or None, instance=container)
+    formset = ContainerItemFormSet(request.POST or None, instance=container)
+    if request.method == 'POST' and form.is_valid() and formset.is_valid():
+        with transaction.atomic():
+            form.save()
+            formset.save()
+        messages.success(request, f'Container {container.container_number} updated.')
+        return redirect('container_detail', pk=pk)
+    return render(request, 'containers/form.html', {
+        'form': form,
+        'formset': formset,
+        'container': container,
+        'products_json': json.dumps(list(
+            Product.objects.filter(is_active=True).values('id', 'name', 'sku').order_by('name')
+        )),
+    })
+
+
+@login_required
+@role_required(*CONTAINER_VIEW_ROLES)
+def container_detail(request, pk):
+    container = get_object_or_404(
+        Container.objects.select_related('supplier', 'container_type', 'created_by', 'checked_in_by',
+                                         'opened_by', 'closed_by', 'grn'),
+        pk=pk,
+    )
+    perms = _container_permissions(request.user, container)
+
+    item_data = []
+    for item in container.items.select_related('product').prefetch_related('pallets'):
+        item_data.append({
+            'item': item,
+            'palletized': item.palletized_quantity,
+            'remaining': item.remaining_quantity,
+            'pallets': item.pallets.select_related('product').all(),
+        })
+
+    return render(request, 'containers/detail.html', {
+        'container': container,
+        'item_data': item_data,
+        'comments': container.comments.select_related('author').all(),
+        'comment_form': ContainerCommentForm(),
+        'perms': perms,
+        'damage_count': container.comments.filter(is_damage=True).count(),
+    })
+
+
+@login_required
+@role_required(*CONTAINER_WAREHOUSE_ROLES)
+def warehouse_container_list(request):
+    """Warehouse 'Containers' tab — check in containers arriving from the wharf."""
+    containers = Container.objects.select_related('supplier', 'container_type', 'created_by', 'checked_in_by') \
+        .prefetch_related('items')
+    return render(request, 'warehouse/container_list.html', {
+        'awaiting_checkin': containers.filter(status=Container.STATUS_AT_WHARF),
+        'at_hq': containers.filter(status=Container.STATUS_CHECKED_IN),
+        'open_containers': containers.filter(
+            status__in=[Container.STATUS_OPENED, Container.STATUS_PALLETIZED]),
+        'closed': containers.filter(status=Container.STATUS_CLOSED),
+        'today': date.today(),
+    })
+
+
+@login_required
+@role_required(*CONTAINER_WAREHOUSE_ROLES)
+def container_check_in(request, pk):
+    """Warehouse confirms the container has arrived at HQ from the wharf."""
+    container = get_object_or_404(Container, pk=pk)
+    if request.method != 'POST':
+        return redirect('container_detail', pk=pk)
+    if container.status != Container.STATUS_AT_WHARF:
+        messages.warning(request, f'Container {container.container_number} has already been checked in.')
+        return redirect('container_detail', pk=pk)
+
+    container.status = Container.STATUS_CHECKED_IN
+    container.checked_in_by = request.user
+    container.checked_in_at = timezone.now()
+    container.save(update_fields=['status', 'checked_in_by', 'checked_in_at'])
+    messages.success(request, f'Container {container.container_number} checked in at HQ. Open it when you are ready to unload.')
+    return redirect('container_detail', pk=pk)
+
+
+@login_required
+@role_required(*CONTAINER_WAREHOUSE_ROLES)
+def container_open(request, pk):
+    """Open the container: raise the GRN and bring the manifest on hand as stock."""
+    container = get_object_or_404(Container, pk=pk)
+    if request.method != 'POST':
+        return redirect('container_detail', pk=pk)
+    if container.status != Container.STATUS_CHECKED_IN:
+        messages.warning(request, f'Container {container.container_number} cannot be opened from status "{container.get_status_display()}".')
+        return redirect('container_detail', pk=pk)
+    if not container.items.exists():
+        messages.error(request, 'This container has no manifest lines — nothing to receive.')
+        return redirect('container_detail', pk=pk)
+
+    with transaction.atomic():
+        grn = GoodsReceivedNote.objects.create(
+            grn_number=_gen_grn_number(),
+            supplier=container.supplier,
+            received_by=request.user,
+            received_at=timezone.now(),
+            notes=f'Auto-generated on opening container {container.container_number}.',
+        )
+        for item in container.items.select_related('product'):
+            grn_item = GRNItem.objects.create(
+                grn=grn,
+                product=item.product,
+                quantity_received=item.quantity,
+                batch_number=_gen_batch_number(),
+                expiry_date=item.expiry_date,
+                unit_cost=0,
+            )
+            item.grn_item = grn_item
+            item.save(update_fields=['grn_item'])
+            StockMovement.objects.create(
+                product=item.product,
+                movement_type='in',
+                quantity=item.quantity,
+                reference=grn.grn_number,
+                batch_number=grn_item.batch_number,
+                expiry_date=item.expiry_date,
+                performed_by=request.user,
+                notes=f'Container {container.container_number}',
+            )
+            check_and_create_alerts(item.product)
+
+        container.grn = grn
+        container.status = Container.STATUS_OPENED
+        container.opened_by = request.user
+        container.opened_at = timezone.now()
+        container.save(update_fields=['grn', 'status', 'opened_by', 'opened_at'])
+
+    messages.success(
+        request,
+        f'Container {container.container_number} opened. {grn.grn_number} raised and stock updated — '
+        f'now palletize the items.')
+    return redirect('container_detail', pk=pk)
+
+
+@login_required
+@role_required(*CONTAINER_WAREHOUSE_ROLES)
+def container_palletize(request, pk, item_pk):
+    """Build a pallet from one manifest line of an opened container."""
+    container = get_object_or_404(Container, pk=pk)
+    item = get_object_or_404(ContainerItem, pk=item_pk, container=container)
+
+    if container.status not in (Container.STATUS_OPENED, Container.STATUS_PALLETIZED):
+        messages.error(request, 'Open the container before palletizing its contents.')
+        return redirect('container_detail', pk=pk)
+    if item.remaining_quantity <= 0:
+        messages.warning(request, f'{item.product.name} is already fully palletized.')
+        return redirect('container_detail', pk=pk)
+
+    initial = {'quantity': item.remaining_quantity, 'expiry_date': item.expiry_date}
+    form = ContainerPalletForm(request.POST or None, container_item=item, initial=initial)
+    if request.method == 'POST' and form.is_valid():
+        with transaction.atomic():
+            pallet = Pallet.objects.create(
+                lot_number=_gen_lot(),
+                product=item.product,
+                grn_item=item.grn_item,
+                container_item=item,
+                quantity=form.cleaned_data['quantity'],
+                expiry_date=form.cleaned_data.get('expiry_date') or item.expiry_date,
+                created_by=request.user,
+                notes=form.cleaned_data.get('notes', ''),
+            )
+            container.refresh_palletized_status()
+        messages.success(
+            request,
+            f'Pallet {pallet.lot_number} built from container {container.container_number}. '
+            f'Print the label and check it in to a shelf.')
+        return redirect('pallet_label', pk=pallet.pk)
+
+    return render(request, 'containers/palletize.html', {
+        'container': container,
+        'item': item,
+        'form': form,
+    })
+
+
+@login_required
+@role_required(*CONTAINER_WAREHOUSE_ROLES)
+def container_close(request, pk):
+    """Close the container once everything is out and palletized."""
+    container = get_object_or_404(Container, pk=pk)
+    if request.method != 'POST':
+        return redirect('container_detail', pk=pk)
+
+    container.refresh_palletized_status()
+    if container.status == Container.STATUS_CLOSED:
+        messages.warning(request, f'Container {container.container_number} is already closed.')
+        return redirect('container_detail', pk=pk)
+    if container.status != Container.STATUS_PALLETIZED:
+        messages.error(
+            request,
+            f'Container {container.container_number} still has {container.remaining_quantity} '
+            f'unit(s) to palletize before it can be closed.')
+        return redirect('container_detail', pk=pk)
+
+    # A closing note is optional, but capture it as a comment when supplied.
+    body = request.POST.get('closing_comment', '').strip()
+    if body:
+        ContainerComment.objects.create(
+            container=container,
+            author=request.user,
+            body=body,
+            is_damage=bool(request.POST.get('closing_is_damage')),
+        )
+
+    container.status = Container.STATUS_CLOSED
+    container.closed_by = request.user
+    container.closed_at = timezone.now()
+    container.save(update_fields=['status', 'closed_by', 'closed_at'])
+    messages.success(request, f'Container {container.container_number} closed.')
+    return redirect('container_detail', pk=pk)
+
+
+@login_required
+@role_required(*CONTAINER_VIEW_ROLES)
+def container_add_comment(request, pk):
+    """Standalone comment endpoint (damage/breakage reports)."""
+    container = get_object_or_404(Container, pk=pk)
+    if request.method == 'POST':
+        if container.status == Container.STATUS_CLOSED:
+            messages.error(request, 'This container is closed — no further comments can be added.')
+        else:
+            form = ContainerCommentForm(request.POST)
+            if form.is_valid():
+                comment = form.save(commit=False)
+                comment.container = container
+                comment.author = request.user
+                comment.save()
+                messages.success(request, 'Comment added to the container.')
+            else:
+                messages.warning(request, 'Comment cannot be empty.')
+    return redirect('container_detail', pk=pk)

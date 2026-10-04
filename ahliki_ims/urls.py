@@ -31,8 +31,11 @@ def home_redirect(request):
     if profile.role == 'wms_dispatcher':
         return redirect('wms_dispatcher_dashboard')
 
-    # Cashiers and any unknown roles go directly to POS
-    return redirect('pos')
+    if profile.role == 'custom_broker':
+        return redirect('container_list')
+
+    # Cashiers go to invoice upload
+    return redirect('invoice_upload')
 
 
 urlpatterns = [

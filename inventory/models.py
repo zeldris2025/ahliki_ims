@@ -15,6 +15,7 @@ class UserProfile(models.Model):
         ('wms_operator', 'WMS Operator'),
         ('wms_dispatcher', 'WMS Dispatcher'),
         ('cashier', 'Sales / Cashier'),
+        ('custom_broker', 'Customs Broker'),
     ]
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='cashier')
@@ -283,6 +284,11 @@ class Invoice(models.Model):
     notes = models.TextField(blank=True)
     total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Uploaded invoice fields
+    invoice_file = models.FileField(upload_to='invoices/', blank=True, null=True)
+    salesperson = models.CharField(max_length=100, blank=True)
+    payment_terms = models.CharField(max_length=100, blank=True, help_text='e.g. Net 7 days')
+    sales_territory = models.CharField(max_length=50, blank=True)
 
     def __str__(self):
         return self.invoice_number
@@ -335,6 +341,7 @@ class Pallet(models.Model):
     lot_number = models.CharField(max_length=100, unique=True)
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='pallets')
     grn_item = models.ForeignKey(GRNItem, on_delete=models.SET_NULL, null=True, blank=True, related_name='pallets')
+    container_item = models.ForeignKey('ContainerItem', on_delete=models.SET_NULL, null=True, blank=True, related_name='pallets')
     quantity = models.PositiveIntegerField()
     expiry_date = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -373,3 +380,173 @@ class DispatchComment(models.Model):
 
     def __str__(self):
         return f"Comment on {self.invoice.invoice_number} by {self.author}"
+
+
+# ── CONTAINERS: WHARF → HQ → OPEN → PALLETIZE → CLOSE ─────────────────────────
+
+class ContainerType(models.Model):
+    """A type of container — the shipping line plus the size, e.g. 'Matson 40 FT'.
+    Maintained in the admin panel and offered as a dropdown when lodging a container."""
+
+    name = models.CharField(max_length=120, unique=True,
+                            help_text='Name and size, e.g. Matson 40 FT')
+    is_active = models.BooleanField(default=True,
+                                    help_text='Untick to hide this type from the dropdown')
+
+    class Meta:
+        ordering = ['name']
+        verbose_name = 'Container type'
+        verbose_name_plural = 'Container types'
+
+    def __str__(self):
+        return self.name
+
+
+class Container(models.Model):
+    """A shipping container lodged by the customs broker at the wharf and then
+    tracked through check-in at HQ, opening, palletizing and closing."""
+
+    STATUS_AT_WHARF = 'at_wharf'
+    STATUS_CHECKED_IN = 'checked_in'
+    STATUS_OPENED = 'opened'
+    STATUS_PALLETIZED = 'palletized'
+    STATUS_CLOSED = 'closed'
+
+    STATUS_CHOICES = [
+        (STATUS_AT_WHARF, 'At Wharf'),
+        (STATUS_CHECKED_IN, 'Checked In at HQ'),
+        (STATUS_OPENED, 'Opened'),
+        (STATUS_PALLETIZED, 'Palletized'),
+        (STATUS_CLOSED, 'Closed'),
+    ]
+
+    # Ordered flow — used to compare progress.
+    STATUS_ORDER = [STATUS_AT_WHARF, STATUS_CHECKED_IN, STATUS_OPENED,
+                    STATUS_PALLETIZED, STATUS_CLOSED]
+
+    container_number = models.CharField(max_length=100, unique=True,
+                                        help_text='e.g. MSKU1234567')
+    supplier = models.ForeignKey(Supplier, on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='containers')
+    container_type = models.ForeignKey(ContainerType, on_delete=models.SET_NULL, null=True, blank=True,
+                                       related_name='containers', verbose_name='Type of container')
+    vessel = models.CharField(max_length=200, blank=True, help_text='Vessel / voyage name')
+    arrival_date = models.DateField(null=True, blank=True, help_text='Date the container landed at the wharf')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_AT_WHARF)
+    notes = models.TextField(blank=True)
+
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True,
+                                   related_name='containers_lodged')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    checked_in_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
+                                      related_name='containers_checked_in')
+    checked_in_at = models.DateTimeField(null=True, blank=True)
+
+    opened_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
+                                  related_name='containers_opened')
+    opened_at = models.DateTimeField(null=True, blank=True)
+
+    palletized_at = models.DateTimeField(null=True, blank=True)
+
+    closed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
+                                  related_name='containers_closed')
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    # GRN generated when the container is opened — this is what puts stock on hand.
+    grn = models.OneToOneField(GoodsReceivedNote, on_delete=models.SET_NULL, null=True, blank=True,
+                               related_name='container')
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.container_number
+
+    def status_rank(self):
+        try:
+            return self.STATUS_ORDER.index(self.status)
+        except ValueError:
+            return 0
+
+    def has_reached(self, status):
+        return self.status_rank() >= self.STATUS_ORDER.index(status)
+
+    @property
+    def is_editable(self):
+        """The broker may only amend the manifest before the container is opened."""
+        return self.status in (self.STATUS_AT_WHARF, self.STATUS_CHECKED_IN)
+
+    @property
+    def total_quantity(self):
+        return self.items.aggregate(t=models.Sum('quantity'))['t'] or 0
+
+    @property
+    def palletized_quantity(self):
+        return Pallet.objects.filter(container_item__container=self).aggregate(
+            t=models.Sum('quantity'))['t'] or 0
+
+    @property
+    def remaining_quantity(self):
+        return max(self.total_quantity - self.palletized_quantity, 0)
+
+    @property
+    def is_fully_palletized(self):
+        return self.items.exists() and self.remaining_quantity == 0
+
+    def refresh_palletized_status(self):
+        """Move to (or back from) the 'palletized' status as pallets are built."""
+        if self.status == self.STATUS_OPENED and self.is_fully_palletized:
+            self.status = self.STATUS_PALLETIZED
+            self.palletized_at = timezone.now()
+            self.save(update_fields=['status', 'palletized_at'])
+        elif self.status == self.STATUS_PALLETIZED and not self.is_fully_palletized:
+            self.status = self.STATUS_OPENED
+            self.palletized_at = None
+            self.save(update_fields=['status', 'palletized_at'])
+
+
+class ContainerItem(models.Model):
+    """A line on the container manifest, entered by the customs broker."""
+    container = models.ForeignKey(Container, on_delete=models.CASCADE, related_name='items')
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='container_items')
+    quantity = models.PositiveIntegerField()
+    expiry_date = models.DateField(null=True, blank=True)
+    notes = models.CharField(max_length=200, blank=True)
+    # Set when the container is opened and the GRN is generated.
+    grn_item = models.ForeignKey(GRNItem, on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='container_items')
+
+    class Meta:
+        ordering = ['pk']
+
+    def __str__(self):
+        return f"{self.container.container_number} — {self.product.name} x{self.quantity}"
+
+    @property
+    def palletized_quantity(self):
+        return self.pallets.aggregate(t=models.Sum('quantity'))['t'] or 0
+
+    @property
+    def remaining_quantity(self):
+        return max(self.quantity - self.palletized_quantity, 0)
+
+    @property
+    def is_fully_palletized(self):
+        return self.remaining_quantity == 0
+
+
+class ContainerComment(models.Model):
+    """Notes against a container — used for damage/breakage reports raised
+    after unloading and before the container is closed."""
+    container = models.ForeignKey(Container, on_delete=models.CASCADE, related_name='comments')
+    author = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    body = models.TextField()
+    is_damage = models.BooleanField(default=False, help_text='Flag as a damaged / broken goods report')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"Comment on {self.container.container_number} by {self.author}"

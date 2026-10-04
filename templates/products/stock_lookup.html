@@ -1,0 +1,202 @@
+{% extends 'base.html' %}
+{% block title %}Stock Lookup — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Stock Lookup{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Stock Lookup</h1>
+    <p style="color:var(--gray-500)">Type a product name or SKU — results update as you type.</p>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <div class="card-body">
+    <div style="position:relative">
+      <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);font-size:17px;pointer-events:none">🔍</span>
+      <input type="search" id="lookupInput" autocomplete="off" autofocus
+        placeholder="Search products — name, SKU or barcode…"
+        style="width:100%;padding:13px 44px;border:1px solid var(--gray-200);border-radius:9px;
+               font-size:16px;font-family:inherit;box-sizing:border-box">
+      <button type="button" id="clearBtn" aria-label="Clear search"
+        style="position:absolute;right:10px;top:50%;transform:translateY(-50%);display:none;
+               border:none;background:var(--gray-100);color:var(--gray-500);cursor:pointer;
+               width:24px;height:24px;border-radius:50%;font-size:14px;line-height:1;font-family:inherit">×</button>
+    </div>
+    <div id="searchMeta" style="margin-top:8px;font-size:12px;color:var(--gray-400);min-height:16px"></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Product</th>
+          <th>SKU</th>
+          <th style="text-align:center">Stock</th>
+          <th style="text-align:center">Availability</th>
+          <th style="text-align:center">Expiry</th>
+          <th style="text-align:right">Price</th>
+        </tr>
+      </thead>
+      <tbody id="resultsBody"></tbody>
+    </table>
+  </div>
+  <div id="emptyState" style="padding:44px 20px;text-align:center;color:var(--gray-400)">
+    <div style="font-size:34px;margin-bottom:8px">🔎</div>
+    <div style="font-size:14px">Start typing to search the catalogue.</div>
+  </div>
+</div>
+
+<script>
+const SEARCH_URL  = "{% url 'stock_lookup_search' %}";
+const input       = document.getElementById('lookupInput');
+const clearBtn    = document.getElementById('clearBtn');
+const body        = document.getElementById('resultsBody');
+const emptyState  = document.getElementById('emptyState');
+const meta        = document.getElementById('searchMeta');
+
+function esc(v) {
+  return String(v === undefined || v === null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Highlights the typed characters inside a result so the match is obvious.
+function mark(text, query) {
+  const safe = esc(text);
+  if (!query) return safe;
+  const i = safe.toLowerCase().indexOf(esc(query).toLowerCase());
+  if (i === -1) return safe;
+  const n = esc(query).length;
+  return safe.slice(0, i) + '<mark style="background:#fef08a;padding:0 1px">'
+       + safe.slice(i, i + n) + '</mark>' + safe.slice(i + n);
+}
+
+function stockCell(r) {
+  const colour = r.stock_status === 'out' ? '#be123c'
+               : r.stock_status === 'low' ? '#92400e' : 'var(--gray-700)';
+  return `<span style="font-weight:700;color:${colour}">${r.stock}</span>
+          <span style="font-size:11px;color:var(--gray-400)"> ${esc(r.unit)}</span>`;
+}
+
+function availabilityCell(r) {
+  if (r.stock_status === 'out') return '<span class="badge badge-red">Out of stock</span>';
+  if (r.expiry_status === 'expired') return '<span class="badge badge-red">Expired stock</span>';
+  if (r.stock_status === 'low') {
+    return `<span class="badge badge-amber">Low stock</span>
+            <div style="font-size:11px;color:var(--gray-400);margin-top:2px">reorder at ${r.reorder_level}</div>`;
+  }
+  return '<span class="badge badge-green">Available</span>';
+}
+
+function expiryCell(r) {
+  if (r.expiry_status === 'none')
+    return '<span style="font-size:12px;color:var(--gray-400)">No expiry tracked</span>';
+  if (r.expiry_status === 'expired')
+    return `<span class="badge badge-red">Expired</span>
+            <div style="font-size:11px;color:#be123c;margin-top:2px">
+              ${r.expired_batches} batch${r.expired_batches === 1 ? '' : 'es'} · from ${esc(r.earliest_expiry)}
+            </div>`;
+  if (r.expiry_status === 'expiring')
+    return `<span class="badge badge-amber">Expires soon</span>
+            <div style="font-size:11px;color:#92400e;margin-top:2px">
+              ${esc(r.earliest_expiry)} · ${r.days_to_expiry} day${r.days_to_expiry === 1 ? '' : 's'}
+            </div>`;
+  return `<span class="badge badge-green">In date</span>
+          <div style="font-size:11px;color:var(--gray-400);margin-top:2px">until ${esc(r.earliest_expiry)}</div>`;
+}
+
+function render(data) {
+  const rows = data.results || [];
+  body.innerHTML = '';
+
+  if (!data.query) {
+    emptyState.innerHTML = '<div style="font-size:34px;margin-bottom:8px">🔎</div>'
+                         + '<div style="font-size:14px">Start typing to search the catalogue.</div>';
+    emptyState.style.display = 'block';
+    meta.textContent = '';
+    return;
+  }
+  if (!rows.length) {
+    emptyState.innerHTML = '<div style="font-size:34px;margin-bottom:8px">🫙</div>'
+                         + `<div style="font-size:14px">No product matches “${esc(data.query)}”.</div>`;
+    emptyState.style.display = 'block';
+    meta.textContent = '0 results';
+    return;
+  }
+
+  emptyState.style.display = 'none';
+  for (const r of rows) {
+    const tr = document.createElement('tr');
+    if (!r.available) tr.style.background = '#fffbfb';
+    tr.innerHTML = `
+      <td>
+        <a href="${esc(r.url)}" style="font-weight:600;color:var(--gray-800);text-decoration:none">
+          ${mark(r.name, data.query)}
+        </a>
+      </td>
+      <td><code style="font-size:12px">${mark(r.sku, data.query)}</code></td>
+      <td style="text-align:center">${stockCell(r)}</td>
+      <td style="text-align:center">${availabilityCell(r)}</td>
+      <td style="text-align:center">${expiryCell(r)}</td>
+      <td style="text-align:right">SAT$${esc(r.price)}</td>`;
+    body.appendChild(tr);
+  }
+
+  const available = rows.filter(r => r.available).length;
+  meta.textContent = `${rows.length} result${rows.length === 1 ? '' : 's'}`
+    + ` · ${available} available`
+    + (data.truncated ? ' · showing the first matches only — keep typing to narrow it down' : '');
+}
+
+// Every keystroke fires a request; the previous one is aborted so a slow
+// earlier response can never overwrite the results for what is typed now.
+let inFlight = null;
+let timer = null;
+
+async function search() {
+  const q = input.value.trim();
+  clearBtn.style.display = input.value ? 'block' : 'none';
+
+  if (inFlight) inFlight.abort();
+  if (!q) {
+    render({ results: [], query: '' });
+    return;
+  }
+
+  meta.textContent = 'Searching…';
+  const controller = new AbortController();
+  inFlight = controller;
+  try {
+    const resp = await fetch(`${SEARCH_URL}?q=${encodeURIComponent(q)}`, {
+      signal: controller.signal,
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    });
+    const data = await resp.json();
+    if (controller.signal.aborted) return;
+    render(data);
+  } catch (err) {
+    if (err.name === 'AbortError') return;
+    meta.textContent = 'Search failed — check your connection and try again.';
+  }
+}
+
+// A short delay coalesces fast typing without feeling like a lag.
+input.addEventListener('input', () => {
+  clearBtn.style.display = input.value ? 'block' : 'none';
+  clearTimeout(timer);
+  timer = setTimeout(search, 90);
+});
+
+clearBtn.addEventListener('click', () => {
+  input.value = '';
+  input.focus();
+  search();
+});
+
+input.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { input.value = ''; search(); }
+});
+</script>
+{% endblock %}

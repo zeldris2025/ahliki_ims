@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% block title %}Containers — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Containers{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>Containers</h1>
+    <p>Lodge containers sitting at the wharf and follow them through to closing.</p>
+  </div>
+  {% if can_create %}
+  <a href="{% url 'container_create' %}" class="btn btn-primary">➕ New Container</a>
+  {% endif %}
+</div>
+
+<form method="get" style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+  <input type="text" name="q" value="{{ q }}" placeholder="Search container #, vessel, B/L, supplier…"
+    style="flex:1;min-width:200px;padding:8px 14px;border:1px solid var(--gray-200);border-radius:7px;font-size:13px;outline:none">
+  <button type="submit" class="btn btn-secondary btn-sm">Search</button>
+  {% if q %}<a href="{% url 'container_list' %}" class="btn btn-secondary btn-sm">Clear</a>{% endif %}
+</form>
+
+<!-- Tab bar -->
+<div style="display:flex;gap:0;border-bottom:2px solid var(--gray-200);margin-bottom:24px;overflow-x:auto">
+  <button class="ctab-btn" data-tab="wharf" onclick="switchCTab('wharf')">🚢 At Wharf <span class="badge badge-amber" style="margin-left:6px">{{ at_wharf.count }}</span></button>
+  <button class="ctab-btn" data-tab="hq" onclick="switchCTab('hq')">🏢 At HQ <span class="badge badge-blue" style="margin-left:6px">{{ in_transit_to_hq.count }}</span></button>
+  <button class="ctab-btn" data-tab="progress" onclick="switchCTab('progress')">📦 Unloading <span class="badge badge-blue" style="margin-left:6px">{{ in_progress.count }}</span></button>
+  <button class="ctab-btn" data-tab="closed" onclick="switchCTab('closed')">✅ Closed <span class="badge badge-green" style="margin-left:6px">{{ closed.count }}</span></button>
+</div>
+
+{% include 'containers/_table.html' with tab='wharf' rows=at_wharf empty_msg='No containers lodged at the wharf.' %}
+{% include 'containers/_table.html' with tab='hq' rows=in_transit_to_hq empty_msg='No containers waiting at HQ.' %}
+{% include 'containers/_table.html' with tab='progress' rows=in_progress empty_msg='No containers currently being unloaded.' %}
+{% include 'containers/_table.html' with tab='closed' rows=closed empty_msg='No closed containers yet.' %}
+
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.ctab-btn { padding:10px 22px; font-size:14px; font-weight:600; border:none; background:none;
+  cursor:pointer; color:var(--gray-500); border-bottom:3px solid transparent; margin-bottom:-2px; white-space:nowrap; }
+.ctab-btn.active { color:var(--green-mid,#2d7a4f); border-bottom-color:var(--green-mid,#2d7a4f); }
+.ctab-panel { display:none; }
+.ctab-panel.active { display:block; }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function switchCTab(tab) {
+  document.querySelectorAll('.ctab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.ctab-panel').forEach(p => p.classList.toggle('active', p.dataset.tab === tab));
+  try { localStorage.setItem('containerTab', tab); } catch (e) {}
+}
+(function () {
+  let tab = 'wharf';
+  try { tab = localStorage.getItem('containerTab') || 'wharf'; } catch (e) {}
+  if (!document.querySelector('.ctab-btn[data-tab="' + tab + '"]')) tab = 'wharf';
+  switchCTab(tab);
+})();
+</script>
+{% endblock %}

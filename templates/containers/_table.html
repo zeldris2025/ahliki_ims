@@ -1,0 +1,36 @@
+<div class="ctab-panel" data-tab="{{ tab }}">
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Container #</th>
+            <th>Supplier</th>
+            <th>Vessel / B/L</th>
+            <th>Lines</th>
+            <th>Units</th>
+            <th>Arrived</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for c in rows %}
+          <tr>
+            <td><strong>{{ c.container_number }}</strong></td>
+            <td>{{ c.supplier.name|default:"—" }}</td>
+            <td style="font-size:12px">{{ c.vessel|default:"—" }}{% if c.container_type %}<br><span style="color:var(--gray-500)">{{ c.container_type }}</span>{% endif %}</td>
+            <td>{{ c.items.count }}</td>
+            <td>{{ c.total_quantity }}</td>
+            <td style="font-size:12px">{{ c.arrival_date|date:"d M Y"|default:"—" }}</td>
+            <td>{% include 'containers/_status_badge.html' with container=c %}</td>
+            <td><a href="{% url 'container_detail' c.pk %}" class="btn btn-primary btn-sm">View →</a></td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="8" style="text-align:center;color:var(--gray-400);padding:26px">{{ empty_msg }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>

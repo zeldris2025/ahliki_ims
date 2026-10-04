@@ -1,0 +1,5 @@
+{% if container.status == 'at_wharf' %}<span class="badge badge-amber">🚢 At Wharf</span>
+{% elif container.status == 'checked_in' %}<span class="badge badge-blue">🏢 Checked In</span>
+{% elif container.status == 'opened' %}<span class="badge badge-blue">📂 Opened</span>
+{% elif container.status == 'palletized' %}<span class="badge badge-green">🧱 Palletized</span>
+{% else %}<span class="badge badge-green">✅ Closed</span>{% endif %}

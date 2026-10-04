@@ -7,6 +7,8 @@ urlpatterns = [
 
     # Products
     path('products/', views.product_list, name='product_list'),
+    path('products/lookup/', views.stock_lookup, name='stock_lookup'),
+    path('products/lookup/search/', views.stock_lookup_search, name='stock_lookup_search'),
     path('products/add/', views.product_add, name='product_add'),
     path('products/<int:pk>/', views.product_detail, name='product_detail'),
     path('products/<int:pk>/edit/', views.product_edit, name='product_edit'),
@@ -27,15 +29,11 @@ urlpatterns = [
     path('sales/add/', views.sale_new, name='sale_new'),
     path('sales/<int:pk>/', views.sale_detail, name='sale_detail'),
 
-    # POS terminal
-    path('pos/', views.pos, name='pos'),
-    path('pos/complete/', views.pos_complete_sale, name='pos_complete_sale'),
+    # Invoice Upload (replaces POS)
+    path('invoices/upload/', views.invoice_upload, name='invoice_upload'),
+    path('invoices/parse-pdf/', views.invoice_parse_pdf, name='invoice_parse_pdf'),
 
-    # Quotes
-    path('quotes/', views.quote_list, name='quote_list'),
-    path('quotes/new/', views.quote_new, name='quote_new'),
-    path('quotes/<int:pk>/', views.quote_detail, name='quote_detail'),
-    path('quotes/<int:pk>/convert/', views.quote_convert, name='quote_convert'),
+
 
     # Invoices
     path('invoices/', views.invoice_list, name='invoice_list'),
@@ -104,6 +102,20 @@ urlpatterns = [
     # Dispatch — Comment & Edit Order
     path('warehouse/dispatch/<int:pk>/comment/', views.dispatcher_add_comment, name='dispatcher_add_comment'),
     path('warehouse/dispatch/<int:pk>/edit/', views.dispatcher_edit_order, name='dispatcher_edit_order'),
+
+    # Containers — Customs Broker
+    path('containers/', views.container_list, name='container_list'),
+    path('containers/new/', views.container_create, name='container_create'),
+    path('containers/<int:pk>/', views.container_detail, name='container_detail'),
+    path('containers/<int:pk>/edit/', views.container_edit, name='container_edit'),
+    path('containers/<int:pk>/comment/', views.container_add_comment, name='container_add_comment'),
+
+    # Containers — Warehouse
+    path('warehouse/containers/', views.warehouse_container_list, name='warehouse_container_list'),
+    path('warehouse/containers/<int:pk>/check-in/', views.container_check_in, name='container_check_in'),
+    path('warehouse/containers/<int:pk>/open/', views.container_open, name='container_open'),
+    path('warehouse/containers/<int:pk>/palletize/<int:item_pk>/', views.container_palletize, name='container_palletize'),
+    path('warehouse/containers/<int:pk>/close/', views.container_close, name='container_close'),
 
     # WMS — API
     path('api/pallet/<str:lot_number>/', views.api_pallet_lookup, name='api_pallet_lookup'),

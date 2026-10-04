@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block title %}Palletize — {{ container.container_number }}{% endblock %}
+{% block topbar_title %}Palletize{% endblock %}
+
+{% block extra_css %}
+<style>
+.pal-fields input, .pal-fields textarea { width:100%; padding:11px 12px; border:1px solid var(--gray-200);
+  border-radius:8px; font-size:15px; outline:none; }
+@media (max-width:768px) { .pal-fields input, .pal-fields textarea { font-size:16px; min-height:50px; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Palletize {{ item.product.name }}</h1>
+    <p>Container {{ container.container_number }} · {{ item.remaining_quantity }} of {{ item.quantity }} {{ item.product.unit }} left to palletize</p>
+  </div>
+  <a href="{% url 'container_detail' container.pk %}" class="btn btn-secondary">← Back to container</a>
+</div>
+
+<form method="post">
+  {% csrf_token %}
+  <div class="card">
+    <div class="card-header"><h2>Pallet Details</h2></div>
+    <div class="card-body">
+      <div class="form-grid pal-fields">
+        {% for field in form %}
+        <div class="form-group">
+          <label>{{ field.label }}{% if field.field.required %} <span style="color:var(--red)">*</span>{% endif %}</label>
+          {{ field }}
+          {% if field.help_text %}<span style="font-size:12px;color:var(--gray-500)">{{ field.help_text }}</span>{% endif %}
+          {% if field.errors %}<span style="color:var(--red);font-size:12px">{{ field.errors.0 }}</span>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      <p style="margin-top:8px;font-size:12px;color:var(--gray-500)">
+        ℹ️ A lot number is generated automatically. Split the line across several pallets by repeating this step.
+      </p>
+    </div>
+  </div>
+  <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+    <button type="submit" class="btn btn-primary" style="padding:14px 24px;font-size:16px;font-weight:700">
+      🧱 Create Pallet &amp; Print Label
+    </button>
+    <a href="{% url 'container_detail' container.pk %}" class="btn btn-secondary" style="min-height:48px;display:flex;align-items:center">Cancel</a>
+  </div>
+</form>
+{% endblock %}

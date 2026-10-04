@@ -17,10 +17,14 @@
       <div class="form-group">
         <label>Role</label>
         <select name="role">
-          <option value="cashier"   {% if profile.role == 'cashier'   %}selected{% endif %}>🛒 Cashier — Sales only</option>
+          <option value="cashier" {% if profile.role == 'cashier' %}selected{% endif %}>🛒 Cashier — Sales only</option>
           <option value="warehouse" {% if profile.role == 'warehouse' %}selected{% endif %}>📦 Warehouse — Stock receiving &amp; adjustments</option>
-          <option value="finance"   {% if profile.role == 'finance'   %}selected{% endif %}>💰 Finance — Invoices, quotes &amp; reports</option>
-          <option value="admin"     {% if profile.role == 'admin'     %}selected{% endif %}>⚡ Admin — Full access</option>
+          <option value="wms_operator" {% if profile.role == 'wms_operator' %}selected{% endif %}>🏭 WMS Operator — Pallets, shelves &amp; check-in</option>
+          <option value="wms_dispatcher" {% if profile.role == 'wms_dispatcher' %}selected{% endif %}>🚚 WMS Dispatcher — Dispatch &amp; picking</option>
+          <option value="custom_broker" {% if profile.role == 'custom_broker' %}selected{% endif %}>🛃 Customs Broker — Container manifests at the wharf</option>
+          <option value="finance" {% if profile.role == 'finance' %}selected{% endif %}>💰 Finance — Invoices, quotes &amp; reports</option>
+          <option value="manager" {% if profile.role == 'manager' %}selected{% endif %}>📈 Manager — Oversight &amp; reports</option>
+          <option value="admin" {% if profile.role == 'admin' %}selected{% endif %}>⚡ Admin — Full access</option>
         </select>
       </div>
       <div class="form-group">
