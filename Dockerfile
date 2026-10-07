@@ -1,0 +1,22 @@
+# Ah Liki IMS — Django + gunicorn. See DOCKER.md.
+FROM python:3.13-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY . .
+# Scripts edited on Windows may carry CRLF line endings, which break the shebang.
+RUN sed -i 's/\r$//' docker/entrypoint.sh && chmod +x docker/entrypoint.sh \
+    && useradd --create-home --uid 1000 app && mkdir -p /app/data && chown -R app:app /app
+
+USER app
+EXPOSE 8000
+ENTRYPOINT ["/app/docker/entrypoint.sh"]
+CMD ["gunicorn", "ahliki_ims.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120", "--access-logfile", "-"]

@@ -1,0 +1,34 @@
+{# Return-to-wharf dialog. Opened by cmsOpenReturn(actionUrl, label). #}
+<div class="cms-modal" id="returnModal" role="dialog" aria-modal="true" aria-labelledby="returnTitle">
+  <form method="post" class="cms-modal-card" id="returnForm">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <h3 id="returnTitle">Return to wharf</h3>
+    <div class="cms-modal-sub" id="returnSub">Location will be recorded as <strong>Wharf</strong>.</div>
+    <div class="cms-modal-body">
+      <div class="cms-field"><label for="rDate">Returned date</label>
+        <input class="cms-input" type="date" id="rDate" name="returned_date" value="{{ today|date:'Y-m-d' }}" required></div>
+      <div class="cms-field"><label for="rStaff">Staff name</label>
+        <input class="cms-input" type="text" id="rStaff" name="staff_name" value="{{ staff_name }}" maxlength="120" required></div>
+      <div class="cms-field"><label for="rDriver">Driver <span style="font-weight:400;color:var(--cms-muted)">— who took it to the wharf</span></label>
+        <input class="cms-input" type="text" id="rDriver" name="driver" maxlength="120" list="driverList" autocomplete="off" placeholder="Driver name"></div>
+    </div>
+    <div class="cms-modal-foot">
+      <button type="button" class="btn btn-secondary" onclick="cmsCloseReturn()">Cancel</button>
+      <button type="submit" class="btn btn-primary">↩️ Mark returned</button>
+    </div>
+  </form>
+</div>
+<script>
+function cmsOpenReturn(url, label) {
+  const m = document.getElementById('returnModal');
+  document.getElementById('returnForm').action = url;
+  document.getElementById('returnSub').innerHTML = '';
+  document.getElementById('returnSub').append(label + ' — location will be recorded as Wharf.');
+  m.classList.add('open');
+  document.getElementById('rDate').focus();
+}
+function cmsCloseReturn() { document.getElementById('returnModal').classList.remove('open'); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') cmsCloseReturn(); });
+document.getElementById('returnModal').addEventListener('click', e => { if (e.target.id === 'returnModal') cmsCloseReturn(); });
+</script>

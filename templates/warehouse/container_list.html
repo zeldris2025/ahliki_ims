@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load custom_tags %}
 {% block title %}Containers — Warehouse{% endblock %}
 {% block topbar_title %}Warehouse Containers{% endblock %}
 
@@ -19,7 +20,10 @@
     <h1>Containers</h1>
     <p>Check in containers arriving from the wharf, open them, and palletize the contents.</p>
   </div>
-  <a href="{% url 'warehouse_dispatch_list' %}" class="btn btn-secondary">🚚 Dispatch Orders</a>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a href="{% url 'warehouse_dispatch_list' %}" class="btn btn-secondary">🚚 Dispatch Orders</a>
+    {% if request.user|user_role != 'wms_operator' %}<a href="{% url 'container_create' %}" class="btn btn-primary">➕ Lodge manifest</a>{% endif %}
+  </div>
 </div>
 
 <!-- Tab bar -->

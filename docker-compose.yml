@@ -1,0 +1,18 @@
+# Ah Liki IMS — run with:  docker compose up -d --build
+# Then open http://10.10.8.49:8080 (or http://localhost:8080). See DOCKER.md.
+services:
+  web:
+    build: .
+    image: ahliki-ims
+    container_name: ahliki-ims
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SQLITE_PATH: /app/data/db.sqlite3
+      MEDIA_ROOT: /app/data/media
+    ports:
+      - "${APP_PORT:-8080}:8000"
+    volumes:
+      # The live database and uploads live here on your machine, outside the container,
+      # so rebuilding or removing the container never loses data. Back this folder up.
+      - ./docker-data:/app/data

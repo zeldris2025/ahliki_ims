@@ -456,6 +456,9 @@ class Container(models.Model):
     # GRN generated when the container is opened — this is what puts stock on hand.
     grn = models.OneToOneField(GoodsReceivedNote, on_delete=models.SET_NULL, null=True, blank=True,
                                related_name='container')
+    # The tracked B/L this container came in on, if the broker followed it on the Atlas.
+    tracking = models.ForeignKey('ShipmentTracking', on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='containers', verbose_name='Tracked B/L')
 
     class Meta:
         ordering = ['-created_at']
@@ -550,3 +553,275 @@ class ContainerComment(models.Model):
 
     def __str__(self):
         return f"Comment on {self.container.container_number} by {self.author}"
+
+
+# ── SHIPMENT TRACKING: B/L → TERMINAL49 → AH LIKI ATLAS ───────────────────────
+
+class ShipmentTracking(models.Model):
+    """A bill of lading (or booking / container number) the customs broker is
+    following on the water before it lands at Apia. Registered with Terminal49;
+    voyage details come back from Terminal49 where the plan allows, otherwise the
+    broker fills them in and the Atlas estimates the ship's position from ETD/ETA."""
+
+    TYPE_CHOICES = [
+        ('bill_of_lading', 'Bill of Lading'),
+        ('booking_number', 'Booking Number'),
+        ('container', 'Container Number'),
+    ]
+
+    # Terminal49 tracking request statuses, plus 'not_sent' when the API was unreachable.
+    T49_STATUS_CHOICES = [
+        ('not_sent', 'Not sent'),
+        ('pending', 'Pending'),
+        ('awaiting_manifest', 'Awaiting manifest'),
+        ('created', 'Tracking'),
+        ('failed', 'Failed'),
+        ('tracking_stopped', 'Tracking stopped'),
+    ]
+
+    POSITION_LIVE = 'terminal49'
+    POSITION_ESTIMATED = 'estimated'
+
+    request_number = models.CharField(max_length=100, verbose_name='Bill of lading #',
+                                      help_text='B/L, booking or container number')
+    request_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default='bill_of_lading')
+    scac = models.CharField(max_length=10, blank=True, verbose_name='Shipping line (SCAC)',
+                            help_text='Leave blank to let Terminal49 detect the shipping line')
+
+    supplier = models.ForeignKey(Supplier, on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='shipments_tracked')
+    show_in_my_containers = models.BooleanField(default=True)
+
+    # Terminal49 bookkeeping
+    t49_request_id = models.CharField(max_length=64, blank=True)
+    t49_shipment_id = models.CharField(max_length=64, blank=True)
+    t49_status = models.CharField(max_length=20, choices=T49_STATUS_CHOICES, default='not_sent')
+    t49_failed_reason = models.CharField(max_length=255, blank=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    last_sync_message = models.CharField(max_length=255, blank=True)
+
+    # Voyage — filled from Terminal49 or entered by the broker
+    shipping_line = models.CharField(max_length=120, blank=True)
+    vessel_name = models.CharField(max_length=200, blank=True)
+    voyage_number = models.CharField(max_length=50, blank=True)
+    origin_port = models.CharField(max_length=120, blank=True, verbose_name='Port of loading',
+                                   help_text='e.g. Auckland, Shanghai, NZAKL')
+    destination_port = models.CharField(max_length=120, blank=True, default='Apia, Samoa')
+    departed_at = models.DateTimeField(null=True, blank=True, verbose_name='Departed (ETD/ATD)')
+    eta_at = models.DateTimeField(null=True, blank=True, verbose_name='ETA Apia')
+    arrived_at = models.DateTimeField(null=True, blank=True, verbose_name='Arrived (ATA)')
+    container_numbers = models.TextField(blank=True,
+                                         help_text='Container numbers on this B/L, one per line or comma separated')
+
+    # Ship position for the Atlas
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+    heading = models.FloatField(null=True, blank=True)
+    speed_knots = models.FloatField(null=True, blank=True)
+    position_at = models.DateTimeField(null=True, blank=True)
+    # Raw Terminal49 route GeoJSON (paid plans only) — drawn on the Atlas when present.
+    route_geojson = models.TextField(blank=True)
+
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True,
+                                   related_name='shipments_tracked')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['eta_at', '-created_at']
+        verbose_name = 'Tracked shipment'
+        verbose_name_plural = 'Tracked shipments'
+
+    def __str__(self):
+        return self.request_number
+
+    @property
+    def container_number_list(self):
+        import re
+        return [n for n in re.split(r'[\s,;]+', self.container_numbers.upper()) if n]
+
+    @property
+    def is_demo(self):
+        from .terminal49 import DEMO_PREFIX
+        return self.request_number.upper().startswith(DEMO_PREFIX)
+
+    @property
+    def has_arrived(self):
+        if self.arrived_at:
+            return True
+        return bool(self.eta_at and self.eta_at <= timezone.now() and self.lodged_count)
+
+    @property
+    def lodged_count(self):
+        return self.containers.count()
+
+    @property
+    def days_to_eta(self):
+        if not self.eta_at:
+            return None
+        return (self.eta_at.date() - timezone.localdate()).days
+
+
+# ── CMS: CONTAINER MANAGEMENT SYSTEM (Customs Broker) ─────────────────────────
+#
+# Where every box is sitting around Upolu, who owns it, and when it has to go
+# back to the wharf. Separate from the warehouse manifest flow above.
+
+class Yard(models.Model):
+    """A container yard on Upolu. The coordinates place its pin on the Ah Liki Atlas."""
+    WHARF = 'WHARF'
+    WHARF_NOTE = 'NOT YET RELEASED'
+
+    code = models.CharField(max_length=40, unique=True, help_text='e.g. HQ-ALW-VAI')
+    description = models.CharField(max_length=200, blank=True)
+    latitude = models.FloatField(help_text='Pin position on the Atlas — drag the pin to adjust')
+    longitude = models.FloatField()
+    is_active = models.BooleanField(default=True, help_text='Untick to hide this yard from dropdowns')
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['sort_order', 'code']
+
+    def __str__(self):
+        return self.code
+
+
+class ShippingLine(models.Model):
+    """Who owns the box, and how many days after arrival it must be back at the wharf."""
+    name = models.CharField(max_length=80, unique=True, verbose_name='Shipping name')
+    return_days = models.PositiveIntegerField(null=True, blank=True,
+                                              help_text='Days after arrival the container must be returned. '
+                                                        'Leave blank if it never has to go back.')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['name']
+        verbose_name = 'Shipping line'
+
+    def __str__(self):
+        return self.name
+
+
+class CmsContainer(models.Model):
+    STATUS_FULL = 'full'
+    STATUS_STORAGE = 'storage'
+    STATUS_EMPTY = 'empty'
+    STATUS_CHOICES = [
+        (STATUS_FULL, 'Full'),
+        (STATUS_STORAGE, 'Storage'),
+        (STATUS_EMPTY, 'Empty'),
+    ]
+
+    code = models.CharField(max_length=20, db_index=True, verbose_name='Container code')
+    description = models.CharField(max_length=255, blank=True)
+    yard = models.ForeignKey(Yard, on_delete=models.PROTECT, related_name='containers')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_FULL)
+    owner = models.ForeignKey(ShippingLine, on_delete=models.PROTECT, related_name='containers',
+                              verbose_name='Owned')
+    vessel_voyage = models.CharField(max_length=120, blank=True, verbose_name='Vessel voyage')
+    arrival_date = models.DateField(null=True, blank=True, verbose_name='A/Date')
+    driver = models.CharField(max_length=120, blank=True, help_text='Driver who delivered the container to the yard')
+    note = models.TextField(blank=True)
+    returned = models.BooleanField(default=False)
+
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='cms_containers')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['returned', 'arrival_date', 'code']
+        verbose_name = 'CMS container'
+        constraints = [
+            # The same box can come back on a later voyage once the last visit was returned.
+            models.UniqueConstraint(fields=['code'], condition=models.Q(returned=False),
+                                    name='cms_unique_active_container_code'),
+        ]
+
+    def __str__(self):
+        return self.code
+
+    def save(self, *args, **kwargs):
+        self.apply_wharf_note()
+        super().save(*args, **kwargs)
+
+    def apply_wharf_note(self):
+        """A container sitting at the wharf has not been released by customs yet."""
+        if self.yard_id and self.yard.code == Yard.WHARF and Yard.WHARF_NOTE not in self.note.upper():
+            self.note = '\n'.join(filter(None, [Yard.WHARF_NOTE, self.note]))
+
+    @property
+    def return_due(self):
+        if self.arrival_date and self.owner_id and self.owner.return_days is not None:
+            from datetime import timedelta
+            return self.arrival_date + timedelta(days=self.owner.return_days)
+        return None
+
+    @property
+    def days_left(self):
+        """Days until the return is due (negative once overdue); None if there is no deadline."""
+        due = self.return_due
+        if due is None or self.returned:
+            return None
+        return (due - timezone.localdate()).days
+
+    @property
+    def is_overdue(self):
+        return self.days_left is not None and self.days_left < 0
+
+    @property
+    def days_overdue(self):
+        left = self.days_left
+        return -left if left is not None and left < 0 else 0
+
+    @property
+    def days_on_island(self):
+        if not self.arrival_date:
+            return None
+        return (timezone.localdate() - self.arrival_date).days
+
+
+class ContainerReturn(models.Model):
+    """A container taken back to the wharf. Yard and status are kept as they were
+    when it left, so the record stays true if the container is edited later."""
+    LOCATION = 'Wharf'
+
+    container = models.ForeignKey(CmsContainer, on_delete=models.CASCADE, related_name='returns')
+    description = models.CharField(max_length=255, blank=True)
+    yard = models.ForeignKey(Yard, on_delete=models.SET_NULL, null=True, blank=True, related_name='returns')
+    status = models.CharField(max_length=10, choices=CmsContainer.STATUS_CHOICES)
+    location = models.CharField(max_length=40, default=LOCATION, editable=False)
+    returned_date = models.DateField(null=True, blank=True)
+    staff_name = models.CharField(max_length=120, blank=True)
+    driver = models.CharField(max_length=120, blank=True, help_text='Driver who took the container back to the wharf')
+    recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='cms_returns')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-returned_date', '-created_at']
+        verbose_name = 'Returned container'
+
+    def __str__(self):
+        return f"{self.container.code} returned {self.returned_date or ''}".strip()
+
+
+class ContainerTransfer(models.Model):
+    """One move of a container from one yard to another. Every transfer is kept,
+    so a container moved several times shows its whole trail."""
+    container = models.ForeignKey(CmsContainer, on_delete=models.CASCADE, related_name='transfers')
+    from_yard = models.ForeignKey(Yard, on_delete=models.SET_NULL, null=True, related_name='transfers_out')
+    to_yard = models.ForeignKey(Yard, on_delete=models.SET_NULL, null=True, related_name='transfers_in')
+    transferred_date = models.DateField()
+    driver = models.CharField(max_length=120, blank=True)
+    staff_name = models.CharField(max_length=120, blank=True)
+    note = models.CharField(max_length=255, blank=True)
+    recorded_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='cms_transfers')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-transferred_date', '-created_at']
+        verbose_name = 'Container transfer'
+
+    def __str__(self):
+        return f"{self.container.code}: {self.from_yard} → {self.to_yard}"

@@ -1,0 +1,220 @@
+{% extends 'cms/_base.html' %}
+{% block title %}Container Dashboard — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Container Management{% endblock %}
+{% block cms_content %}
+
+<div class="cms-head">
+  <div>
+    <h1>Container Dashboard</h1>
+    <p>Every box on Upolu at a glance — where it sits, who owns it, and when it is due back at the wharf.</p>
+  </div>
+  <div class="cms-actions">
+    <a href="{% url 'cms_container_import' %}" class="btn btn-secondary">⬆️ Import CSV</a>
+    <a href="{% url 'cms_container_add' %}" class="btn btn-primary">➕ Add container</a>
+  </div>
+</div>
+
+<div class="cms-modules">
+  <a class="cms-module" href="{% url 'cms_containers' %}"><div class="cms-module-icon">🚢</div>
+    <div><div class="cms-module-title">Containers</div><div class="cms-module-sub">{{ stats.active }} in yards</div></div></a>
+  <a class="cms-module" href="{% url 'cms_shipping' %}"><div class="cms-module-icon">⚓</div>
+    <div><div class="cms-module-title">Shipping</div><div class="cms-module-sub">Owners &amp; return days</div></div></a>
+  <a class="cms-module" href="{% url 'cms_returns' %}"><div class="cms-module-icon">↩️</div>
+    <div><div class="cms-module-title">Returned</div><div class="cms-module-sub">{{ stats.returned_month }} this month</div></div></a>
+  <a class="cms-module" href="{% url 'cms_atlas' %}"><div class="cms-module-icon">🗺️</div>
+    <div><div class="cms-module-title">Ah Liki Atlas</div><div class="cms-module-sub">Yards on the map</div></div></a>
+  <div class="cms-module disabled" aria-disabled="true" title="Coming soon"><div class="cms-module-icon">📡</div>
+    <div><div class="cms-module-title">Track Container</div><div class="cms-module-sub"><span class="cms-soon">Coming soon</span></div></div></div>
+</div>
+
+<div class="cms-kpis">
+  <a class="cms-kpi" href="{% url 'cms_containers' %}">
+    <div class="cms-kpi-label">In yards</div>
+    <div class="cms-kpi-value">{{ stats.active }}</div>
+    <div class="cms-kpi-sub">Not yet returned</div></a>
+  <a class="cms-kpi" href="{% url 'cms_containers' %}?status=full">
+    <div class="cms-kpi-label"><span class="cms-dot" style="background:var(--cms-full)"></span>Full</div>
+    <div class="cms-kpi-value">{{ stats.full }}</div>
+    <div class="cms-kpi-sub">Still loaded</div></a>
+  <a class="cms-kpi" href="{% url 'cms_containers' %}?status=storage">
+    <div class="cms-kpi-label"><span class="cms-dot" style="background:var(--cms-storage)"></span>Storage</div>
+    <div class="cms-kpi-value">{{ stats.storage }}</div>
+    <div class="cms-kpi-sub">Used for storage</div></a>
+  <a class="cms-kpi" href="{% url 'cms_containers' %}?status=empty">
+    <div class="cms-kpi-label"><span class="cms-dot" style="background:var(--cms-empty)"></span>Empty</div>
+    <div class="cms-kpi-value">{{ stats.empty }}</div>
+    <div class="cms-kpi-sub">Ready to return</div></a>
+  <a class="cms-kpi{% if stats.overdue %} is-alert{% endif %}" href="{% url 'cms_containers' %}?due=overdue">
+    <div class="cms-kpi-label">⚠ Overdue</div>
+    <div class="cms-kpi-value">{{ stats.overdue }}</div>
+    <div class="cms-kpi-sub">Past return days</div></a>
+  <a class="cms-kpi" href="{% url 'cms_containers' %}?due=week">
+    <div class="cms-kpi-label">◷ Due in 7 days</div>
+    <div class="cms-kpi-value">{{ stats.due_week }}</div>
+    <div class="cms-kpi-sub">Plan the trucks</div></a>
+</div>
+
+{% if no_deadlines %}
+<div class="alert alert-info">ℹ️ No shipping line has return days set yet, so no deadlines can be worked out.
+  <a href="{% url 'cms_shipping' %}" style="margin-left:4px;font-weight:600">Set return days on the Shipping page →</a></div>
+{% endif %}
+
+<div class="cms-grid-2">
+  <section class="cms-panel">
+    <div class="cms-panel-head">
+      <div><h2>Containers by yard</h2><p>Click a bar to see that yard's containers</p></div>
+      <div class="cms-legend" aria-hidden="true">
+        <span><i class="cms-dot" style="background:var(--cms-full)"></i>Full</span>
+        <span><i class="cms-dot" style="background:var(--cms-storage)"></i>Storage</span>
+        <span><i class="cms-dot" style="background:var(--cms-empty)"></i>Empty</span>
+      </div>
+    </div>
+    <div class="cms-panel-body">
+      <div class="cms-chart" id="yardChartWrap"><canvas id="yardChart" role="img" aria-label="Containers in each yard, split by Full, Storage and Empty"></canvas></div>
+      <button class="cms-table-toggle" type="button" data-table="yardTable">View as table</button>
+      <div class="cms-data-table" id="yardTable"></div>
+    </div>
+  </section>
+
+  <section class="cms-panel">
+    <div class="cms-panel-head">
+      <div><h2>Return deadlines</h2><p>Overdue and due within 14 days</p></div>
+      {% if due_soon_total %}<a href="{% url 'cms_containers' %}?due=overdue&sort=arrival" class="cms-icon-btn">View all</a>{% endif %}
+    </div>
+    {% if due_soon %}
+    <div class="table-wrap" style="max-height:340px;overflow:auto">
+      <table class="cms-table">
+        <thead><tr><th>Container</th><th>Yard</th><th>Due</th><th></th></tr></thead>
+        <tbody>
+        {% for c in due_soon %}
+          <tr>
+            <td><a href="{% url 'cms_container_edit' c.pk %}?next={{ request.path|urlencode }}" class="cms-code">{{ c.code }}</a>
+              <div class="cms-sub">{{ c.owner }} · {{ c.return_due|date:'d M' }}</div></td>
+            <td class="cms-yard">{{ c.yard }}</td>
+            <td>{% include 'cms/_due.html' %}</td>
+            <td style="text-align:right"><button type="button" class="cms-icon-btn go"
+                onclick="cmsOpenReturn('{% url 'cms_container_return' c.pk %}', '{{ c.code|escapejs }}')">Return</button></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if due_soon_total > due_soon|length %}<div class="cms-pager">Showing the {{ due_soon|length }} most urgent of {{ due_soon_total }}.</div>{% endif %}
+    {% else %}
+    <div class="cms-empty"><strong>✓ Nothing due</strong>No container is overdue or due back in the next 14 days.</div>
+    {% endif %}
+  </section>
+</div>
+
+<div class="cms-grid-even">
+  <section class="cms-panel">
+    <div class="cms-panel-head"><div><h2>Containers by owner</h2><p>In yards now · click a bar to filter</p></div></div>
+    <div class="cms-panel-body">
+      <div class="cms-chart short"><canvas id="ownerChart" role="img" aria-label="Containers in yards by owner"></canvas></div>
+      <button class="cms-table-toggle" type="button" data-table="ownerTable">View as table</button>
+      <div class="cms-data-table" id="ownerTable"></div>
+    </div>
+  </section>
+  <section class="cms-panel">
+    <div class="cms-panel-head"><div><h2>Arrivals per week</h2><p>Containers by A/Date, last 12 weeks</p></div></div>
+    <div class="cms-panel-body">
+      <div class="cms-chart short"><canvas id="arrivalsChart" role="img" aria-label="Container arrivals per week over the last 12 weeks"></canvas></div>
+      <button class="cms-table-toggle" type="button" data-table="arrivalsTable">View as table</button>
+      <div class="cms-data-table" id="arrivalsTable"></div>
+    </div>
+  </section>
+</div>
+
+<section class="cms-panel">
+  <div class="cms-panel-head"><div><h2>Recently returned</h2><p>Latest containers taken back to the wharf</p></div>
+    <a href="{% url 'cms_returns' %}" class="cms-icon-btn">All returns</a></div>
+  {% if recent_returns %}
+  <div class="table-wrap">
+    <table class="cms-table">
+      <thead><tr><th>Container</th><th>Description</th><th>Yard</th><th>Status</th><th>Returned</th><th>Staff</th><th>Driver</th></tr></thead>
+      <tbody>
+      {% for r in recent_returns %}
+        <tr><td class="cms-code">{{ r.container.code }}</td>
+          <td>{{ r.description|default:'—' }}</td>
+          <td class="cms-yard">{{ r.yard|default:'—' }}</td>
+          <td>{% include 'cms/_status.html' with status=r.status label=r.get_status_display %}</td>
+          <td>{{ r.returned_date|date:'d M Y'|default:'—' }}</td>
+          <td>{{ r.staff_name|default:'—' }}</td>
+          <td>{{ r.driver|default:'—' }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="cms-empty"><strong>No returns yet</strong>Containers you mark as returned will show here.</div>
+  {% endif %}
+</section>
+
+{% include 'cms/_return_modal.html' %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  const D = {{ chart_json|safe }};
+  const css = getComputedStyle(document.querySelector('.cms'));
+  const v = name => css.getPropertyValue(name).trim();
+  const COLORS = { full: v('--cms-full'), storage: v('--cms-storage'), empty: v('--cms-empty') };
+  const INK = '#52514e', GRID = '#eef0f3';
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+  Chart.defaults.font.size = 11.5;
+  Chart.defaults.color = INK;
+  const tooltip = { backgroundColor: '#111827', padding: 10, cornerRadius: 8, boxPadding: 4, titleFont: { weight: '700' } };
+  const go = (key, ids) => (evt, els) => { if (els.length) location.href = D.containers_url + '?' + key + '=' + ids[els[0].index]; };
+  const pointer = (evt, els) => { evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; };
+
+  // Containers by yard — horizontal stacked bars, one colour per status.
+  const yardWrap = document.getElementById('yardChartWrap');
+  yardWrap.style.height = Math.max(240, D.yards.labels.length * 30 + 40) + 'px';
+  new Chart(document.getElementById('yardChart'), {
+    type: 'bar',
+    data: { labels: D.yards.labels, datasets: D.yards.series.map(s => ({
+      label: s.label, data: s.data, backgroundColor: COLORS[s.key],
+      borderColor: '#fff', borderWidth: { left: 0, right: 2, top: 0, bottom: 0 }, borderSkipped: false,
+      borderRadius: 3, barThickness: 16 })) },
+    options: {
+      indexAxis: 'y', maintainAspectRatio: false, onClick: go('yard', D.yards.ids), onHover: pointer,
+      interaction: { mode: 'index', axis: 'y', intersect: false },
+      plugins: { legend: { display: false }, tooltip: { ...tooltip, callbacks: {
+        footer: items => 'Total: ' + items.reduce((a, i) => a + i.parsed.x, 0) } } },
+      scales: {
+        x: { stacked: true, beginAtZero: true, ticks: { precision: 0 }, grid: { color: GRID }, border: { display: false } },
+        y: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { font: { weight: '600' } } } } }
+  });
+
+  const single = (id, labels, data, opts) => new Chart(document.getElementById(id), {
+    type: 'bar',
+    data: { labels, datasets: [{ label: opts.label, data, backgroundColor: v('--cms-full'), borderRadius: 4,
+      borderSkipped: 'start', maxBarThickness: opts.thick || 28 }] },
+    options: {
+      indexAxis: opts.axis || 'x', maintainAspectRatio: false, onClick: opts.onClick, onHover: opts.onClick ? pointer : undefined,
+      plugins: { legend: { display: false }, tooltip },
+      scales: {
+        [opts.axis === 'y' ? 'x' : 'y']: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: GRID }, border: { display: false } },
+        [opts.axis === 'y' ? 'y' : 'x']: { grid: { display: false }, border: { display: false }, ticks: { font: { weight: '600' } } } } }
+  });
+  single('ownerChart', D.owners.labels, D.owners.data,
+         { label: 'Containers', axis: 'y', thick: 18, onClick: go('owner', D.owners.ids) });
+  single('arrivalsChart', D.arrivals.labels, D.arrivals.data, { label: 'Arrivals' });
+
+  // "View as table" for each chart.
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const table = (head, rows) => '<table class="cms-table"><thead><tr>' + head.map(h => '<th>' + esc(h) + '</th>').join('') +
+    '</tr></thead><tbody>' + rows.map(r => '<tr>' + r.map(c => '<td>' + esc(c) + '</td>').join('') + '</tr>').join('') + '</tbody></table>';
+  document.getElementById('yardTable').innerHTML = table(['Yard', 'Full', 'Storage', 'Empty', 'Total'],
+    D.yards.labels.map((l, i) => { const r = D.yards.series.map(s => s.data[i]); return [l, ...r, r.reduce((a, b) => a + b, 0)]; }));
+  document.getElementById('ownerTable').innerHTML = table(['Owner', 'Containers'], D.owners.labels.map((l, i) => [l, D.owners.data[i]]));
+  document.getElementById('arrivalsTable').innerHTML = table(['Week of', 'Arrivals'], D.arrivals.labels.map((l, i) => [l, D.arrivals.data[i]]));
+  document.querySelectorAll('.cms-table-toggle').forEach(b => b.addEventListener('click', () => {
+    const t = document.getElementById(b.dataset.table);
+    t.classList.toggle('open');
+    b.textContent = t.classList.contains('open') ? 'Hide table' : 'View as table';
+  }));
+})();
+</script>
+{% endblock %}

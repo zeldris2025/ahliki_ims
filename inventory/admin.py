@@ -2,7 +2,7 @@ from django.contrib import admin
 from .models import (UserProfile, Supplier, Category, Product, PurchaseOrder,
                      PurchaseOrderItem, GoodsReceivedNote, GRNItem,
                      StockMovement, Sale, SaleItem, StockAlert,
-                     Container, ContainerItem, ContainerComment, ContainerType)
+                     Container, ContainerItem, ContainerComment, ContainerType, ShipmentTracking)
 from .csv_import import CSVImportMixin, to_bool, to_decimal, to_int
 
 admin.site.site_header = "Ah Liki IMS Admin"
@@ -181,3 +181,61 @@ class ContainerAdmin(admin.ModelAdmin):
     list_filter = ['status', 'supplier', 'container_type']
     search_fields = ['container_number', 'vessel', 'container_type__name']
     inlines = [ContainerItemInline, ContainerCommentInline]
+
+
+@admin.register(ShipmentTracking)
+class ShipmentTrackingAdmin(admin.ModelAdmin):
+    list_display = ['request_number', 'request_type', 'scac', 'vessel_name', 'origin_port', 'eta_at',
+                    'arrived_at', 't49_status', 'show_in_my_containers', 'last_synced_at']
+    list_filter = ['t49_status', 'request_type', 'show_in_my_containers']
+    search_fields = ['request_number', 'vessel_name', 'container_numbers']
+    readonly_fields = ['t49_request_id', 't49_shipment_id', 'last_synced_at', 'last_sync_message', 'created_at']
+
+
+# ── CMS — Container Management ────────────────────────────────────────────────
+from .models import CmsContainer, ContainerReturn, ShippingLine, Yard  # noqa: E402
+
+
+@admin.register(Yard)
+class YardAdmin(admin.ModelAdmin):
+    list_display = ['code', 'description', 'latitude', 'longitude', 'is_active', 'sort_order']
+    list_editable = ['is_active', 'sort_order']
+    search_fields = ['code', 'description']
+
+
+@admin.register(ShippingLine)
+class ShippingLineAdmin(admin.ModelAdmin):
+    list_display = ['name', 'return_days']
+    search_fields = ['name']
+
+
+class ContainerReturnInline(admin.TabularInline):
+    model = ContainerReturn
+    extra = 0
+    readonly_fields = ['location', 'created_at']
+
+
+@admin.register(CmsContainer)
+class CmsContainerAdmin(admin.ModelAdmin):
+    list_display = ['code', 'yard', 'status', 'owner', 'vessel_voyage', 'arrival_date', 'driver', 'returned']
+    list_filter = ['returned', 'status', 'yard', 'owner']
+    search_fields = ['code', 'description', 'vessel_voyage', 'driver', 'note']
+    date_hierarchy = 'arrival_date'
+    inlines = [ContainerReturnInline]
+
+
+@admin.register(ContainerReturn)
+class ContainerReturnAdmin(admin.ModelAdmin):
+    list_display = ['container', 'yard', 'status', 'location', 'returned_date', 'staff_name', 'driver']
+    list_filter = ['status', 'yard']
+    search_fields = ['container__code', 'staff_name', 'driver']
+
+
+from .models import ContainerTransfer  # noqa: E402
+
+
+@admin.register(ContainerTransfer)
+class ContainerTransferAdmin(admin.ModelAdmin):
+    list_display = ['container', 'from_yard', 'to_yard', 'transferred_date', 'driver', 'staff_name', 'note']
+    list_filter = ['from_yard', 'to_yard']
+    search_fields = ['container__code', 'driver', 'staff_name', 'note']

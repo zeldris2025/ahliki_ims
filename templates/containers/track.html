@@ -1,0 +1,220 @@
+{% extends 'base.html' %}
+{% block title %}{% if tracking %}Edit {{ tracking.request_number }}{% else %}Track Containers{% endif %} — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Track Containers{% endblock %}
+
+{% block extra_css %}
+<style>
+.track-layout { display:grid; grid-template-columns:minmax(320px, 420px) 1fr; gap:20px; align-items:start; }
+.track-form .form-grid { grid-template-columns:1fr 1fr; gap:0 12px; }
+.track-form .span-2 { grid-column:1 / -1; }
+.track-form .help { font-size:11.5px; color:var(--gray-500); }
+.track-form .field-err { color:var(--red); font-size:12px; display:block; }
+.track-form details { border-top:1px solid var(--gray-200); margin-top:6px; padding-top:12px; }
+.track-form summary { cursor:pointer; font-size:13px; font-weight:600; color:var(--green-mid); margin-bottom:12px; }
+.bl-input input { font-size:17px !important; font-weight:600; letter-spacing:.03em; padding:12px 14px !important; }
+.check-row { display:flex; align-items:center; gap:8px; font-size:13px; margin:4px 0 14px; }
+.check-row input { width:auto !important; }
+.ship-row td { vertical-align:top; }
+.ship-meta { font-size:12px; color:var(--gray-500); line-height:1.5; }
+.progress { height:6px; background:var(--gray-100); border-radius:4px; overflow:hidden; margin-top:6px; min-width:90px; }
+.progress > span { display:block; height:100%; background:linear-gradient(90deg, #0ea5e9, var(--green-mid)); }
+.row-actions { display:flex; gap:6px; flex-wrap:wrap; }
+.row-actions form { display:inline; }
+.sync-note { font-size:11.5px; color:var(--gray-500); margin-top:4px; max-width:260px; }
+@media (max-width: 980px) { .track-layout { grid-template-columns:1fr; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>{% if tracking %}Edit {{ tracking.request_number }}{% else %}Track Containers{% endif %}</h1>
+    <p>Enter a bill of lading to follow it with Terminal49 all the way to Apia.
+      {% if auto_refresh_hours %}<span style="color:var(--gray-500)">· 🔄 Auto-refreshes every {{ auto_refresh_hours|floatformat:"-1" }} hours</span>{% endif %}</p>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    {% if tracking %}
+    <a href="{% url 'track_list' %}" class="btn btn-secondary">← Back</a>
+    {% else %}
+    <a href="{% url 'atlas' %}" class="btn btn-secondary">🗺️ Open Atlas</a>
+    {% if on_water %}
+    <form method="post" action="{% url 'track_refresh_all' %}">{% csrf_token %}
+      <button class="btn btn-secondary">🔄 Refresh all</button>
+    </form>
+    {% endif %}
+    {% endif %}
+  </div>
+</div>
+
+{% if not t49_configured %}
+<div class="alert alert-warning">⚠️ The Terminal49 API key is not set (TERMINAL49_API_KEY), so B/Ls are saved but not sent for tracking.</div>
+{% endif %}
+
+<div class="track-layout">
+  <!-- ── Track form ── -->
+  <div class="card track-form">
+    <div class="card-header"><h2>{% if tracking %}Shipment details{% else %}📡 Track a bill of lading{% endif %}</h2></div>
+    <div class="card-body">
+      <form method="post">
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="alert alert-error">{{ form.non_field_errors.0 }}</div>{% endif %}
+
+        <div class="form-group bl-input">
+          <label>{{ form.request_number.label }} <span style="color:var(--red)">*</span></label>
+          {{ form.request_number }}
+          {% for e in form.request_number.errors %}<span class="field-err">{{ e }}</span>{% endfor %}
+          <span class="help">B/L, booking or container number — container numbers (e.g. PDLU3208247) are detected automatically.</span>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Number type</label>{{ form.request_type }}
+          </div>
+          <div class="form-group">
+            <label>{{ form.scac.label }}</label>{{ form.scac }}
+            {% if form.scac.errors %}<span class="field-err">{{ form.scac.errors.0 }}</span>{% endif %}
+          </div>
+          <div class="form-group span-2">
+            <label>Supplier</label>{{ form.supplier }}
+          </div>
+        </div>
+        <label class="check-row">{{ form.show_in_my_containers }} Show in My Containers</label>
+
+        <details {% if tracking or form.errors %}open{% endif %}>
+          <summary>Voyage details (for the Atlas)</summary>
+          <p class="help" style="margin:-4px 0 12px">
+            Terminal49 fills these in once the shipping line confirms the B/L (where the plan allows).
+            Enter the port and ETA from the arrival notice, and the Atlas estimates where the ship is.
+          </p>
+          <div class="form-grid">
+            <div class="form-group"><label>Vessel</label>{{ form.vessel_name }}</div>
+            <div class="form-group"><label>Voyage</label>{{ form.voyage_number }}</div>
+            <div class="form-group span-2">
+              <label>{{ form.origin_port.label }}</label>{{ form.origin_port }}
+              <span class="help">{{ form.origin_port.help_text }}</span>
+            </div>
+            <div class="form-group">
+              <label>{{ form.departed_at.label }}</label>{{ form.departed_at }}
+              {% if form.departed_at.errors %}<span class="field-err">{{ form.departed_at.errors.0 }}</span>{% endif %}
+            </div>
+            <div class="form-group">
+              <label>{{ form.eta_at.label }}</label>{{ form.eta_at }}
+              {% if form.eta_at.errors %}<span class="field-err">{{ form.eta_at.errors.0 }}</span>{% endif %}
+            </div>
+            <div class="form-group span-2">
+              <label>Container numbers</label>{{ form.container_numbers }}
+              {% for e in form.container_numbers.errors %}<span class="field-err">{{ e }}</span>{% endfor %}
+              <span class="help">Used to auto-fill New Container when the box lands.</span>
+            </div>
+          </div>
+        </details>
+
+        <datalist id="portList">{% for p in port_choices %}<option value="{{ p }}">{% endfor %}</datalist>
+
+        <button type="submit" class="btn btn-primary" style="width:100%;min-height:46px;font-size:15px;font-weight:700;margin-top:8px">
+          {% if tracking %}💾 Save Changes{% else %}📡 Track &amp; add to My Containers{% endif %}
+        </button>
+      </form>
+
+      {% if tracking %}
+      <div style="border-top:1px solid var(--gray-200);margin-top:18px;padding-top:14px;font-size:12px;color:var(--gray-500);line-height:1.7">
+        <div>Terminal49: {% include 'containers/_t49_badge.html' with t=tracking %}</div>
+        {% if tracking.last_sync_message %}<div>{{ tracking.last_sync_message }}</div>{% endif %}
+        {% if tracking.last_synced_at %}<div>Last synced {{ tracking.last_synced_at|date:"d M Y H:i" }}</div>{% endif %}
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+          <form method="post" action="{% url 'track_refresh' tracking.pk %}">{% csrf_token %}
+            <input type="hidden" name="next" value="{% url 'track_edit' tracking.pk %}">
+            <button class="btn btn-secondary btn-sm">🔄 Refresh from Terminal49</button>
+          </form>
+          <form method="post" action="{% url 'track_delete' tracking.pk %}"
+                onsubmit="return confirm('Stop tracking {{ tracking.request_number }}?');">{% csrf_token %}
+            <button class="btn btn-secondary btn-sm" style="color:var(--red)">🗑 Stop tracking</button>
+          </form>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if not tracking %}
+  <!-- ── Tracked shipments ── -->
+  <div>
+    <div class="card">
+      <div class="card-header"><h2>🌊 On the water <span class="badge badge-blue" style="margin-left:6px">{{ on_water|length }}</span></h2></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>B/L</th><th>Voyage</th><th>ETA Apia</th><th>Terminal49</th><th></th></tr></thead>
+          <tbody>
+          {% for t in on_water %}
+            <tr class="ship-row">
+              <td>
+                <strong>{{ t.request_number }}</strong>
+                <div class="ship-meta">{{ t.supplier.name|default:"No supplier" }}{% if t.scac %} · {{ t.shipping_line|default:t.scac }}{% endif %}</div>
+                {% if t.container_number_list %}<div class="ship-meta">📦 {{ t.container_number_list|join:", " }}</div>{% endif %}
+              </td>
+              <td>
+                <div style="font-size:13px">{{ t.vessel_name|default:"Vessel TBC" }}{% if t.voyage_number %} · {{ t.voyage_number }}{% endif %}</div>
+                <div class="ship-meta">{{ t.origin_port|default:"Port of loading TBC" }} → Apia</div>
+              </td>
+              <td style="font-size:13px;white-space:nowrap">
+                {% if t.eta_at %}{{ t.eta_at|date:"d M Y" }}
+                  {% with d=t.days_to_eta %}<div class="ship-meta">{% if d > 1 %}in {{ d }} days{% elif d == 1 %}tomorrow{% elif d == 0 %}today{% else %}overdue{% endif %}</div>{% endwith %}
+                {% else %}<span class="ship-meta">TBC</span>{% endif %}
+              </td>
+              <td>
+                {% include 'containers/_t49_badge.html' with t=t %}
+                {% if t.last_sync_message %}<div class="sync-note">{{ t.last_sync_message }}</div>{% endif %}
+              </td>
+              <td>
+                <div class="row-actions">
+                  <a href="{% url 'atlas' %}?focus={{ t.pk }}" class="btn btn-secondary btn-sm" title="Show on the Atlas">🗺️</a>
+                  <a href="{% url 'track_edit' t.pk %}" class="btn btn-secondary btn-sm" title="Edit">✏️</a>
+                  <form method="post" action="{% url 'track_refresh' t.pk %}">{% csrf_token %}
+                    <button class="btn btn-secondary btn-sm" title="Refresh from Terminal49">🔄</button>
+                  </form>
+                  <form method="post" action="{% url 'track_toggle' t.pk %}">{% csrf_token %}
+                    <button class="btn btn-secondary btn-sm" title="{% if t.show_in_my_containers %}Remove from{% else %}Add to{% endif %} My Containers">
+                      {% if t.show_in_my_containers %}★ In My Containers{% else %}☆ Add to My Containers{% endif %}
+                    </button>
+                  </form>
+                  <a href="{% url 'container_create' %}?tracking={{ t.pk }}" class="btn btn-primary btn-sm">Lodge →</a>
+                </div>
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" style="text-align:center;color:var(--gray-400);padding:30px">
+              No bills of lading being tracked yet — enter one on the left.
+            </td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {% if arrived %}
+    <div class="card" style="margin-top:16px">
+      <div class="card-header"><h2>⚓ Arrived in Apia</h2></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>B/L</th><th>Vessel</th><th>Arrived</th><th>Lodged</th><th></th></tr></thead>
+          <tbody>
+          {% for t in arrived %}
+            <tr>
+              <td><strong>{{ t.request_number }}</strong><div class="ship-meta">{{ t.supplier.name|default:"" }}</div></td>
+              <td style="font-size:13px">{{ t.vessel_name|default:"—" }}</td>
+              <td style="font-size:13px">{{ t.arrived_at|date:"d M Y"|default:"—" }}</td>
+              <td style="font-size:13px">{{ t.lodged }} of {{ t.container_number_list|length|default:"?" }}</td>
+              <td><div class="row-actions">
+                <a href="{% url 'track_edit' t.pk %}" class="btn btn-secondary btn-sm">✏️</a>
+                <a href="{% url 'container_create' %}?tracking={{ t.pk }}" class="btn btn-secondary btn-sm">Lodge another →</a>
+              </div></td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

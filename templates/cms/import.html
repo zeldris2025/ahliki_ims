@@ -1,0 +1,136 @@
+{% extends 'cms/_base.html' %}
+{% block title %}Import containers — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Container Management{% endblock %}
+{% block cms_css %}
+<style>
+.cms-drop { border: 2px dashed var(--green-border); border-radius: 12px; padding: 30px 20px; text-align: center; background: #fbfdfc;
+  cursor: pointer; transition: background .15s, border-color .15s; display: block; }
+.cms-drop:hover, .cms-drop.over { background: var(--green-light); border-color: var(--green-mid); }
+.cms-drop input { display: none; }
+.cms-drop .big { font-size: 30px; }
+.cms-drop strong { display: block; margin-top: 6px; font-size: 14px; }
+.cms-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }
+.cms-step { display: flex; gap: 10px; align-items: flex-start; font-size: 12.5px; color: var(--cms-muted); }
+.cms-step b { width: 24px; height: 24px; border-radius: 50%; background: var(--green-dark); color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 12px; }
+.cms-step strong { color: var(--gray-900); display: block; font-size: 13px; }
+.cms-cols code { display: inline-block; background: var(--gray-100); padding: 2px 7px; border-radius: 5px; margin: 2px; font-size: 11.5px; }
+.cms-err-line { font-family: ui-monospace, monospace; font-weight: 700; color: var(--cms-critical); white-space: nowrap; }
+@media (max-width: 700px) { .cms-steps { grid-template-columns: 1fr; } }
+</style>
+{% endblock %}
+{% block cms_content %}
+
+<div class="cms-head">
+  <div>
+    <h1>Import containers</h1>
+    <p>Upload a CSV to add containers in bulk. A code already in a yard is updated, not duplicated.</p>
+  </div>
+  <div class="cms-actions">
+    <a href="{% url 'cms_import_template' %}" class="btn btn-secondary">⬇️ Download template</a>
+    <a href="{% url 'cms_containers' %}" class="btn btn-secondary">← Containers</a>
+  </div>
+</div>
+
+<div class="cms-steps">
+  <div class="cms-step"><b>1</b><div><strong>Download the template</strong>Or use your own sheet with the same headers.</div></div>
+  <div class="cms-step"><b>2</b><div><strong>Upload &amp; check</strong>Nothing is saved yet — every row is validated first.</div></div>
+  <div class="cms-step"><b>3</b><div><strong>Confirm</strong>Valid rows are imported; rows with errors are skipped.</div></div>
+</div>
+
+{% if not filename %}
+<div class="cms-grid-2" style="align-items:start">
+  <section class="cms-panel">
+    <div class="cms-panel-head"><h2>Upload CSV</h2></div>
+    <form method="post" enctype="multipart/form-data" class="cms-panel-body" id="uploadForm">
+      {% csrf_token %}
+      {% if file_error %}<div class="alert alert-error">⚠️ {{ file_error }}</div>{% endif %}
+      <label class="cms-drop" id="drop">
+        <input type="file" name="file" accept=".csv,text/csv" id="fileInput">
+        <div class="big">📄</div>
+        <strong id="dropText">Drop a CSV here or click to choose</strong>
+        <span class="cms-sub">Excel: File → Save As → “CSV UTF-8”. Max 5 MB.</span>
+      </label>
+      <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:14px">Upload &amp; check</button>
+    </form>
+  </section>
+  <section class="cms-panel">
+    <div class="cms-panel-head"><h2>Columns</h2></div>
+    <div class="cms-panel-body cms-sub" style="line-height:1.7">
+      <div class="cms-cols">{% for c in columns %}<code>{{ c }}</code>{% endfor %}</div>
+      <p style="margin-top:10px"><strong>Required:</strong> Container Code, Yard, Status, Owned.<br>
+      <strong>Status:</strong> FULL, STORAGE or EMPTY.<br>
+      <strong>A/Date:</strong> DD/MM/YYYY (also 2026-10-03, 3-Oct-26).<br>
+      <strong>Returned:</strong> Yes or No (blank = No).</p>
+      <p style="margin-top:10px"><strong>Yards:</strong> {% for y in yards %}{{ y.code }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>
+      <p style="margin-top:6px"><strong>Owned:</strong> {% for o in owners %}{{ o.name }}{% if not forloop.last %}, {% endif %}{% endfor %}
+        — <a href="{% url 'cms_shipping' %}">add more</a></p>
+    </div>
+  </section>
+</div>
+
+{% else %}
+<div class="cms-kpis">
+  <div class="cms-kpi"><div class="cms-kpi-label">📄 File</div><div class="cms-kpi-value" style="font-size:15px;word-break:break-all">{{ filename }}</div></div>
+  <div class="cms-kpi"><div class="cms-kpi-label">New containers</div><div class="cms-kpi-value">{{ new_count }}</div></div>
+  <div class="cms-kpi"><div class="cms-kpi-label">Updates</div><div class="cms-kpi-value">{{ update_count }}</div><div class="cms-kpi-sub">Already in a yard</div></div>
+  <div class="cms-kpi"><div class="cms-kpi-label">Marked returned</div><div class="cms-kpi-value">{{ returned_count }}</div></div>
+  <div class="cms-kpi{% if errors %} is-alert{% endif %}"><div class="cms-kpi-label">⚠ Rows with errors</div><div class="cms-kpi-value">{{ errors|length }}</div><div class="cms-kpi-sub">{% if errors %}Will be skipped{% else %}All good{% endif %}</div></div>
+</div>
+
+{% if errors %}
+<section class="cms-panel" style="margin-bottom:16px;border-color:#f5c2c2">
+  <div class="cms-panel-head"><div><h2>⚠ Rows that will be skipped</h2><p>Fix these in the file and upload again, or import the valid rows now.</p></div></div>
+  <div class="table-wrap" style="max-height:260px;overflow:auto">
+    <table class="cms-table"><thead><tr><th>Line</th><th>Problem</th></tr></thead>
+      <tbody>{% for line, msg in errors %}<tr><td class="cms-err-line">{{ line }}</td><td>{{ msg }}</td></tr>{% endfor %}</tbody></table>
+  </div>
+</section>
+{% endif %}
+
+<section class="cms-panel">
+  <div class="cms-panel-head"><div><h2>Ready to import</h2><p>{{ rows|length }} valid row{{ rows|length|pluralize }}{% if rows|length > 100 %} — first 100 shown{% endif %}</p></div>
+    <div class="cms-actions">
+      <a href="{% url 'cms_container_import' %}" class="btn btn-secondary btn-sm">Choose another file</a>
+      {% if rows %}
+      <form method="post">{% csrf_token %}<input type="hidden" name="confirm" value="1">
+        <button type="submit" class="btn btn-primary btn-sm">✓ Import {{ rows|length }} row{{ rows|length|pluralize }}</button></form>
+      {% endif %}
+    </div>
+  </div>
+  {% if rows %}
+  <div class="table-wrap" style="max-height:520px;overflow:auto">
+    <table class="cms-table">
+      <thead><tr><th>Line</th><th></th><th>Container</th><th>Description</th><th>Yard</th><th>Status</th><th>Owned</th><th>Vessel voyage</th><th>A/Date</th><th>Driver</th><th>Returned</th></tr></thead>
+      <tbody>
+      {% for r in rows|slice:':100' %}
+        <tr><td class="cms-sub">{{ r.line }}</td>
+          <td>{% if r.existing_id %}<span class="cms-due warning">Update</span>{% else %}<span class="cms-due ok">New</span>{% endif %}</td>
+          <td class="cms-code">{{ r.code }}</td><td>{{ r.description|default:'—' }}</td><td class="cms-yard">{{ r.yard }}</td>
+          <td><span class="cms-status {{ r.status }}">{{ r.status|upper }}</span></td>
+          <td><span class="cms-owner">{{ r.owner }}</span></td><td>{{ r.vessel_voyage|default:'—' }}</td>
+          <td>{{ r.arrival_date|default:'—' }}</td><td>{{ r.driver|default:'—' }}</td>
+          <td>{% if r.returned %}<span class="cms-yes">✓ Yes</span>{% else %}<span class="cms-no">No</span>{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="cms-empty"><strong>No valid rows</strong>Fix the errors above and upload again.</div>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  const drop = document.getElementById('drop'), input = document.getElementById('fileInput');
+  if (!drop) return;
+  const show = () => { if (input.files.length) document.getElementById('dropText').textContent = '📎 ' + input.files[0].name; };
+  input.addEventListener('change', show);
+  ['dragenter', 'dragover'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', ev => { input.files = ev.dataTransfer.files; show(); });
+})();
+</script>
+{% endblock %}

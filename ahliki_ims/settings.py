@@ -1,9 +1,19 @@
+import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-SECRET_KEY = 'django-insecure-ahliki-ims-change-in-production-2026'
-DEBUG = True
-ALLOWED_HOSTS = ['*']
+
+
+def env_list(name, default=''):
+    return [v.strip() for v in os.environ.get(name, default).split(',') if v.strip()]
+
+
+# Docker sets these from .env (see docker-compose.yml); running locally without them keeps the old defaults.
+SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-ahliki-ims-change-in-production-2026')
+DEBUG = os.environ.get('DJANGO_DEBUG', 'true').lower() in ('1', 'true', 'yes')
+ALLOWED_HOSTS = env_list('DJANGO_ALLOWED_HOSTS', '*')
+# Full origins the site is opened from, e.g. http://10.10.8.49:8080 — needed for logins/forms behind a port map.
+CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_TRUSTED_ORIGINS')
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -49,7 +59,7 @@ WSGI_APPLICATION = 'ahliki_ims.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': Path(os.environ.get('SQLITE_PATH', BASE_DIR / 'db.sqlite3')),
     }
 }
 
@@ -62,8 +72,33 @@ STATIC_URL = '/static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_ROOT = Path(os.environ.get('MEDIA_ROOT', BASE_DIR / 'media'))
+
+# WhiteNoise serves /static/ under gunicorn (always installed in Docker). Optional for runserver.
+try:
+    import whitenoise  # noqa: F401
+except ImportError:
+    pass
+else:
+    MIDDLEWARE.insert(MIDDLEWARE.index('django.middleware.security.SecurityMiddleware') + 1,
+                      'whitenoise.middleware.WhiteNoiseMiddleware')
+    STORAGES = {
+        'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+        'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage'},
+    }
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/login/'
+
+# Terminal49 container tracking (Track Containers + Ah Liki Atlas).
+# Set the key via the TERMINAL49_API_KEY environment variable or in
+# ahliki_ims/local_settings.py (git-ignored) — never commit it.
+TERMINAL49_API_KEY = os.environ.get('TERMINAL49_API_KEY', '')
+# Re-sync tracked B/Ls still on the water this often (hours); 0 turns the background refresher off.
+TRACKING_AUTO_REFRESH_HOURS = 4
+
+try:
+    from .local_settings import *  # noqa: F401,F403
+except ImportError:
+    pass

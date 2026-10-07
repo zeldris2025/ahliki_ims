@@ -1,0 +1,48 @@
+{# Transfer-to-another-yard dialog. Opened by cmsOpenTransfer(actionUrl, code, currentYardId, currentYardCode). #}
+<div class="cms-modal" id="transferModal" role="dialog" aria-modal="true" aria-labelledby="transferTitle">
+  <form method="post" class="cms-modal-card" id="transferForm">
+    {% csrf_token %}
+    <input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <h3 id="transferTitle">🔁 Transfer <span class="cms-code" id="tCode"></span></h3>
+    <div class="cms-modal-sub">Move this container to a different yard. Every transfer is saved in the
+      container's history, so you can always see where it has been.</div>
+    <div class="cms-modal-body">
+      <div class="cms-field" style="display:flex;align-items:center;gap:10px">
+        <div style="flex:1"><label>From</label><div class="cms-input" id="tFrom" style="background:var(--gray-50)"></div></div>
+        <div style="padding-top:20px;font-size:18px;color:var(--cms-muted)">→</div>
+        <div style="flex:1"><label for="tTo">To</label>
+          <select class="cms-input" name="to_yard" id="tTo" required style="width:100%">
+            <option value="">Choose yard…</option>
+            {% for y in active_yards %}<option value="{{ y.pk }}">{{ y.code }}</option>{% endfor %}
+          </select></div>
+      </div>
+      <div class="cms-field"><label for="tDate">Date</label>
+        <input class="cms-input" type="date" id="tDate" name="transferred_date" value="{{ today|date:'Y-m-d' }}" required></div>
+      <div class="cms-field"><label for="tDriver">Driver</label>
+        <input class="cms-input" type="text" id="tDriver" name="driver" maxlength="120" list="driverList" autocomplete="off" placeholder="Who moved it"></div>
+      <div class="cms-field"><label for="tStaff">Staff name</label>
+        <input class="cms-input" type="text" id="tStaff" name="staff_name" maxlength="120" value="{{ staff_name }}"></div>
+      <div class="cms-field"><label for="tNote">Reason <span style="font-weight:400;color:var(--cms-muted)">— optional</span></label>
+        <input class="cms-input" type="text" id="tNote" name="note" maxlength="255" placeholder="e.g. Yard full, moved for unloading"></div>
+    </div>
+    <div class="cms-modal-foot">
+      <button type="button" class="btn btn-secondary" onclick="cmsCloseTransfer()">Cancel</button>
+      <button type="submit" class="btn btn-primary">🔁 Transfer</button>
+    </div>
+  </form>
+</div>
+<script>
+function cmsOpenTransfer(url, code, yardId, yardCode) {
+  document.getElementById('transferForm').action = url;
+  document.getElementById('tCode').textContent = code;
+  document.getElementById('tFrom').textContent = yardCode;
+  const to = document.getElementById('tTo');
+  to.value = '';
+  [...to.options].forEach(o => { o.hidden = o.disabled = o.value === String(yardId); });
+  document.getElementById('transferModal').classList.add('open');
+  to.focus();
+}
+function cmsCloseTransfer() { document.getElementById('transferModal').classList.remove('open'); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') cmsCloseTransfer(); });
+document.getElementById('transferModal').addEventListener('click', e => { if (e.target.id === 'transferModal') cmsCloseTransfer(); });
+</script>

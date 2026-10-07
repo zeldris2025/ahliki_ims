@@ -1,0 +1,4 @@
+ahliki_ims/local_settings.py
+.env
+docker-data/
+staticfiles/

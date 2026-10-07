@@ -1,9 +1,9 @@
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
+from django.views.static import serve
 from django.contrib.auth import views as auth_views
 from django.shortcuts import redirect
 from django.conf import settings
-from django.conf.urls.static import static
 from inventory import views as inventory_views
 
 
@@ -32,7 +32,7 @@ def home_redirect(request):
         return redirect('wms_dispatcher_dashboard')
 
     if profile.role == 'custom_broker':
-        return redirect('container_list')
+        return redirect('cms_dashboard')
 
     # Cashiers go to invoice upload
     return redirect('invoice_upload')
@@ -48,4 +48,7 @@ urlpatterns = [
 
     path('', home_redirect, name='home'),
     path('', include('inventory.urls')),
-] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    # Uploaded files (invoices). static() only works with DEBUG on, so serve them explicitly —
+    # fine for an internal LAN app; put a web server in front if this ever faces the internet.
+    re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}),
+]

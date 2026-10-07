@@ -5,12 +5,39 @@
 
 <div class="page-header">
   <div>
-    <h1>Containers</h1>
-    <p>Lodge containers sitting at the wharf and follow them through to closing.</p>
+    <h1>My Containers</h1>
+    <p>Follow every container from the ship, to the wharf, through to closing.</p>
   </div>
   {% if can_create %}
-  <a href="{% url 'container_create' %}" class="btn btn-primary">➕ New Container</a>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a href="{% url 'track_list' %}" class="btn btn-secondary">📡 Track a B/L</a>
+    <a href="{% url 'atlas' %}" class="btn btn-secondary">🗺️ Atlas</a>
+    <a href="{% url 'container_create' %}" class="btn btn-primary">➕ New Container</a>
+  </div>
   {% endif %}
+</div>
+
+<div class="stats-grid mc-stats">
+  <a class="stat-card mc-stat" href="#" onclick="switchCTab('water');return false;">
+    <div class="stat-label">🌊 On the water</div>
+    <div class="stat-value">{{ on_water.count }}</div>
+    <div class="stat-sub">Tracked B/Ls heading to Apia</div>
+  </a>
+  <a class="stat-card mc-stat warning" href="#" onclick="switchCTab('wharf');return false;">
+    <div class="stat-label">🚢 At wharf</div>
+    <div class="stat-value">{{ at_wharf.count }}</div>
+    <div class="stat-sub">Waiting to come to HQ</div>
+  </a>
+  <a class="stat-card mc-stat" href="#" onclick="switchCTab('progress');return false;">
+    <div class="stat-label">📦 At HQ / unloading</div>
+    <div class="stat-value">{{ in_transit_to_hq.count|add:in_progress.count }}</div>
+    <div class="stat-sub">Checked in, opened or palletizing</div>
+  </a>
+  <a class="stat-card mc-stat success" href="#" onclick="switchCTab('closed');return false;">
+    <div class="stat-label">✅ Closed</div>
+    <div class="stat-value">{{ closed.count }}</div>
+    <div class="stat-sub">Fully received</div>
+  </a>
 </div>
 
 <form method="get" style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
@@ -22,12 +49,58 @@
 
 <!-- Tab bar -->
 <div style="display:flex;gap:0;border-bottom:2px solid var(--gray-200);margin-bottom:24px;overflow-x:auto">
+  <button class="ctab-btn" data-tab="water" onclick="switchCTab('water')">🌊 On the Water <span class="badge badge-blue" style="margin-left:6px">{{ on_water.count }}</span></button>
   <button class="ctab-btn" data-tab="wharf" onclick="switchCTab('wharf')">🚢 At Wharf <span class="badge badge-amber" style="margin-left:6px">{{ at_wharf.count }}</span></button>
   <button class="ctab-btn" data-tab="hq" onclick="switchCTab('hq')">🏢 At HQ <span class="badge badge-blue" style="margin-left:6px">{{ in_transit_to_hq.count }}</span></button>
   <button class="ctab-btn" data-tab="progress" onclick="switchCTab('progress')">📦 Unloading <span class="badge badge-blue" style="margin-left:6px">{{ in_progress.count }}</span></button>
   <button class="ctab-btn" data-tab="closed" onclick="switchCTab('closed')">✅ Closed <span class="badge badge-green" style="margin-left:6px">{{ closed.count }}</span></button>
 </div>
 
+<div class="ctab-panel" data-tab="water">
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Bill of lading</th>
+            <th>Supplier</th>
+            <th>Vessel</th>
+            <th>From</th>
+            <th>Containers</th>
+            <th>ETA Apia</th>
+            <th>Tracking</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for t in on_water %}
+          <tr>
+            <td><strong>{{ t.request_number }}</strong>{% if t.scac %}<br><span style="font-size:12px;color:var(--gray-500)">{{ t.shipping_line|default:t.scac }}</span>{% endif %}</td>
+            <td>{{ t.supplier.name|default:"—" }}</td>
+            <td style="font-size:12px">{{ t.vessel_name|default:"—" }}{% if t.voyage_number %} · {{ t.voyage_number }}{% endif %}</td>
+            <td style="font-size:12px">{{ t.origin_port|default:"—" }}</td>
+            <td style="font-size:12px">{% for n in t.container_number_list %}{{ n }}{% if not forloop.last %}<br>{% endif %}{% empty %}—{% endfor %}</td>
+            <td style="font-size:12px">
+              {% if t.eta_at %}{{ t.eta_at|date:"d M Y" }}
+                {% with d=t.days_to_eta %}<br><span style="color:var(--gray-500)">{% if d > 1 %}in {{ d }} days{% elif d == 1 %}tomorrow{% elif d == 0 %}today{% else %}due {{ d|stringformat:"d"|slice:"1:" }}d ago{% endif %}</span>{% endwith %}
+              {% else %}—{% endif %}
+            </td>
+            <td>{% include 'containers/_t49_badge.html' with t=t %}</td>
+            <td style="white-space:nowrap">
+              <a href="{% url 'atlas' %}?focus={{ t.pk }}" class="btn btn-secondary btn-sm">🗺️ Map</a>
+              {% if can_create %}<a href="{% url 'container_create' %}?tracking={{ t.pk }}" class="btn btn-primary btn-sm">Lodge →</a>{% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="8" style="text-align:center;color:var(--gray-400);padding:26px">
+            Nothing on the water yet. {% if can_create %}<a href="{% url 'track_list' %}">Track a bill of lading</a> to follow it here.{% endif %}
+          </td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
 {% include 'containers/_table.html' with tab='wharf' rows=at_wharf empty_msg='No containers lodged at the wharf.' %}
 {% include 'containers/_table.html' with tab='hq' rows=in_transit_to_hq empty_msg='No containers waiting at HQ.' %}
 {% include 'containers/_table.html' with tab='progress' rows=in_progress empty_msg='No containers currently being unloaded.' %}
@@ -42,6 +115,9 @@
 .ctab-btn.active { color:var(--green-mid,#2d7a4f); border-bottom-color:var(--green-mid,#2d7a4f); }
 .ctab-panel { display:none; }
 .ctab-panel.active { display:block; }
+.mc-stat { color:inherit; transition:border-color .15s, box-shadow .15s; }
+.mc-stat:hover { text-decoration:none; border-color:var(--green-border); box-shadow:0 2px 8px rgba(0,0,0,.05); }
+@media (max-width: 820px) { .mc-stats { grid-template-columns:repeat(2, 1fr); } }
 </style>
 {% endblock %}
 
@@ -53,9 +129,9 @@ function switchCTab(tab) {
   try { localStorage.setItem('containerTab', tab); } catch (e) {}
 }
 (function () {
-  let tab = 'wharf';
-  try { tab = localStorage.getItem('containerTab') || 'wharf'; } catch (e) {}
-  if (!document.querySelector('.ctab-btn[data-tab="' + tab + '"]')) tab = 'wharf';
+  let tab = 'water';
+  try { tab = localStorage.getItem('containerTab') || 'water'; } catch (e) {}
+  if (!document.querySelector('.ctab-btn[data-tab="' + tab + '"]')) tab = 'water';
   switchCTab(tab);
 })();
 </script>

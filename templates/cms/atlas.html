@@ -1,0 +1,295 @@
+{% extends 'cms/_base.html' %}
+{% block title %}Ah Liki Atlas — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Container Management{% endblock %}
+{% block cms_css %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+.atlas { display: grid; grid-template-columns: 1fr 360px; height: calc(100vh - 190px); min-height: 560px; }
+.atlas-map { position: relative; min-width: 0; }
+#map { position: absolute; inset: 0; background: #dfe9ef; }
+.atlas-side { border-left: 1px solid var(--cms-line); display: flex; flex-direction: column; min-height: 0; background: #fff; }
+.atlas-side-head { padding: 14px 16px; border-bottom: 1px solid var(--cms-line); }
+.atlas-side-head h2 { font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.atlas-side-head p { font-size: 12px; color: var(--cms-muted); margin-top: 2px; }
+.atlas-scroll { overflow-y: auto; flex: 1; }
+.atlas-yard { display: flex; align-items: center; gap: 12px; padding: 11px 16px; border-bottom: 1px solid #f1f2f5; cursor: pointer; transition: background .12s; }
+.atlas-yard:hover, .atlas-yard.active { background: #f3f8f5; }
+.atlas-yard .n { width: 38px; height: 38px; border-radius: 10px; background: var(--green-light); color: var(--green-dark); display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.atlas-yard .n.zero { background: var(--gray-100); color: #a3a8b1; }
+.atlas-yard .name { font-weight: 700; font-size: 13px; }
+.atlas-yard .meta { font-size: 11.5px; color: var(--cms-muted); }
+.atlas-bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--gray-100); margin-top: 6px; gap: 2px; }
+.atlas-bar span { display: block; height: 100%; }
+.atlas-ct { padding: 10px 16px; border-bottom: 1px solid #f1f2f5; display: block; color: inherit; }
+.atlas-ct:hover { background: #fafcfb; text-decoration: none; }
+.atlas-ct .top { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.atlas-filter { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+
+/* Map overlays */
+.atlas-tools { position: absolute; top: 12px; right: 12px; z-index: 500; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.atlas-tools button { background: #fff; border: 1px solid var(--cms-line); border-radius: 9px; padding: 7px 11px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; box-shadow: var(--cms-shadow); color: var(--gray-700); }
+.atlas-tools button:hover { background: var(--gray-50); }
+.atlas-tools button.on { background: var(--green-dark); color: #fff; border-color: var(--green-dark); }
+.atlas-brand { position: absolute; left: 12px; bottom: 12px; z-index: 500; background: rgba(255,255,255,.94); border-radius: 10px; padding: 9px 13px; box-shadow: var(--cms-shadow); border: 1px solid var(--cms-line); }
+.atlas-brand strong { font-size: 13px; display: block; }
+.atlas-brand span { font-size: 11px; color: var(--cms-muted); }
+.atlas-editing { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 500; background: #fef6dc; color: #7c4a03; border: 1px solid #f6d77f; border-radius: 9px; padding: 7px 12px; font-size: 12px; font-weight: 600; display: none; }
+.atlas-editing.show { display: block; }
+
+/* Pins */
+.pin { position: relative; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--green-dark); color: #fff; font-weight: 800;
+  border: 3px solid #fff; box-shadow: 0 3px 10px rgba(16,24,40,.3); font-variant-numeric: tabular-nums; transition: transform .15s; }
+.pin.zero { background: #9aa1ad; }
+.pin.alert::after { content: '!'; position: absolute; top: -6px; right: -6px; width: 17px; height: 17px; border-radius: 50%; background: var(--cms-critical);
+  border: 2px solid #fff; font-size: 10px; display: flex; align-items: center; justify-content: center; }
+.pin.active { transform: scale(1.15); background: #0f5132; }
+.pin-label { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 3px; white-space: nowrap; font-size: 10.5px; font-weight: 800;
+  color: var(--gray-900); text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff; letter-spacing: .02em; }
+.pin.wharf { background: #0e7490; }
+.pin.wharf.zero { background: #5b9aa8; }
+.leaflet-marker-draggable .pin { cursor: grab; outline: 2px dashed #f59e0b; outline-offset: 3px; }
+
+/* Hover card */
+/* Hover card lives on <body>, so the map's edges never cut it off. */
+.atlas-hover { position: fixed; z-index: 2000; background: #fff; border-radius: 12px; border: 1px solid var(--cms-line);
+  box-shadow: 0 12px 32px rgba(16,24,40,.22); pointer-events: none; opacity: 0; transform: translateY(4px);
+  transition: opacity .12s, transform .12s; max-width: calc(100vw - 16px); }
+.atlas-hover.show { opacity: 1; transform: none; }
+.tip { width: 230px; padding: 12px 14px; font-family: inherit; white-space: normal; }
+.tip h4 { font-size: 14px; font-weight: 800; margin: 0; }
+.tip .d { font-size: 11.5px; color: var(--cms-muted); }
+.tip .big { font-size: 24px; font-weight: 800; margin: 6px 0 2px; }
+.tip .big small { font-size: 12px; font-weight: 600; color: var(--cms-muted); }
+.tip .rows { margin-top: 8px; display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; font-size: 12px; }
+.tip .rows span:nth-child(even) { font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.tip .owners { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; }
+.tip .warn { margin-top: 8px; font-size: 11.5px; font-weight: 700; color: var(--cms-critical); }
+.tip .hint { margin-top: 8px; font-size: 11px; color: var(--cms-muted); border-top: 1px solid var(--cms-line); padding-top: 6px; }
+
+@media (max-width: 960px) {
+  .atlas { grid-template-columns: 1fr; grid-template-rows: 60vh auto; height: auto; }
+  .atlas-side { border-left: none; border-top: 1px solid var(--cms-line); max-height: 70vh; }
+}
+</style>
+{% endblock %}
+{% block cms_content %}
+<div class="cms-head">
+  <div>
+    <h1>Ah Liki Atlas</h1>
+    <p>Every yard on Upolu. Hover a pin for a summary; click it to see the containers there.</p>
+  </div>
+</div>
+
+<section class="cms-panel">
+  <div class="atlas">
+    <div class="atlas-map">
+      <div id="map" role="application" aria-label="Map of Upolu showing container yards"></div>
+      <div class="atlas-tools">
+        <button type="button" id="btnApia">Apia area</button>
+        <button type="button" id="btnUpolu">Whole Upolu</button>
+        <button type="button" id="btnEdit" title="Drag pins to their true position">📍 Adjust pins</button>
+      </div>
+      <div class="atlas-editing" id="editBanner">Drag a pin to move it — it saves automatically. Click “Done” when finished.</div>
+      <div class="atlas-brand"><strong>🌴 Upolu, Samoa</strong><span id="brandSub"></span></div>
+    </div>
+
+    <aside class="atlas-side">
+      <div class="atlas-side-head" id="sideHead"></div>
+      <div class="atlas-scroll" id="sideBody"></div>
+    </aside>
+  </div>
+</section>
+{% csrf_token %}
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(function () {
+  const DATA = {{ atlas_json|safe }};
+  const FOCUS = "{{ focus|escapejs }}";
+  const CSRF = document.querySelector('[name=csrfmiddlewaretoken]').value;
+  const CONTAINERS_URL = "{% url 'cms_containers' %}";
+  const COLORS = { full: '#2a78d6', storage: '#eb6834', empty: '#1baf7a' };
+  const LABELS = { full: 'Full', storage: 'Storage', empty: 'Empty' };
+  const UPOLU = L.latLngBounds([-14.08, -172.08], [-13.77, -171.40]);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+  let statusFilter = '';   // '', 'full', 'storage', 'empty'
+  let selected = null;
+  let editing = false;
+
+  const map = L.map('map', { maxBounds: UPOLU.pad(0.25), maxBoundsViscosity: 0.9, minZoom: 10, zoomSnap: 0.25 });
+  // Esri basemaps need no API key. Satellite helps place the yard pins accurately.
+  const esri = (service, label) => L.tileLayer(
+    `https://server.arcgisonline.com/ArcGIS/rest/services/${service}/MapServer/tile/{z}/{y}/{x}`,
+    { maxZoom: 19, maxNativeZoom: 18, attribution: `Tiles &copy; <a href="https://www.esri.com">Esri</a> — ${label}` });
+  const streets = esri('World_Street_Map', 'Esri, HERE, Garmin, OpenStreetMap contributors').addTo(map);
+  const satellite = esri('World_Imagery', 'Esri, Maxar, Earthstar Geographics');
+  L.control.layers({ 'Map': streets, 'Satellite': satellite }, null, { position: 'bottomright' }).addTo(map);
+
+  const count = y => statusFilter ? y[statusFilter] : y.total;
+  const visible = y => statusFilter ? y.containers.filter(c => c.status === statusFilter) : y.containers;
+
+  function bar(y) {
+    if (!y.total) return '<div class="atlas-bar"></div>';
+    return '<div class="atlas-bar">' + ['full', 'storage', 'empty'].filter(k => y[k])
+      .map(k => `<span style="width:${y[k] * 100 / y.total}%;background:${COLORS[k]}" title="${LABELS[k]}: ${y[k]}"></span>`).join('') + '</div>';
+  }
+
+  function tip(y) {
+    const n = count(y);
+    return `<div class="tip"><h4>${esc(y.code)}</h4>${y.description ? `<div class="d">${esc(y.description)}</div>` : ''}
+      <div class="big">${n} <small>${statusFilter ? LABELS[statusFilter].toLowerCase() + ' ' : ''}container${n === 1 ? '' : 's'}</small></div>
+      ${bar(y)}
+      <div class="rows">
+        ${['full', 'storage', 'empty'].map(k => `<span><i class="cms-dot" style="background:${COLORS[k]}"></i> ${LABELS[k]}</span><span>${y[k]}</span>`).join('')}
+      </div>
+      ${y.owners.length ? `<div class="owners">${y.owners.map(([o, c]) => `<span class="cms-owner">${esc(o)} · ${c}</span>`).join('')}</div>` : ''}
+      ${y.overdue ? `<div class="warn">⚠ ${y.overdue} overdue for return</div>` : ''}
+      ${y.due_week ? `<div class="warn" style="color:var(--cms-warning)">◷ ${y.due_week} due within 7 days</div>` : ''}
+      <div class="hint">Click to view containers</div></div>`;
+  }
+
+  function icon(y) {
+    const n = count(y);
+    const size = n ? Math.min(30 + Math.sqrt(n) * 4, 58) : 26;
+    const cls = ['pin', y.code === 'WHARF' ? 'wharf' : '', n ? '' : 'zero', y.overdue ? 'alert' : '', selected === y.id ? 'active' : ''].join(' ');
+    return L.divIcon({ className: '', iconSize: [size, size], iconAnchor: [size / 2, size / 2],
+      html: `<div class="${cls}" style="width:${size}px;height:${size}px;font-size:${n > 99 ? 12 : 13}px">${n}<span class="pin-label">${esc(y.code)}</span></div>` });
+  }
+
+  // ── Hover card: positioned over the pin, flipped below it near the top, kept inside the window ──
+  const hover = document.createElement('div');
+  hover.className = 'atlas-hover cms';   // .cms brings the colour tokens
+  hover.setAttribute('role', 'tooltip');
+  document.body.appendChild(hover);
+  function showHover(y) {
+    if (!map.getBounds().contains([y.lat, y.lng])) return;   // pin is off-screen (hovered from the side list)
+    hover.innerHTML = tip(y);
+    const box = document.getElementById('map').getBoundingClientRect();
+    const pt = map.latLngToContainerPoint([y.lat, y.lng]);
+    const x = box.left + pt.x, yPos = box.top + pt.y;
+    const w = hover.offsetWidth, h = hover.offsetHeight, gap = 30, pad = 8;
+    const left = Math.min(Math.max(x - w / 2, pad), window.innerWidth - w - pad);
+    let top = yPos - h - gap;
+    if (top < pad) top = Math.min(yPos + gap, window.innerHeight - h - pad);   // not enough room above
+    hover.style.left = left + 'px';
+    hover.style.top = top + 'px';
+    hover.classList.add('show');
+  }
+  function hideHover() { hover.classList.remove('show'); }
+  map.on('movestart zoomstart', hideHover);
+
+  const markers = {};
+  DATA.yards.forEach(y => {
+    const m = L.marker([y.lat, y.lng], { icon: icon(y), riseOnHover: true, keyboard: true, alt: y.code })
+      .on('mouseover', () => showHover(y))
+      .on('mouseout', hideHover)
+      .on('click', () => select(y.id))
+      .on('dragend', e => savePosition(y, e.target))
+      .addTo(map);
+    markers[y.id] = m;
+  });
+
+  function refreshIcons() { DATA.yards.forEach(y => markers[y.id].setIcon(icon(y))); }
+
+  // ── Side panel ──
+  const head = document.getElementById('sideHead'), body = document.getElementById('sideBody');
+  function filterChips() {
+    return '<div class="atlas-filter">' + [['', 'All'], ['full', 'Full'], ['storage', 'Storage'], ['empty', 'Empty']]
+      .map(([k, l]) => `<a href="#" class="cms-chip${statusFilter === k ? ' on' : ''}" data-status="${k}">${k ? `<i class="cms-dot" style="background:${COLORS[k]}"></i>` : ''}${l}</a>`).join('') + '</div>';
+  }
+
+  function renderOverview() {
+    const total = DATA.yards.reduce((a, y) => a + count(y), 0);
+    const overdue = DATA.yards.reduce((a, y) => a + y.overdue, 0);
+    head.innerHTML = `<h2>All yards</h2><p>${total} ${statusFilter ? LABELS[statusFilter].toLowerCase() + ' ' : ''}container${total === 1 ? '' : 's'} across ${DATA.yards.filter(y => count(y)).length} yard(s)${overdue ? ` · <span style="color:var(--cms-critical);font-weight:700">⚠ ${overdue} overdue</span>` : ''}</p>${filterChips()}`;
+    const yards = [...DATA.yards].sort((a, b) => count(b) - count(a) || a.code.localeCompare(b.code));
+    body.innerHTML = yards.map(y => `<div class="atlas-yard" data-id="${y.id}" tabindex="0">
+        <div class="n${count(y) ? '' : ' zero'}">${count(y)}</div>
+        <div style="flex:1;min-width:0"><div class="name">${esc(y.code)}${y.overdue ? ' <span class="cms-due critical" style="padding:1px 6px;font-size:10.5px">⚠ ' + y.overdue + '</span>' : ''}</div>
+          <div class="meta">${y.full} full · ${y.storage} storage · ${y.empty} empty</div>${bar(y)}</div></div>`).join('');
+    document.getElementById('brandSub').textContent = `${DATA.yards.length} yards · ${DATA.yards.reduce((a, y) => a + y.total, 0)} containers in yards`;
+  }
+
+  function dueBadge(c) {
+    const d = c.days_left;
+    if (d === null) return '';
+    if (d < 0) return `<span class="cms-due critical">⚠ Overdue ${-d}d</span>`;
+    if (d === 0) return '<span class="cms-due serious">⏰ Due today</span>';
+    if (d <= 3) return `<span class="cms-due serious">⏰ ${d}d left</span>`;
+    if (d <= 7) return `<span class="cms-due warning">◷ ${d}d left</span>`;
+    return `<span class="cms-due ok">✓ ${d}d left</span>`;
+  }
+
+  function renderYard(y) {
+    const list = visible(y);
+    head.innerHTML = `<a href="#" class="cms-sub" id="backAll">← All yards</a>
+      <h2 style="margin-top:6px">📍 ${esc(y.code)}</h2><p>${esc(y.description || '')}</p>
+      <div class="cms-kpi-value" style="font-size:24px;margin-top:4px">${count(y)} <span class="cms-sub" style="font-size:12px;font-weight:600">container${count(y) === 1 ? '' : 's'}</span></div>
+      ${bar(y)}${filterChips()}
+      <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+        <a class="cms-icon-btn go" href="${y.list_url}${statusFilter ? '&status=' + statusFilter : ''}">Open in Containers →</a>
+        <a class="cms-icon-btn" href="${y.add_url}">➕ Add here</a></div>`;
+    body.innerHTML = list.length ? list.map(c => `<a class="atlas-ct" href="${c.edit_url}?next=${encodeURIComponent(location.pathname + '?yard=' + y.id)}">
+        <div class="top"><span class="cms-code">${esc(c.code)}</span><span class="cms-status ${c.status}">${c.status_label.toUpperCase()}</span></div>
+        ${c.description ? `<div class="cms-sub" style="margin-top:2px">${esc(c.description)}</div>` : ''}
+        <div class="top" style="margin-top:6px"><span class="cms-sub"><span class="cms-owner">${esc(c.owner)}</span> ${c.arrival ? '· ' + esc(c.arrival) : ''}${c.driver ? ' · 🚚 ' + esc(c.driver) : ''}</span>${dueBadge(c)}</div></a>`).join('')
+      : `<div class="cms-empty"><strong>No ${statusFilter ? LABELS[statusFilter].toLowerCase() + ' ' : ''}containers here</strong><a href="${y.add_url}">Add one</a></div>`;
+  }
+
+  function select(id) {
+    selected = id;
+    const y = DATA.yards.find(y => y.id === id);
+    refreshIcons();
+    renderYard(y);
+    if (!editing) map.panTo([y.lat, y.lng], { animate: true });
+    history.replaceState(null, '', '?yard=' + id);
+  }
+  function deselect() { selected = null; refreshIcons(); renderOverview(); history.replaceState(null, '', location.pathname); }
+
+  head.addEventListener('click', e => {
+    const chip = e.target.closest('[data-status]');
+    if (chip) {
+      e.preventDefault(); statusFilter = chip.dataset.status; refreshIcons();
+      selected ? renderYard(DATA.yards.find(y => y.id === selected)) : renderOverview();
+    }
+    if (e.target.id === 'backAll') { e.preventDefault(); deselect(); }
+  });
+  body.addEventListener('click', e => { const row = e.target.closest('.atlas-yard'); if (row) select(+row.dataset.id); });
+  body.addEventListener('keydown', e => { const row = e.target.closest('.atlas-yard'); if (row && e.key === 'Enter') select(+row.dataset.id); });
+  body.addEventListener('mouseover', e => { const row = e.target.closest('.atlas-yard'); if (row) showHover(DATA.yards.find(y => y.id === +row.dataset.id)); });
+  body.addEventListener('mouseout', e => { const row = e.target.closest('.atlas-yard'); if (row) hideHover(); });
+
+  // ── View buttons ──
+  const yardBounds = L.latLngBounds(DATA.yards.map(y => [y.lat, y.lng]));
+  const fitYards = () => DATA.yards.length ? map.fitBounds(yardBounds.pad(0.25), { maxZoom: 15 }) : map.fitBounds(UPOLU);
+  document.getElementById('btnApia').onclick = fitYards;
+  document.getElementById('btnUpolu').onclick = () => map.fitBounds(UPOLU);
+
+  // ── Adjust pins ──
+  const btnEdit = document.getElementById('btnEdit');
+  btnEdit.onclick = () => {
+    editing = !editing;
+    btnEdit.classList.toggle('on', editing);
+    btnEdit.textContent = editing ? '✓ Done' : '📍 Adjust pins';
+    document.getElementById('editBanner').classList.toggle('show', editing);
+    Object.values(markers).forEach(m => editing ? m.dragging.enable() : m.dragging.disable());
+  };
+  function savePosition(y, marker) {
+    const p = marker.getLatLng();
+    const body = new URLSearchParams({ lat: p.lat, lng: p.lng });
+    fetch(y.move_url, { method: 'POST', headers: { 'X-CSRFToken': CSRF }, body })
+      .then(r => r.json()).then(res => {
+        if (!res.ok) throw new Error(res.error);
+        y.lat = res.lat; y.lng = res.lng;
+      }).catch(err => { marker.setLatLng([y.lat, y.lng]); alert('Could not move ' + y.code + ': ' + (err.message || 'error')); });
+  }
+
+  fitYards();
+  renderOverview();
+  if (FOCUS && DATA.yards.some(y => String(y.id) === FOCUS)) select(+FOCUS);
+})();
+</script>
+{% endblock %}

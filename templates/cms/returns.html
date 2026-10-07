@@ -1,0 +1,71 @@
+{% extends 'cms/_base.html' %}
+{% block title %}Returned Containers — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Container Management{% endblock %}
+{% block cms_content %}
+
+<div class="cms-head">
+  <div>
+    <h1>Returned Containers</h1>
+    <p>Every container taken back to the wharf, with who handled it.</p>
+  </div>
+  <div class="cms-actions">
+    <a href="?{{ query }}{% if query %}&{% endif %}export=csv" class="btn btn-secondary">⬇️ Export CSV</a>
+  </div>
+</div>
+
+<div class="cms-kpis">
+  <div class="cms-kpi"><div class="cms-kpi-label">Last 7 days</div><div class="cms-kpi-value">{{ count_week }}</div></div>
+  <div class="cms-kpi"><div class="cms-kpi-label">This month</div><div class="cms-kpi-value">{{ count_month }}</div></div>
+  <div class="cms-kpi"><div class="cms-kpi-label">All time</div><div class="cms-kpi-value">{{ count_total }}</div></div>
+</div>
+
+<section class="cms-panel">
+  <form method="get" class="cms-toolbar">
+    <div class="cms-search"><input type="search" name="q" value="{{ f.q }}" placeholder="Search container, description, staff, driver…" aria-label="Search returns"></div>
+    <select class="cms-input" name="yard" aria-label="Yard"><option value="">All yards</option>
+      {% for y in yards %}<option value="{{ y.pk }}"{% if f.yard == y.pk|stringformat:'d' %} selected{% endif %}>{{ y.code }}</option>{% endfor %}</select>
+    <select class="cms-input" name="status" aria-label="Status"><option value="">Any status</option>
+      {% for v, l in status_choices %}<option value="{{ v }}"{% if f.status == v %} selected{% endif %}>{{ l|upper }}</option>{% endfor %}</select>
+    <input class="cms-input" type="date" name="from" value="{{ f.from }}" aria-label="Returned from" title="Returned from">
+    <input class="cms-input" type="date" name="to" value="{{ f.to }}" aria-label="Returned to" title="Returned to">
+    <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+    {% if query %}<a href="{% url 'cms_returns' %}" class="btn btn-secondary btn-sm">Clear</a>{% endif %}
+  </form>
+
+  {% if page.object_list %}
+  <div class="table-wrap">
+    <table class="cms-table">
+      <thead><tr><th>Container</th><th>Description</th><th>Yard</th><th>Status</th><th>Location</th><th>Returned date</th><th>Staff name</th><th>Driver</th><th></th></tr></thead>
+      <tbody>
+      {% for r in page.object_list %}
+        <tr>
+          <td><a class="cms-code" href="{% url 'cms_container_edit' r.container_id %}?next={{ request.get_full_path|urlencode }}">{{ r.container.code }}</a></td>
+          <td>{{ r.description|default:'—' }}</td>
+          <td class="cms-yard">{{ r.yard|default:'—' }}</td>
+          <td>{% include 'cms/_status.html' with status=r.status label=r.get_status_display %}</td>
+          <td>⚓ {{ r.location }}</td>
+          <td style="white-space:nowrap">{{ r.returned_date|date:'d M Y'|default:'—' }}</td>
+          <td>{{ r.staff_name|default:'—' }}</td>
+          <td>{{ r.driver|default:'—' }}</td>
+          <td><form method="post" action="{% url 'cms_return_undo' r.pk %}" class="cms-row-actions"
+                    onsubmit="return confirm('Undo this return and put {{ r.container.code|escapejs }} back in {{ r.yard|escapejs }}?')">
+            {% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button class="cms-icon-btn" type="submit">Undo</button></form></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="cms-pager">
+    <span>Showing {{ page.start_index }}–{{ page.end_index }} of {{ page.paginator.count }}</span>
+    {% if page.has_other_pages %}<div class="pages">
+      {% if page.has_previous %}<a class="cms-icon-btn" href="?{{ query }}&page={{ page.previous_page_number }}">← Prev</a>{% endif %}
+      <span class="cms-icon-btn" style="cursor:default">Page {{ page.number }} / {{ page.paginator.num_pages }}</span>
+      {% if page.has_next %}<a class="cms-icon-btn" href="?{{ query }}&page={{ page.next_page_number }}">Next →</a>{% endif %}
+    </div>{% endif %}
+  </div>
+  {% else %}
+  <div class="cms-empty">{% if query %}<strong>No returns match</strong>Try different filters.{% else %}<strong>No returns yet</strong>Use <em>Return</em> on the Containers page when a box goes back to the wharf.{% endif %}</div>
+  {% endif %}
+</section>
+{% endblock %}

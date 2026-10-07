@@ -1,0 +1,5 @@
+{% if t.t49_status == 'created' %}<span class="badge badge-green" title="{{ t.last_sync_message }}">📡 Tracking</span>
+{% elif t.t49_status == 'failed' %}<span class="badge badge-red" title="{{ t.t49_failed_reason|default:t.last_sync_message }}">⚠️ Failed</span>
+{% elif t.t49_status == 'not_sent' %}<span class="badge badge-amber" title="{{ t.last_sync_message }}">⏸ Not sent</span>
+{% elif t.t49_status == 'tracking_stopped' %}<span class="badge badge-amber" title="{{ t.last_sync_message }}">⏹ Stopped</span>
+{% else %}<span class="badge badge-blue" title="{{ t.last_sync_message }}">⏳ {{ t.get_t49_status_display }}</span>{% endif %}

@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'css/cms.css' %}">{% block cms_css %}{% endblock %}{% endblock %}
+{% block content %}
+{% with n=request.resolver_match.url_name %}
+<div class="cms">
+  <nav class="cms-tabs" aria-label="Container management">
+    <a class="cms-tab{% if n == 'cms_dashboard' %} active{% endif %}" href="{% url 'cms_dashboard' %}">📊 Dashboard</a>
+    <a class="cms-tab{% if n == 'cms_containers' or 'cms_container_' in n %} active{% endif %}" href="{% url 'cms_containers' %}">🚢 Containers</a>
+    <a class="cms-tab{% if 'cms_shipping' in n %} active{% endif %}" href="{% url 'cms_shipping' %}">⚓ Shipping</a>
+    <a class="cms-tab{% if 'cms_return' in n %} active{% endif %}" href="{% url 'cms_returns' %}">↩️ Returned Containers</a>
+    <a class="cms-tab{% if n == 'cms_atlas' %} active{% endif %}" href="{% url 'cms_atlas' %}">🗺️ Ah Liki Atlas</a>
+    <span class="cms-tab disabled" aria-disabled="true" title="Coming soon">📡 Track Container <span class="cms-soon">Soon</span></span>
+  </nav>
+  {% block cms_content %}{% endblock %}
+  <datalist id="driverList">{% for d in drivers %}<option value="{{ d }}">{% endfor %}</datalist>
+</div>
+{% endwith %}
+{% endblock %}

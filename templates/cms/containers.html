@@ -1,0 +1,214 @@
+{% extends 'cms/_base.html' %}
+{% block title %}Containers — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Container Management{% endblock %}
+{% block cms_content %}
+
+<div class="cms-head">
+  <div>
+    <h1>Containers</h1>
+    <p>{{ page.paginator.count }} container{{ page.paginator.count|pluralize }} {% if f.returned == 'no' %}in yards{% elif f.returned == 'yes' %}returned{% else %}in total{% endif %}{% if f.q or active_filters %} matching your filters{% endif %}.</p>
+  </div>
+  <div class="cms-actions">
+    <a href="?{{ query }}{% if query %}&{% endif %}export=csv" class="btn btn-secondary">⬇️ Export CSV</a>
+    <a href="{% url 'cms_container_import' %}" class="btn btn-secondary">⬆️ Import CSV</a>
+    <a href="{% url 'cms_container_add' %}" class="btn btn-primary">➕ Add container</a>
+  </div>
+</div>
+
+<nav class="cms-kpis cms-tiles" aria-label="Quick filters">
+  <a class="cms-kpi{% if tile == 'yards' %} on{% endif %}" href="?"{% if tile == 'yards' %} aria-current="true"{% endif %}>
+    <div class="cms-kpi-label">🚢 In Yards</div><div class="cms-kpi-value">{{ stats.active }}</div>
+    <div class="cms-kpi-sub">Not yet returned</div></a>
+  {% if wharf %}<a class="cms-kpi{% if tile == 'wharf' %} on{% endif %}" href="?yard={{ wharf.pk }}"{% if tile == 'wharf' %} aria-current="true"{% endif %}>
+    <div class="cms-kpi-label">⚓ Wharf</div><div class="cms-kpi-value">{{ stats.wharf }}</div>
+    <div class="cms-kpi-sub">Not yet released</div></a>{% endif %}
+  <a class="cms-kpi{% if tile == 'empty' %} on{% endif %}" href="?status=empty"{% if tile == 'empty' %} aria-current="true"{% endif %}>
+    <div class="cms-kpi-label"><span class="cms-dot" style="background:var(--cms-empty)"></span>Empty</div><div class="cms-kpi-value">{{ stats.empty }}</div>
+    <div class="cms-kpi-sub">Ready to return</div></a>
+  <a class="cms-kpi{% if tile == 'storage' %} on{% endif %}" href="?status=storage"{% if tile == 'storage' %} aria-current="true"{% endif %}>
+    <div class="cms-kpi-label"><span class="cms-dot" style="background:var(--cms-storage)"></span>Storage</div><div class="cms-kpi-value">{{ stats.storage }}</div>
+    <div class="cms-kpi-sub">Used for storage</div></a>
+  <a class="cms-kpi{% if stats.overdue %} is-alert{% endif %}{% if tile == 'overdue' %} on{% endif %}" href="?due=overdue"{% if tile == 'overdue' %} aria-current="true"{% endif %}>
+    <div class="cms-kpi-label">⚠ Overdue</div><div class="cms-kpi-value">{{ stats.overdue }}</div>
+    <div class="cms-kpi-sub">Past return days</div></a>
+</nav>
+
+<section class="cms-panel">
+  <form method="get" id="filterForm">
+    <div class="cms-toolbar">
+      <div class="cms-search">
+        <input type="search" name="q" value="{{ f.q }}" placeholder="Search code, description, vessel, driver, note…" aria-label="Search containers" id="qInput">
+      </div>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('filters').classList.toggle('open')">
+        ⚙️ Filters {% if active_filters %}<span class="cms-count-pill">{{ active_filters }}</span>{% endif %}</button>
+      <button type="submit" class="btn btn-primary btn-sm">Search</button>
+      {% if f.q or active_filters %}<a href="{% url 'cms_containers' %}" class="btn btn-secondary btn-sm">Clear all</a>{% endif %}
+      <input type="hidden" name="sort" value="{{ f.sort }}">
+    </div>
+    <div class="cms-filters{% if active_filters %} open{% endif %}" id="filters">
+      <div><label for="fYard">Yard</label>
+        <select class="cms-input" name="yard" id="fYard"><option value="">All yards</option>
+          {% for y in yards %}<option value="{{ y.pk }}"{% if f.yard == y.pk|stringformat:'d' %} selected{% endif %}>{{ y.code }}</option>{% endfor %}</select></div>
+      <div><label for="fStatus">Status</label>
+        <select class="cms-input" name="status" id="fStatus"><option value="">Any status</option>
+          {% for v, l in status_choices %}<option value="{{ v }}"{% if f.status == v %} selected{% endif %}>{{ l|upper }}</option>{% endfor %}</select></div>
+      <div><label for="fOwner">Owned</label>
+        <select class="cms-input" name="owner" id="fOwner"><option value="">Any owner</option>
+          {% for o in owners %}<option value="{{ o.pk }}"{% if f.owner == o.pk|stringformat:'d' %} selected{% endif %}>{{ o.name }}</option>{% endfor %}</select></div>
+      <div><label for="fReturned">Returned</label>
+        <select class="cms-input" name="returned" id="fReturned">
+          <option value="no"{% if f.returned == 'no' %} selected{% endif %}>No — in yards</option>
+          <option value="yes"{% if f.returned == 'yes' %} selected{% endif %}>Yes — returned</option>
+          <option value="all"{% if f.returned == 'all' %} selected{% endif %}>All</option></select></div>
+      <div><label for="fDue">Return deadline</label>
+        <select class="cms-input" name="due" id="fDue"><option value="">Any</option>
+          <option value="overdue"{% if f.due == 'overdue' %} selected{% endif %}>Overdue</option>
+          <option value="week"{% if f.due == 'week' %} selected{% endif %}>Due within 7 days</option></select></div>
+      <div><label for="fFrom">A/Date from</label><input class="cms-input" type="date" name="from" id="fFrom" value="{{ f.from }}"></div>
+      <div><label for="fTo">A/Date to</label><input class="cms-input" type="date" name="to" id="fTo" value="{{ f.to }}"></div>
+      <div style="display:flex;align-items:flex-end;gap:6px"><button type="submit" class="btn btn-primary btn-sm">Apply</button></div>
+    </div>
+  </form>
+
+  <div class="cms-chips">
+    <a class="cms-chip{% if f.status == 'full' and f.returned == 'no' %} on{% endif %}" href="?status=full"><i class="cms-dot" style="background:var(--cms-full)"></i>Full</a>
+    <a class="cms-chip{% if f.due == 'week' %} on{% endif %}" href="?due=week">◷ Due in 7 days</a>
+    <a class="cms-chip{% if f.returned == 'yes' %} on{% endif %}" href="?returned=yes">↩️ Returned</a>
+    <a class="cms-chip{% if f.returned == 'all' %} on{% endif %}" href="?returned=all">All incl. returned</a>
+  </div>
+
+  {% if page.object_list %}
+  <div class="table-wrap">
+    <table class="cms-table">
+      <thead><tr>
+        <th style="width:34px"><input type="checkbox" class="cms-check" id="checkAll" aria-label="Select all on this page"></th>
+        {% with s=f.sort %}
+        <th><a href="?{{ sort_query }}&sort={% if s == 'code' %}-code{% else %}code{% endif %}">Container {% if s == 'code' %}↑{% elif s == '-code' %}↓{% endif %}</a></th>
+        <th><a href="?{{ sort_query }}&sort={% if s == 'yard' %}-yard{% else %}yard{% endif %}">Yard {% if s == 'yard' %}↑{% elif s == '-yard' %}↓{% endif %}</a></th>
+        <th><a href="?{{ sort_query }}&sort={% if s == 'status' %}-status{% else %}status{% endif %}">Status {% if s == 'status' %}↑{% elif s == '-status' %}↓{% endif %}</a></th>
+        <th><a href="?{{ sort_query }}&sort={% if s == 'owner' %}-owner{% else %}owner{% endif %}">Owned {% if s == 'owner' %}↑{% elif s == '-owner' %}↓{% endif %}</a></th>
+        <th class="cms-hide-sm">Vessel voyage</th>
+        <th><a href="?{{ sort_query }}&sort={% if s == '-arrival' %}arrival{% else %}-arrival{% endif %}">A/Date {% if s == 'arrival' or not s %}↑{% elif s == '-arrival' %}↓{% endif %}</a></th>
+        <th>Driver</th>
+        <th>Return</th>
+        <th class="cms-hide-sm">Note</th>
+        <th>Returned</th>
+        <th></th>
+        {% endwith %}
+      </tr></thead>
+      <tbody>
+      {% for c in page.object_list %}
+        <tr>
+          <td><input type="checkbox" class="cms-check row-check" name="ids" value="{{ c.pk }}" form="bulkForm" aria-label="Select {{ c.code }}"></td>
+          <td><a class="cms-code" href="{% url 'cms_container_edit' c.pk %}?next={{ request.get_full_path|urlencode }}">{{ c.code }}</a>
+            {% if c.description %}<div class="cms-sub">{{ c.description|truncatechars:48 }}</div>{% endif %}</td>
+          <td><a class="cms-yard" href="?yard={{ c.yard_id }}" style="color:inherit">{{ c.yard }}</a>
+            {% if c.n_transfers %}<a class="cms-sub" href="{% url 'cms_container_edit' c.pk %}?next={{ request.get_full_path|urlencode }}#transfers"
+               title="Transferred {{ c.n_transfers }} time{{ c.n_transfers|pluralize }} — view history" style="display:block">🔁 {{ c.n_transfers }} transfer{{ c.n_transfers|pluralize }}</a>{% endif %}</td>
+          <td>{% include 'cms/_status.html' with status=c.status label=c.get_status_display %}</td>
+          <td><span class="cms-owner">{{ c.owner }}</span></td>
+          <td class="cms-hide-sm">{{ c.vessel_voyage|default:'—' }}</td>
+          <td style="white-space:nowrap">{{ c.arrival_date|date:'d M Y'|default:'—' }}
+            {% if c.days_on_island is not None and not c.returned %}<div class="cms-sub">{{ c.days_on_island }} day{{ c.days_on_island|pluralize }} ago</div>{% endif %}</td>
+          <td>{{ c.driver|default:'—' }}</td>
+          <td>{% include 'cms/_due.html' %}</td>
+          <td class="cms-hide-sm"><div class="cms-note" title="{{ c.note }}">{{ c.note|default:'—' }}</div></td>
+          <td>{% if c.returned %}<span class="cms-yes">✓ Yes</span>{% else %}<span class="cms-no">No</span>{% endif %}</td>
+          <td><div class="cms-row-actions">
+            {% if not c.returned %}<button type="button" class="cms-icon-btn" title="Move to another yard"
+                onclick="cmsOpenTransfer('{% url 'cms_container_transfer' c.pk %}', '{{ c.code|escapejs }}', {{ c.yard_id }}, '{{ c.yard.code|escapejs }}')">🔁 Transfer</button>{% endif %}
+            <a class="cms-icon-btn" href="{% url 'cms_container_edit' c.pk %}?next={{ request.get_full_path|urlencode }}">Edit</a>
+            {% if not c.returned %}<button type="button" class="cms-icon-btn go" onclick="cmsOpenReturn('{% url 'cms_container_return' c.pk %}', '{{ c.code|escapejs }}')">Return</button>{% endif %}
+          </div></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="cms-pager">
+    <span>Showing {{ page.start_index }}–{{ page.end_index }} of {{ page.paginator.count }}</span>
+    {% if page.has_other_pages %}
+    <div class="pages">
+      {% if page.has_previous %}<a class="cms-icon-btn" href="?{{ query }}&page={{ page.previous_page_number }}">← Prev</a>{% endif %}
+      <span class="cms-icon-btn" style="cursor:default">Page {{ page.number }} / {{ page.paginator.num_pages }}</span>
+      {% if page.has_next %}<a class="cms-icon-btn" href="?{{ query }}&page={{ page.next_page_number }}">Next →</a>{% endif %}
+    </div>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="cms-empty">
+    {% if f.q or active_filters %}<strong>No containers match</strong>Try a different search or <a href="{% url 'cms_containers' %}">clear the filters</a>.
+    {% else %}<strong>No containers yet</strong><a href="{% url 'cms_container_add' %}">Add one</a> or <a href="{% url 'cms_container_import' %}">import a CSV</a>.{% endif %}
+  </div>
+  {% endif %}
+</section>
+
+<!-- Bulk actions for ticked rows -->
+<form method="post" action="{% url 'cms_container_bulk' %}" id="bulkForm" class="cms-bulk">
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+  <strong><span id="selCount">0</span> selected</strong>
+  <span class="sep"></span>
+  <select class="cms-input" name="yard" aria-label="Move to yard"><option value="">Move to yard…</option>
+    {% for y in active_yards %}<option value="{{ y.pk }}">{{ y.code }}</option>{% endfor %}</select>
+  <button type="submit" name="action" value="move" class="b-light">Move</button>
+  <span class="sep"></span>
+  <select class="cms-input" name="status" aria-label="Set status"><option value="">Set status…</option>
+    {% for v, l in status_choices %}<option value="{{ v }}">{{ l|upper }}</option>{% endfor %}</select>
+  <button type="submit" name="action" value="status" class="b-light">Set</button>
+  <span class="sep"></span>
+  <button type="button" class="b-light" onclick="document.getElementById('bulkReturn').classList.add('open')">↩️ Return…</button>
+  <button type="submit" name="action" value="delete" class="b-danger"
+          onclick="return confirm('Delete the selected containers? Their return history is deleted too.')">Delete</button>
+  <button type="button" class="b-light" onclick="cmsClearSelection()" style="margin-left:auto">✕</button>
+
+  <div class="cms-modal" id="bulkReturn" role="dialog" aria-modal="true" aria-labelledby="bulkReturnTitle">
+    <div class="cms-modal-card" style="color:var(--gray-900)">
+      <h3 id="bulkReturnTitle">Return selected containers</h3>
+      <div class="cms-modal-sub">Every ticked container is recorded as returned to the <strong>Wharf</strong>.</div>
+      <div class="cms-modal-body">
+        <div class="cms-field"><label for="bDate">Returned date</label>
+          <input class="cms-input" type="date" id="bDate" name="returned_date" value="{{ today|date:'Y-m-d' }}"></div>
+        <div class="cms-field"><label for="bStaff">Staff name</label>
+          <input class="cms-input" type="text" id="bStaff" name="staff_name" value="{{ staff_name }}" maxlength="120"></div>
+        <div class="cms-field"><label for="bDriver">Driver</label>
+          <input class="cms-input" type="text" id="bDriver" name="driver" maxlength="120" list="driverList" autocomplete="off" placeholder="Driver name"></div>
+      </div>
+      <div class="cms-modal-foot">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('bulkReturn').classList.remove('open')">Cancel</button>
+        <button type="submit" name="action" value="return" class="btn btn-primary">↩️ Mark returned</button>
+      </div>
+    </div>
+  </div>
+</form>
+
+{% include 'cms/_return_modal.html' %}
+{% include 'cms/_transfer_modal.html' %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  const checks = [...document.querySelectorAll('.row-check')];
+  const all = document.getElementById('checkAll');
+  const bar = document.getElementById('bulkForm');
+  function sync() {
+    const n = checks.filter(c => c.checked).length;
+    document.getElementById('selCount').textContent = n;
+    bar.classList.toggle('show', n > 0);
+    checks.forEach(c => c.closest('tr').classList.toggle('is-selected', c.checked));
+    if (all) { all.checked = n && n === checks.length; all.indeterminate = n > 0 && n < checks.length; }
+  }
+  checks.forEach(c => c.addEventListener('change', sync));
+  if (all) all.addEventListener('change', () => { checks.forEach(c => c.checked = all.checked); sync(); });
+  window.cmsClearSelection = () => { checks.forEach(c => c.checked = false); sync(); };
+  // "/" focuses search.
+  document.addEventListener('keydown', e => {
+    if (e.key === '/' && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) {
+      e.preventDefault(); document.getElementById('qInput').focus();
+    }
+  });
+})();
+</script>
+{% endblock %}

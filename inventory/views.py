@@ -13,12 +13,13 @@ from django.utils import timezone
 from .models import (Product, Category, Supplier, GoodsReceivedNote, GRNItem,
                      StockMovement, Sale, SaleItem, StockAlert, PurchaseOrder, UserProfile,
                      Pallet, ShelfLocation, PalletLocation, DispatchComment,
-                     Container, ContainerItem, ContainerComment)
+                     Container, ContainerItem, ContainerComment, ShipmentTracking)
 from .forms import (ProductForm, SupplierForm, CategoryForm, GRNForm, GRNItemFormSet,
                     SaleForm, SaleItemFormSet, StockAdjustForm,
                     PalletForm, CheckInForm, TransferForm, PalletEditForm,
                     ContainerForm, ContainerItemFormSet, ContainerCommentForm,
-                    ContainerPalletForm)
+                    ContainerPalletForm, ShipmentTrackingForm)
+from . import auto_refresh, terminal49
 
 
 def role_required(*roles):
@@ -40,7 +41,7 @@ def role_required(*roles):
             if profile.role == 'wms_dispatcher':
                 return redirect('wms_dispatcher_dashboard')
             if profile.role == 'custom_broker':
-                return redirect('container_list')
+                return redirect('cms_dashboard')
             if profile.role == 'cashier':
                 return redirect('invoice_upload')
             return redirect('invoice_upload')
@@ -1662,9 +1663,10 @@ def dispatcher_edit_order(request, pk):
 # in at HQ  →  warehouse opens it (raises the GRN, stock goes on hand)  →
 # warehouse palletizes each manifest line  →  comments/damage reports  →  close.
 
-BROKER_ROLES = ('admin', 'manager', 'custom_broker')
+# The customs broker now works in the CMS (cms_views.py); manifests are lodged from the warehouse side.
+BROKER_ROLES = ('admin', 'manager', 'warehouse')
 CONTAINER_WAREHOUSE_ROLES = ('admin', 'manager', 'warehouse', 'wms_operator')
-CONTAINER_VIEW_ROLES = ('admin', 'manager', 'warehouse', 'wms_operator', 'custom_broker')
+CONTAINER_VIEW_ROLES = ('admin', 'manager', 'warehouse', 'wms_operator')
 
 
 def _user_role(user):
@@ -1703,7 +1705,17 @@ def container_list(request):
             Q(container_type__name__icontains=q) |
             Q(supplier__name__icontains=q)
         )
+    on_water = ShipmentTracking.objects.filter(show_in_my_containers=True, arrived_at__isnull=True) \
+        .select_related('supplier').annotate(lodged=Count('containers')).filter(lodged=0)
+    if q:
+        on_water = on_water.filter(
+            Q(request_number__icontains=q) |
+            Q(vessel_name__icontains=q) |
+            Q(container_numbers__icontains=q) |
+            Q(supplier__name__icontains=q)
+        )
     return render(request, 'containers/list.html', {
+        'on_water': on_water,
         'at_wharf': containers.filter(status=Container.STATUS_AT_WHARF),
         'in_transit_to_hq': containers.filter(status=Container.STATUS_CHECKED_IN),
         'in_progress': containers.filter(status__in=[Container.STATUS_OPENED, Container.STATUS_PALLETIZED]),
@@ -1717,8 +1729,19 @@ def container_list(request):
 @login_required
 @role_required(*BROKER_ROLES)
 def container_create(request):
-    """Customs broker lodges a container sitting at the wharf, with its manifest."""
-    form = ContainerForm(request.POST or None)
+    """Customs broker lodges a container sitting at the wharf, with its manifest —
+    or adds a new supplier (second tab) which is then pre-selected on the container."""
+    if request.method == 'POST' and 'add_supplier' in request.POST:
+        supplier_form = SupplierForm(request.POST, prefix='sup')
+        if supplier_form.is_valid():
+            supplier = supplier_form.save()
+            messages.success(request, f'Supplier {supplier.name} added — now lodge their container.')
+            return redirect(f"{reverse('container_create')}?supplier={supplier.pk}")
+        return render(request, 'containers/form.html', _container_form_context(
+            ContainerForm(initial=_container_initial(request)), ContainerItemFormSet(), None,
+            supplier_form=supplier_form, active_tab='supplier'))
+
+    form = ContainerForm(request.POST or None, initial=_container_initial(request))
     formset = ContainerItemFormSet(request.POST or None)
     if request.method == 'POST':
         if form.is_valid() and formset.is_valid():
@@ -1735,19 +1758,65 @@ def container_create(request):
                     container.save()
                     formset.instance = container
                     formset.save()
+                    # The B/L has landed — take it off the water on the Atlas.
+                    tracking = container.tracking
+                    if tracking and not tracking.arrived_at:
+                        tracking.arrived_at = timezone.now()
+                        tracking.save(update_fields=['arrived_at'])
                 messages.success(
                     request,
                     f'Container {container.container_number} lodged at the wharf with '
                     f'{container.items.count()} line(s).')
                 return redirect('container_detail', pk=container.pk)
-    return render(request, 'containers/form.html', {
+    return render(request, 'containers/form.html', _container_form_context(form, formset, None))
+
+
+def _container_initial(request):
+    """Pre-fill a new container from ?tracking=<id> (a tracked B/L) or ?supplier=<id>."""
+    initial = {}
+    tracking_id = request.GET.get('tracking', '')
+    tracking = ShipmentTracking.objects.filter(pk=tracking_id).first() if tracking_id.isdigit() else None
+    if tracking:
+        initial.update(_tracking_autofill(tracking))
+        initial['tracking'] = tracking.pk
+    supplier_id = request.GET.get('supplier', '')
+    if supplier_id.isdigit() and Supplier.objects.filter(pk=supplier_id).exists():
+        initial['supplier'] = supplier_id
+    initial.pop('container_numbers', None)
+    return {k: v for k, v in initial.items() if v not in ('', None)}
+
+
+def _tracking_autofill(tracking):
+    lodged = set(tracking.containers.values_list('container_number', flat=True))
+    remaining = [n for n in tracking.container_number_list if n not in lodged]
+    return {
+        'container_number': remaining[0] if remaining else '',
+        'container_numbers': remaining,
+        'vessel': ' '.join(filter(None, [tracking.vessel_name, tracking.voyage_number])),
+        'arrival_date': timezone.localtime(tracking.eta_at).date().isoformat() if tracking.eta_at else '',
+        'supplier': tracking.supplier_id or '',
+    }
+
+
+def _container_form_context(form, formset, container, supplier_form=None, active_tab='container'):
+    trackings = ShipmentTracking.objects.prefetch_related('containers')
+    # Last container type / vessel per supplier, so picking a supplier fills the rest in.
+    supplier_defaults = {}
+    for c in Container.objects.filter(supplier__isnull=False).order_by('created_at'):
+        supplier_defaults[c.supplier_id] = {'container_type': c.container_type_id or '', 'vessel': c.vessel}
+    return {
         'form': form,
         'formset': formset,
-        'container': None,
+        'container': container,
+        'supplier_form': supplier_form or SupplierForm(prefix='sup'),
+        'active_tab': active_tab,
+        # Rendered inside <script>, so escape '<' to keep user text from closing the tag.
+        'tracking_json': json.dumps({t.pk: _tracking_autofill(t) for t in trackings}).replace('<', '\\u003c'),
+        'supplier_defaults_json': json.dumps(supplier_defaults).replace('<', '\\u003c'),
         'products_json': json.dumps(list(
             Product.objects.filter(is_active=True).values('id', 'name', 'sku').order_by('name')
         )),
-    })
+    }
 
 
 @login_required
@@ -1767,14 +1836,7 @@ def container_edit(request, pk):
             formset.save()
         messages.success(request, f'Container {container.container_number} updated.')
         return redirect('container_detail', pk=pk)
-    return render(request, 'containers/form.html', {
-        'form': form,
-        'formset': formset,
-        'container': container,
-        'products_json': json.dumps(list(
-            Product.objects.filter(is_active=True).values('id', 'name', 'sku').order_by('name')
-        )),
-    })
+    return render(request, 'containers/form.html', _container_form_context(form, formset, container))
 
 
 @login_required
@@ -1997,3 +2059,153 @@ def container_add_comment(request, pk):
             else:
                 messages.warning(request, 'Comment cannot be empty.')
     return redirect('container_detail', pk=pk)
+
+
+# ── TRACK CONTAINERS + AH LIKI ATLAS (Customs Broker) ─────────────────────────
+
+def _flash_sync(request, tracking, ok, message):
+    (messages.success if ok else messages.warning)(request, f'{tracking.request_number}: {message}')
+
+
+def _safe_next(request, default='track_list'):
+    nxt = request.POST.get('next', '')
+    return nxt if nxt.startswith('/') and not nxt.startswith('//') else default
+
+
+@login_required
+@role_required(*BROKER_ROLES)
+def track_list(request):
+    """Enter a bill of lading to track with Terminal49 and follow it to Apia."""
+    form = ShipmentTrackingForm(request.POST or None)
+    if request.method == 'POST' and form.is_valid():
+        tracking = form.save(commit=False)
+        tracking.created_by = request.user
+        tracking.save()
+        ok, message = terminal49.sync_tracking(tracking)
+        if tracking.t49_status == 'failed':
+            # Terminal49 says the number is not a real shipment — don't keep it.
+            tracking.delete()
+            form.add_error('request_number', f'Terminal49 could not find this number: '
+                                             f'{tracking.t49_failed_reason or message}')
+        else:
+            _flash_sync(request, tracking, ok, message)
+            return redirect('track_list')
+
+    trackings = ShipmentTracking.objects.select_related('supplier', 'created_by') \
+        .annotate(lodged=Count('containers'))
+    return render(request, 'containers/track.html', {
+        'form': form,
+        'tracking': None,
+        'on_water': [t for t in trackings if not t.arrived_at and not t.lodged],
+        'arrived': [t for t in trackings if t.arrived_at or t.lodged],
+        'port_choices': terminal49.port_choices(),
+        't49_configured': terminal49.is_configured(),
+        'auto_refresh_hours': auto_refresh.refresh_hours(),
+    })
+
+
+@login_required
+@role_required(*BROKER_ROLES)
+def track_edit(request, pk):
+    tracking = get_object_or_404(ShipmentTracking, pk=pk)
+    number_before = tracking.request_number
+    form = ShipmentTrackingForm(request.POST or None, instance=tracking)
+    if request.method == 'POST' and form.is_valid():
+        tracking = form.save(commit=False)
+        if tracking.request_number != number_before:
+            # A different number is a different Terminal49 tracking request.
+            tracking.t49_request_id = tracking.t49_shipment_id = tracking.route_geojson = ''
+            tracking.t49_status = 'not_sent'
+            tracking.latitude = tracking.longitude = None
+        tracking.save()
+        if not tracking.t49_request_id:
+            _flash_sync(request, tracking, *terminal49.sync_tracking(tracking))
+        else:
+            messages.success(request, f'{tracking.request_number} updated.')
+        return redirect('track_list')
+    return render(request, 'containers/track.html', {
+        'form': form,
+        'tracking': tracking,
+        'port_choices': terminal49.port_choices(),
+        't49_configured': terminal49.is_configured(),
+        'auto_refresh_hours': auto_refresh.refresh_hours(),
+    })
+
+
+@login_required
+@role_required(*BROKER_ROLES)
+def track_refresh(request, pk=None):
+    """Re-sync one tracked B/L (or every one still on the water) with Terminal49."""
+    if request.method != 'POST':
+        return redirect('track_list')
+    if pk:
+        tracking = get_object_or_404(ShipmentTracking, pk=pk)
+        _flash_sync(request, tracking, *terminal49.sync_tracking(tracking))
+    else:
+        results = [terminal49.sync_tracking(t)
+                   for t in ShipmentTracking.objects.filter(arrived_at__isnull=True)]
+        failed = sum(1 for ok, _ in results if not ok)
+        if failed:
+            messages.warning(request, f'Refreshed {len(results)} shipment(s); {failed} could not be synced.')
+        else:
+            messages.success(request, f'Refreshed {len(results)} shipment(s) with Terminal49.')
+    return redirect(_safe_next(request))
+
+
+@login_required
+@role_required(*BROKER_ROLES)
+def track_toggle(request, pk):
+    """Add / remove a tracked B/L from the My Containers page."""
+    tracking = get_object_or_404(ShipmentTracking, pk=pk)
+    if request.method == 'POST':
+        tracking.show_in_my_containers = not tracking.show_in_my_containers
+        tracking.save(update_fields=['show_in_my_containers'])
+        verb = 'added to' if tracking.show_in_my_containers else 'removed from'
+        messages.success(request, f'{tracking.request_number} {verb} My Containers.')
+    return redirect(_safe_next(request))
+
+
+@login_required
+@role_required(*BROKER_ROLES)
+def track_delete(request, pk):
+    tracking = get_object_or_404(ShipmentTracking, pk=pk)
+    if request.method == 'POST':
+        number = tracking.request_number
+        tracking.delete()
+        messages.success(request, f'Stopped tracking {number}.')
+    return redirect('track_list')
+
+
+@login_required
+@role_required(*CONTAINER_VIEW_ROLES)
+def atlas(request):
+    """Ah Liki Atlas — bird's-eye map of every ship bound for Samoa."""
+    return render(request, 'containers/atlas.html', {
+        'focus': request.GET.get('focus', ''),
+        'can_track': _user_role(request.user) in BROKER_ROLES,
+    })
+
+
+@login_required
+@role_required(*CONTAINER_VIEW_ROLES)
+def atlas_data(request):
+    include_arrived = request.GET.get('arrived') == '1'
+    ships, unplaced = [], []
+    for t in ShipmentTracking.objects.select_related('supplier').prefetch_related('containers'):
+        if (t.arrived_at or t.lodged_count) and not include_arrived:
+            continue
+        v = terminal49.voyage(t)
+        if v is None:
+            unplaced.append({'id': t.pk, 'number': t.request_number,
+                             'edit_url': reverse('track_edit', args=[t.pk])})
+            continue
+        v['edit_url'] = reverse('track_edit', args=[t.pk])
+        v['lodge_url'] = f"{reverse('container_create')}?tracking={t.pk}"
+        ships.append(v)
+    ships.sort(key=lambda v: v['eta'] or '')
+    return JsonResponse({
+        'apia': terminal49.APIA,
+        'ships': ships,
+        'unplaced': unplaced,
+        'generated_at': timezone.now().isoformat(),
+    })

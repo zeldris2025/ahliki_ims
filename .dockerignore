@@ -1,0 +1,13 @@
+.git
+.gitignore
+.DS_Store
+venv/
+**/__pycache__/
+*.pyc
+staticfiles/
+docker-data/
+.env
+.env.*
+ahliki_ims/local_settings.py
+*.md
+PPT_PROMPT_FOR_AI.md

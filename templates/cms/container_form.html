@@ -1,0 +1,161 @@
+{% extends 'cms/_base.html' %}
+{% block title %}{% if container %}{{ container.code }}{% else %}Add container{% endif %} — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Container Management{% endblock %}
+{% block cms_content %}
+
+<div class="cms-head">
+  <div>
+    {% if container %}
+    <h1 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span class="cms-code" style="font-size:22px">{{ container.code }}</span>
+      {% include 'cms/_status.html' with status=container.status label=container.get_status_display %}
+      {% with c=container %}{% include 'cms/_due.html' %}{% endwith %}</h1>
+    <p>{{ container.yard }} · {{ container.owner }}{% if container.arrival_date %} · arrived {{ container.arrival_date|date:'d M Y' }}{% endif %}{% if container.driver %} · delivered by {{ container.driver }}{% endif %}</p>
+    {% else %}
+    <h1>Add container</h1>
+    <p>Record a container that has been delivered to a yard.</p>
+    {% endif %}
+  </div>
+  <div class="cms-actions">
+    {% url 'cms_containers' as list_url %}<a href="{{ next|default:list_url }}" class="btn btn-secondary">← Back</a>
+    {% if container and not container.returned %}
+    <button type="button" class="btn btn-secondary" onclick="cmsOpenTransfer('{% url 'cms_container_transfer' container.pk %}', '{{ container.code|escapejs }}', {{ container.yard_id }}, '{{ container.yard.code|escapejs }}')">🔁 Transfer</button>
+    <button type="button" class="btn btn-primary" onclick="cmsOpenReturn('{% url 'cms_container_return' container.pk %}', '{{ container.code|escapejs }}')">↩️ Return to wharf</button>
+    {% endif %}
+  </div>
+</div>
+
+<div class="cms-grid-2" style="align-items:start">
+  <section class="cms-panel">
+    <div class="cms-panel-head"><h2>Container details</h2></div>
+    <form method="post" class="cms-panel-body cms-form" novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ next }}">
+      {% if form.non_field_errors %}<div class="alert alert-error">{{ form.non_field_errors }}</div>{% endif %}
+      <div class="form-grid">
+        {% for field in form %}
+        <div class="form-group"{% if field.name == 'note' or field.name == 'description' %} style="grid-column:1/-1"{% endif %}>
+          <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} <span style="color:var(--cms-critical)">*</span>{% endif %}</label>
+          {{ field }}
+          {% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}
+          {{ field.errors }}
+        </div>
+        {% endfor %}
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;border-top:1px solid var(--cms-line);padding-top:14px;margin-top:4px">
+        {% if not container %}<button type="submit" name="save_another" value="1" class="btn btn-secondary">Save &amp; add another</button>{% endif %}
+        <button type="submit" class="btn btn-primary">{% if container %}Save changes{% else %}Add container{% endif %}</button>
+      </div>
+    </form>
+  </section>
+
+  <div style="display:flex;flex-direction:column;gap:16px">
+    {% if container %}
+    <section class="cms-panel">
+      <div class="cms-panel-head"><h2>Return to wharf</h2></div>
+      {% if returns %}
+        {% for r in returns %}
+        <div class="cms-panel-body" style="border-bottom:1px solid var(--cms-line)">
+          <div style="font-weight:700">↩️ Returned {{ r.returned_date|date:'d M Y'|default:'(date not recorded)' }}</div>
+          <div class="cms-sub" style="margin-top:4px;line-height:1.7">
+            From <strong>{{ r.yard|default:'—' }}</strong> as {{ r.get_status_display|upper }} → {{ r.location }}<br>
+            Staff: {{ r.staff_name|default:'—' }} · Driver: {{ r.driver|default:'—' }}</div>
+          <form method="post" action="{% url 'cms_return_undo' r.pk %}" style="margin-top:10px"
+                onsubmit="return confirm('Undo this return and put {{ container.code|escapejs }} back in {{ r.yard|escapejs }}?')">
+            {% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button class="cms-icon-btn" type="submit">Undo return</button>
+          </form>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="cms-panel-body">
+          {% if container.return_due %}
+          <div style="font-size:13px">Due back by <strong>{{ container.return_due|date:'D d M Y' }}</strong>
+            ({{ container.owner.return_days }} days after arrival).</div>
+          {% elif not container.arrival_date %}
+          <div class="cms-sub">Add the A/Date to work out the return deadline.</div>
+          {% else %}
+          <div class="cms-sub">{{ container.owner }} has no return days set. <a href="{% url 'cms_shipping' %}">Set them on Shipping</a>.</div>
+          {% endif %}
+        </div>
+      {% endif %}
+    </section>
+
+    <section class="cms-panel" id="transfers">
+      <div class="cms-panel-head"><div><h2>🔁 Transfer history</h2>
+        <p>{% if transfers %}Moved {{ transfers|length }} time{{ transfers|length|pluralize }} — newest first{% else %}Every move between yards is listed here{% endif %}</p></div></div>
+      {% if transfers %}
+        {% for t in transfers %}
+        <div class="cms-panel-body" style="border-bottom:1px solid var(--cms-line);padding-top:12px;padding-bottom:12px">
+          <div style="font-weight:700;font-size:13px">{{ t.from_yard|default:'—' }} → {{ t.to_yard|default:'—' }}
+            {% if forloop.first and not container.returned %}<span class="cms-due ok" style="margin-left:4px">Current</span>{% endif %}</div>
+          <div class="cms-sub" style="margin-top:3px;line-height:1.6">{{ t.transferred_date|date:'d M Y' }}
+            · Driver: {{ t.driver|default:'—' }} · Staff: {{ t.staff_name|default:'—' }}
+            {% if t.note %}<br>“{{ t.note }}”{% endif %}</div>
+        </div>
+        {% endfor %}
+        <div class="cms-panel-body cms-sub">{% with first=transfers|last %}📍 First yard: <strong>{{ first.from_yard|default:'—' }}</strong>{% endwith %}{% if container.arrival_date %} · arrived {{ container.arrival_date|date:'d M Y' }}{% endif %}{% if container.driver %} · delivered by {{ container.driver }}{% endif %}</div>
+      {% else %}
+        <div class="cms-panel-body cms-sub">Not transferred yet. Use <strong>🔁 Transfer</strong> to move it to another yard — each move is recorded with date, driver and staff.</div>
+      {% endif %}
+    </section>
+
+    {% if history %}
+    <section class="cms-panel">
+      <div class="cms-panel-head"><h2>Earlier visits of {{ container.code }}</h2></div>
+      <table class="cms-table">
+        <thead><tr><th>A/Date</th><th>Yard</th><th>Driver</th><th>Returned</th></tr></thead>
+        <tbody>{% for h in history %}<tr>
+          <td><a href="{% url 'cms_container_edit' h.pk %}">{{ h.arrival_date|date:'d M Y'|default:'—' }}</a></td>
+          <td>{{ h.yard }}</td><td>{{ h.driver|default:'—' }}</td>
+          <td>{% for r in h.returns.all %}{{ r.returned_date|date:'d M Y'|default:'Yes' }}{% empty %}{% if h.returned %}Yes{% else %}No{% endif %}{% endfor %}</td>
+        </tr>{% endfor %}</tbody>
+      </table>
+    </section>
+    {% endif %}
+
+    <section class="cms-panel">
+      <div class="cms-panel-body cms-sub" style="line-height:1.7">
+        Added {{ container.created_at|date:'d M Y H:i' }}{% if container.created_by %} by {{ container.created_by.get_full_name|default:container.created_by.username }}{% endif %}<br>
+        Last updated {{ container.updated_at|date:'d M Y H:i' }}
+        <form method="post" action="{% url 'cms_container_delete' container.pk %}" style="margin-top:10px"
+              onsubmit="return confirm('Delete {{ container.code|escapejs }}? This also deletes its return history.')">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-danger btn-sm">🗑 Delete container</button>
+        </form>
+      </div>
+    </section>
+    {% else %}
+    <section class="cms-panel">
+      <div class="cms-panel-head"><h2>Tips</h2></div>
+      <div class="cms-panel-body cms-sub" style="line-height:1.8">
+        • The return deadline is the A/Date plus the owner's <a href="{% url 'cms_shipping' %}">return days</a>.<br>
+        • Adding many at once? <a href="{% url 'cms_container_import' %}">Import a CSV</a>.<br>
+        • <strong>Save &amp; add another</strong> keeps the same yard selected.
+      </div>
+    </section>
+    {% endif %}
+  </div>
+</div>
+
+{% if container %}{% include 'cms/_return_modal.html' %}{% include 'cms/_transfer_modal.html' %}{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  // Picking the Wharf yard adds "NOT YET RELEASED" to the note (saving does the same on the server).
+  const yard = document.getElementById('id_yard'), note = document.getElementById('id_note');
+  if (!yard || !note) return;
+  const NOTE = 'NOT YET RELEASED';
+  yard.addEventListener('change', () => {
+    const picked = yard.options[yard.selectedIndex];
+    if (picked && picked.text.trim().toUpperCase() === 'WHARF' && !note.value.toUpperCase().includes(NOTE)) {
+      note.value = note.value.trim() ? NOTE + '\n' + note.value : NOTE;
+      note.classList.add('cms-flash');
+      setTimeout(() => note.classList.remove('cms-flash'), 1200);
+    }
+  });
+})();
+</script>
+<style>.cms-flash { background: #fef6dc !important; border-color: #f6d77f !important; transition: background .3s; }</style>
+{% endblock %}

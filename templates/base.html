@@ -35,6 +35,9 @@
   .role-warehouse { background: #dbeafe; color: #1e40af; }
   .role-cashier { background: #dcfce7; color: #166534; }
   .role-custom_broker { background: #cffafe; color: #155e75; }
+  .nav-disabled { display: flex; align-items: center; gap: 10px; padding: 9px 16px; color: rgba(255,255,255,0.38); font-size: 13.5px; cursor: not-allowed; }
+  .nav-disabled .icon { width: 18px; text-align: center; font-size: 15px; filter: grayscale(1); opacity: .6; }
+  .nav-soon { margin-left: auto; font-size: 9.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; padding: 2px 7px; border-radius: 10px; background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.6); }
   .logo-image { max-width: 50px; height: auto; object-fit: contain; }
 </style>
 </head>
@@ -72,7 +75,7 @@
       <a href="{% url 'grn_add' %}" class="{% if request.resolver_match.url_name == 'grn_add' %}active{% endif %}">
         <span class="icon">➕</span> New GRN
       </a>
-      <a href="{% url 'warehouse_container_list' %}" class="{% if 'container' in request.resolver_match.url_name %}active{% endif %}">
+      <a href="{% url 'warehouse_container_list' %}" class="{% if 'container' in request.resolver_match.url_name and 'cms_' not in request.resolver_match.url_name %}active{% endif %}">
         <span class="icon">🚢</span> Containers
       </a>
 
@@ -113,15 +116,27 @@
         <span class="icon">🔄</span> Stock Movements
       </a>
 
-      <!-- ── CUSTOMS BROKER: Container manifests only ── -->
+      <!-- ── CUSTOMS BROKER: CMS — Container Management ── -->
       {% elif user_role == 'custom_broker' %}
-      <div class="nav-section">Containers</div>
-      <a href="{% url 'container_list' %}" class="{% if request.resolver_match.url_name == 'container_list' or request.resolver_match.url_name == 'container_detail' %}active{% endif %}">
-        <span class="icon">🚢</span> My Containers
+      <div class="nav-section">Container Management</div>
+      <a href="{% url 'cms_dashboard' %}" class="{% if request.resolver_match.url_name == 'cms_dashboard' %}active{% endif %}">
+        <span class="icon">📊</span> Dashboard
       </a>
-      <a href="{% url 'container_create' %}" class="{% if request.resolver_match.url_name == 'container_create' %}active{% endif %}">
-        <span class="icon">➕</span> New Container
+      <a href="{% url 'cms_containers' %}" class="{% if request.resolver_match.url_name == 'cms_containers' or 'cms_container_' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">🚢</span> Containers
       </a>
+      <a href="{% url 'cms_shipping' %}" class="{% if 'cms_shipping' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">⚓</span> Shipping
+      </a>
+      <a href="{% url 'cms_returns' %}" class="{% if 'cms_return' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">↩️</span> Returned Containers
+      </a>
+      <a href="{% url 'cms_atlas' %}" class="{% if request.resolver_match.url_name == 'cms_atlas' %}active{% endif %}">
+        <span class="icon">🗺️</span> Ah Liki Atlas
+      </a>
+      <span class="nav-disabled" title="Coming soon" aria-disabled="true">
+        <span class="icon">📡</span> Track Container <span class="nav-soon">Soon</span>
+      </span>
 
       {% else %}
       <!-- ── Full nav for all other roles ── -->
@@ -140,7 +155,7 @@
       <a href="{% url 'warehouse_dispatch_list' %}" class="{% if 'dispatch' in request.resolver_match.url_name %}active{% endif %}">
         <span class="icon">🚚</span> Dispatch Orders
       </a>
-      <a href="{% url 'warehouse_container_list' %}" class="{% if 'container' in request.resolver_match.url_name %}active{% endif %}">
+      <a href="{% url 'warehouse_container_list' %}" class="{% if 'container' in request.resolver_match.url_name and 'cms_' not in request.resolver_match.url_name %}active{% endif %}">
         <span class="icon">🚢</span> Containers
       </a>
       <a href="{% url 'grn_list' %}" class="{% if 'grn' in request.resolver_match.url_name %}active{% endif %}">
@@ -166,6 +181,29 @@
       <a href="{% url 'wms_transfer' %}" class="{% if 'transfer' in request.resolver_match.url_name %}active{% endif %}">
         <span class="icon">↔️</span> Transfer Pallet
       </a>
+      {% endif %}
+
+      <!-- ── CMS — admin and manager see the broker's container management ── -->
+      {% if is_admin or user_role == 'admin' or user_role == 'manager' %}
+      <div class="nav-section">Container Management</div>
+      <a href="{% url 'cms_dashboard' %}" class="{% if request.resolver_match.url_name == 'cms_dashboard' %}active{% endif %}">
+        <span class="icon">📊</span> Dashboard
+      </a>
+      <a href="{% url 'cms_containers' %}" class="{% if request.resolver_match.url_name == 'cms_containers' or 'cms_container_' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">🚢</span> Containers
+      </a>
+      <a href="{% url 'cms_shipping' %}" class="{% if 'cms_shipping' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">⚓</span> Shipping
+      </a>
+      <a href="{% url 'cms_returns' %}" class="{% if 'cms_return' in request.resolver_match.url_name %}active{% endif %}">
+        <span class="icon">↩️</span> Returned Containers
+      </a>
+      <a href="{% url 'cms_atlas' %}" class="{% if request.resolver_match.url_name == 'cms_atlas' %}active{% endif %}">
+        <span class="icon">🗺️</span> Ah Liki Atlas
+      </a>
+      <span class="nav-disabled" title="Coming soon" aria-disabled="true">
+        <span class="icon">📡</span> Track Container <span class="nav-soon">Soon</span>
+      </span>
       {% endif %}
 
       <!-- ── PRODUCTS — admin/warehouse/manager can manage; finance can edit prices ── -->

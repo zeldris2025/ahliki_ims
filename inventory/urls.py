@@ -1,5 +1,5 @@
 from django.urls import path
-from . import views
+from . import views, cms_views
 
 urlpatterns = [
     
@@ -109,6 +109,35 @@ urlpatterns = [
     path('containers/<int:pk>/', views.container_detail, name='container_detail'),
     path('containers/<int:pk>/edit/', views.container_edit, name='container_edit'),
     path('containers/<int:pk>/comment/', views.container_add_comment, name='container_add_comment'),
+
+    # Track Containers (Terminal49) + Ah Liki Atlas — Customs Broker
+    path('containers/track/', views.track_list, name='track_list'),
+    path('containers/track/refresh/', views.track_refresh, name='track_refresh_all'),
+    path('containers/track/<int:pk>/', views.track_edit, name='track_edit'),
+    path('containers/track/<int:pk>/refresh/', views.track_refresh, name='track_refresh'),
+    path('containers/track/<int:pk>/toggle/', views.track_toggle, name='track_toggle'),
+    path('containers/track/<int:pk>/delete/', views.track_delete, name='track_delete'),
+    path('containers/atlas/', views.atlas, name='atlas'),
+    path('containers/atlas/data/', views.atlas_data, name='atlas_data'),
+
+    # CMS — Container Management (Customs Broker)
+    path('cms/', cms_views.dashboard, name='cms_dashboard'),
+    path('cms/containers/', cms_views.container_list, name='cms_containers'),
+    path('cms/containers/add/', cms_views.container_add, name='cms_container_add'),
+    path('cms/containers/bulk/', cms_views.container_bulk, name='cms_container_bulk'),
+    path('cms/containers/import/', cms_views.container_import, name='cms_container_import'),
+    path('cms/containers/import/template/', cms_views.container_import_template, name='cms_import_template'),
+    path('cms/containers/<int:pk>/', cms_views.container_edit, name='cms_container_edit'),
+    path('cms/containers/<int:pk>/transfer/', cms_views.container_transfer, name='cms_container_transfer'),
+    path('cms/containers/<int:pk>/return/', cms_views.container_return, name='cms_container_return'),
+    path('cms/containers/<int:pk>/delete/', cms_views.container_delete, name='cms_container_delete'),
+    path('cms/shipping/', cms_views.shipping, name='cms_shipping'),
+    path('cms/shipping/<int:pk>/', cms_views.shipping, name='cms_shipping_edit'),
+    path('cms/shipping/<int:pk>/delete/', cms_views.shipping_delete, name='cms_shipping_delete'),
+    path('cms/returned/', cms_views.returns, name='cms_returns'),
+    path('cms/returned/<int:pk>/undo/', cms_views.return_undo, name='cms_return_undo'),
+    path('cms/atlas/', cms_views.atlas, name='cms_atlas'),
+    path('cms/atlas/yard/<int:pk>/move/', cms_views.yard_move, name='cms_yard_move'),
 
     # Containers — Warehouse
     path('warehouse/containers/', views.warehouse_container_list, name='warehouse_container_list'),

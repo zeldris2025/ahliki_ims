@@ -1,0 +1,421 @@
+{% extends 'base.html' %}
+{% block title %}Ah Liki Atlas — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Ah Liki Atlas{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+.atlas-wrap { display:grid; grid-template-columns:1fr 330px; gap:0; height:calc(100vh - 100px); min-height:540px;
+  border:1px solid var(--gray-200); border-radius:12px; overflow:hidden; background:#0b2236; }
+#atlasMap { width:100%; height:100%; background:#0b2236; }
+.atlas-map-col { position:relative; min-width:0; }
+.atlas-panel { background:var(--white); border-left:1px solid var(--gray-200); display:flex; flex-direction:column; min-height:0; }
+.atlas-panel-head { padding:14px 16px 10px; border-bottom:1px solid var(--gray-200); }
+.atlas-panel-head h2 { font-size:15px; font-weight:700; }
+.atlas-panel-head p { font-size:12px; color:var(--gray-500); margin-top:2px; }
+.ship-list { overflow-y:auto; flex:1; }
+.ship-item { padding:12px 16px; border-bottom:1px solid var(--gray-100); cursor:pointer; transition:background .15s; }
+.ship-item:hover, .ship-item.active { background:var(--green-light); }
+.ship-item .top { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
+.ship-item .num { font-weight:700; font-size:13.5px; }
+.ship-item .eta { font-size:12px; font-weight:600; color:var(--green-mid); white-space:nowrap; }
+.ship-item .meta { font-size:12px; color:var(--gray-500); margin-top:2px; }
+.ship-item .bar { height:5px; background:var(--gray-100); border-radius:3px; margin-top:8px; overflow:hidden; }
+.ship-item .bar span { display:block; height:100%; background:linear-gradient(90deg,#0ea5e9,#22c55e); }
+.chip { display:inline-block; font-size:10.5px; font-weight:700; padding:1px 7px; border-radius:20px; margin-left:4px; vertical-align:1px; }
+.chip-live { background:#dcfce7; color:#166534; }
+.chip-est { background:#e0f2fe; color:#075985; }
+.chip-arr { background:#f3f4f6; color:#374151; }
+.unplaced { padding:12px 16px; font-size:12px; color:#92400e; background:#fffbeb; border-top:1px solid #fde68a; }
+.unplaced a { color:#92400e; text-decoration:underline; }
+.atlas-empty { padding:30px 18px; text-align:center; color:var(--gray-500); font-size:13px; line-height:1.6; }
+
+/* Overlays on the map */
+.atlas-title { position:absolute; top:14px; left:56px; z-index:500; color:#fff; pointer-events:none;
+  text-shadow:0 1px 6px rgba(0,0,0,.6); }
+.atlas-title h1 { font-size:20px; font-weight:800; letter-spacing:.02em; }
+.atlas-title p { font-size:12px; opacity:.85; }
+.atlas-timeline { position:absolute; left:14px; right:14px; bottom:14px; z-index:500; background:rgba(11,34,54,.86);
+  color:#fff; border-radius:10px; padding:10px 14px; display:flex; align-items:center; gap:12px;
+  backdrop-filter:blur(4px); box-shadow:0 4px 18px rgba(0,0,0,.3); }
+.atlas-timeline button { background:#22c55e; color:#06261a; border:none; border-radius:50%; width:34px; height:34px;
+  font-size:14px; font-weight:800; cursor:pointer; flex-shrink:0; }
+.atlas-timeline input[type=range] { flex:1; accent-color:#22c55e; min-width:80px; }
+.atlas-timeline .when { font-size:12.5px; font-weight:600; white-space:nowrap; min-width:118px; text-align:right; }
+.atlas-timeline .now-btn { background:rgba(255,255,255,.14); color:#fff; border-radius:6px; width:auto; height:28px;
+  padding:0 10px; font-size:12px; font-weight:600; }
+
+/* Markers */
+.apia-marker { position:relative; }
+.apia-dot { width:14px; height:14px; border-radius:50%; background:#f59e0b; border:2px solid #fff; position:absolute; left:3px; top:3px; }
+.apia-pulse { width:20px; height:20px; border-radius:50%; background:rgba(245,158,11,.55); position:absolute; left:0; top:0;
+  animation:apiaPulse 2s ease-out infinite; }
+@keyframes apiaPulse { from { transform:scale(1); opacity:.9; } to { transform:scale(4.2); opacity:0; } }
+.apia-label { position:absolute; left:24px; top:-1px; color:#fff; font-weight:800; font-size:13px; white-space:nowrap;
+  text-shadow:0 1px 4px rgba(0,0,0,.8); }
+.ship-marker { transition:none; }
+.ship-marker svg { filter:drop-shadow(0 2px 3px rgba(0,0,0,.55)); animation:bob 3s ease-in-out infinite; }
+@keyframes bob { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-2px); } }
+.ship-tag { position:absolute; left:26px; top:2px; background:rgba(11,34,54,.85); color:#fff; font-size:11px; font-weight:700;
+  padding:1px 6px; border-radius:4px; white-space:nowrap; pointer-events:none; }
+.route-ahead { stroke-dasharray:6 10; animation:flow 1.2s linear infinite; }
+@keyframes flow { to { stroke-dashoffset:-16; } }
+.leaflet-popup-content { margin:12px 14px; font-size:13px; line-height:1.5; }
+.pop-title { font-weight:800; font-size:14px; }
+.pop-grid { display:grid; grid-template-columns:auto 1fr; gap:2px 10px; margin:8px 0; font-size:12.5px; }
+.pop-grid span:nth-child(odd) { color:var(--gray-500); }
+.pop-actions { display:flex; gap:6px; flex-wrap:wrap; }
+.pop-actions a { font-size:12px; padding:4px 10px; border-radius:6px; background:var(--green-mid); color:#fff; }
+.pop-actions a.sec { background:var(--gray-100); color:var(--gray-700); }
+
+@media (prefers-reduced-motion: reduce) {
+  .apia-pulse, .ship-marker svg, .route-ahead { animation:none; }
+}
+@media (max-width: 900px) {
+  .atlas-wrap { grid-template-columns:1fr; grid-template-rows:62vh auto; height:auto; }
+  .atlas-panel { border-left:none; border-top:1px solid var(--gray-200); max-height:none; }
+  .atlas-title { left:52px; }
+  .atlas-title h1 { font-size:16px; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="atlas-wrap">
+  <div class="atlas-map-col">
+    <div id="atlasMap" role="application" aria-label="Map of ships bound for Apia, Samoa"></div>
+    <div class="atlas-title">
+      <h1>🗺️ Ah Liki Atlas</h1>
+      <p id="atlasSubtitle">Loading ships bound for Samoa…</p>
+    </div>
+    <div class="atlas-timeline">
+      <button type="button" id="playBtn" title="Fast-forward the voyages" aria-label="Play">▶</button>
+      <input type="range" id="timeSlider" min="0" max="60" step="0.05" value="0" aria-label="Days from today">
+      <span class="when" id="whenLabel">Today</span>
+      <button type="button" class="now-btn" id="nowBtn">Now</button>
+    </div>
+  </div>
+
+  <aside class="atlas-panel">
+    <div class="atlas-panel-head">
+      <h2>Arriving in Apia</h2>
+      <p>Soonest first · <a href="#" id="toggleArrived">show arrived</a></p>
+    </div>
+    <div class="ship-list" id="shipList"><div class="atlas-empty">Loading…</div></div>
+    <div id="unplaced"></div>
+    {% if can_track %}
+    <div style="padding:12px 16px;border-top:1px solid var(--gray-200)">
+      <a href="{% url 'track_list' %}" class="btn btn-primary" style="width:100%;justify-content:center">📡 Track a bill of lading</a>
+    </div>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(function () {
+  const DATA_URL = "{% url 'atlas_data' %}";
+  const FOCUS = "{{ focus|escapejs }}";
+  const DAY = 86400000;
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // ── Map + basemaps ───────────────────────────────────────────────────────
+  const map = L.map('atlasMap', { zoomControl: true, worldCopyJump: false, minZoom: 2 })
+    .setView([-14, 188], 4);
+  const esri = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
+  const satellite = L.layerGroup([
+    L.tileLayer(esri + 'World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 18, attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics' }),
+    L.tileLayer(esri + 'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxZoom: 18, opacity: .8 }),
+  ]).addTo(map);
+  const ocean = L.tileLayer(esri + 'Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 13, attribution: 'Tiles &copy; Esri, GEBCO, NOAA' });
+  const streets = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 18, attribution: '&copy; OpenStreetMap contributors' });
+  L.control.layers({ 'Satellite (bird\'s-eye)': satellite, 'Ocean': ocean, 'Streets': streets }, null,
+    { position: 'topright' }).addTo(map);
+  L.control.scale({ imperial: false }).addTo(map);
+
+  const routeLayer = L.layerGroup().addTo(map);
+  const shipLayer = L.layerGroup().addTo(map);
+  let ships = [];
+  let showArrived = false;
+  let offsetDays = 0;          // timeline position (days from now)
+  let playing = false, playRaf = null;
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const unwrap = (lng, ref) => { while (lng - ref > 180) lng -= 360; while (lng - ref < -180) lng += 360; return lng; };
+
+  function bearing(a, b) {
+    const dy = b[0] - a[0], dx = (b[1] - a[1]) * Math.cos(a[0] * Math.PI / 180);
+    return (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360;
+  }
+
+  function along(route, f) {
+    if (!route.length) return null;
+    if (route.length === 1) return { pos: route[0], idx: 0, heading: 0 };
+    f = Math.max(0, Math.min(1, f));
+    const x = f * (route.length - 1), i = Math.min(Math.floor(x), route.length - 2), t = x - i;
+    const a = route[i], b = route[i + 1];
+    return { pos: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], idx: i, heading: bearing(a, b) };
+  }
+
+  function fmtDate(d) {
+    return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+  }
+
+  function shipIcon(heading, color, label) {
+    const svg = `<svg width="26" height="26" viewBox="-13 -13 26 26" style="transform:rotate(${heading}deg)" aria-hidden="true">
+        <path d="M0,-11 L6,4 L4,9 L-4,9 L-6,4 Z" fill="${color}" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/>
+        <rect x="-2.2" y="-1" width="4.4" height="5" rx="1" fill="#fff" opacity=".9"/></svg>`;
+    return L.divIcon({ className: 'ship-marker', iconSize: [26, 26], iconAnchor: [13, 13],
+      html: `<div style="position:relative">${svg}<span class="ship-tag">${esc(label)}</span></div>` });
+  }
+
+  // Where is ship s at time t (ms)? Returns {pos, idx, heading, progress}.
+  function stateAt(s, t) {
+    const dep = Date.parse(s.departed), eta = Date.parse(s.eta);
+    const prog = s.source === 'arrived' ? 1 : (eta > dep ? (t - dep) / (eta - dep) : 1);
+    const p = Math.max(0, Math.min(1, prog));
+    if (s.source === 'live' && s.route.length) {
+      // From the live fix, sail the remaining leg to Apia.
+      const now = Date.now(), nowProg = Math.max(0, Math.min(1, (now - dep) / Math.max(eta - dep, 1)));
+      if (t <= now) return { pos: s.position, idx: s.liveIdx, heading: s.heading ?? 0, progress: s.progress };
+      const rest = s.restRoute;
+      const f = nowProg >= 1 ? 1 : (p - nowProg) / (1 - nowProg);
+      const a = along(rest, f);
+      return { ...a, idx: s.liveIdx + Math.round(f * (s.route.length - 1 - s.liveIdx)), progress: p };
+    }
+    if (!s.route.length) return { pos: s.position, idx: 0, heading: 0, progress: 1 };
+    return { ...along(s.route, p), progress: p };
+  }
+
+  // ── Drawing ──────────────────────────────────────────────────────────────
+  function colorFor(s) { return s.source === 'live' ? '#22c55e' : s.source === 'arrived' ? '#9ca3af' : '#38bdf8'; }
+
+  function popupHtml(s) {
+    const days = s.days_left == null ? '' :
+      s.days_left > 1 ? `in ${Math.round(s.days_left)} days` : s.days_left > 0 ? 'within a day' : 'due';
+    const src = s.source === 'live' ? '<span class="chip chip-live">LIVE · Terminal49</span>'
+      : s.source === 'arrived' ? '<span class="chip chip-arr">ARRIVED</span>'
+      : '<span class="chip chip-est">ESTIMATED</span>';
+    return `<div class="pop-title">🚢 ${esc(s.vessel)} ${src}</div>
+      <div class="pop-grid">
+        <span>B/L</span><b>${esc(s.number)}</b>
+        ${s.line ? `<span>Line</span><span>${esc(s.line)}</span>` : ''}
+        ${s.supplier ? `<span>Supplier</span><span>${esc(s.supplier)}</span>` : ''}
+        <span>Route</span><span>${esc(s.origin)} → Apia</span>
+        <span>ETA</span><span>${esc(s.eta_label)} ${days ? '(' + days + ')' : ''}</span>
+        <span>Voyage</span><span>${Math.round(s.progress * 100)}% · ${s.distance_nm ? s.distance_nm.toLocaleString() + ' nm' : '—'}</span>
+        ${s.containers.length ? `<span>Boxes</span><span>${s.containers.map(esc).join(', ')}</span>` : ''}
+      </div>
+      <div class="pop-actions">
+        <a href="${s.lodge_url}">Lodge at wharf →</a>
+        <a class="sec" href="${s.edit_url}">Details</a>
+      </div>`;
+  }
+
+  function draw() {
+    routeLayer.clearLayers(); shipLayer.clearLayers();
+    const apia = window.__apia;
+    ships.forEach(s => {
+      const color = colorFor(s);
+      // Terminal49 route (paid plans) — draw its port stops for context.
+      if (s.route_geojson && s.route_geojson.features) {
+        s.route_geojson.features.filter(f => f.properties && f.properties.feature_type === 'port').forEach(f => {
+          const [lng, lat] = f.geometry.coordinates;
+          L.circleMarker([lat, unwrap(lng, apia[1])], { radius: 4, color: '#fff', weight: 1, fillColor: color, fillOpacity: 1 })
+            .bindTooltip(esc(f.properties.name) + (f.properties.label ? ' · ' + esc(f.properties.label) : ''))
+            .addTo(routeLayer);
+        });
+      }
+      if (s.route.length) {
+        s.trail = L.polyline([], { color, weight: 3, opacity: .95 }).addTo(routeLayer);
+        s.ahead = L.polyline([], { color: '#fff', weight: 2, opacity: .75, className: 'route-ahead' }).addTo(routeLayer);
+        L.circleMarker(s.route[0], { radius: 5, color: '#fff', weight: 2, fillColor: color, fillOpacity: 1 })
+          .bindTooltip(esc(s.origin), { direction: 'top' }).addTo(routeLayer);
+      }
+      s.marker = L.marker(s.position, { icon: shipIcon(0, color, s.number), zIndexOffset: 500, keyboard: true,
+        title: `${s.number} — ${s.vessel}` })
+        .bindPopup(popupHtml(s), { maxWidth: 300 })
+        .on('click', () => highlight(s.id))
+        .addTo(shipLayer);
+      s.lastHeading = null;
+    });
+  }
+
+  function place(s, st) {
+    if (s.route.length) {
+      const pts = s.route.slice(0, st.idx + 1).concat([st.pos]);
+      s.trail.setLatLngs(pts);
+      s.ahead.setLatLngs([st.pos].concat(s.route.slice(st.idx + 1)));
+    }
+    s.marker.setLatLng(st.pos);
+    const h = Math.round(st.heading || 0);
+    if (h !== s.lastHeading) {
+      s.marker.setIcon(shipIcon(h, colorFor(s), s.number));
+      s.lastHeading = h;
+    }
+  }
+
+  function render(t) { ships.forEach(s => place(s, stateAt(s, t))); }
+
+  // Opening animation: every ship sails from its port to where it is right now.
+  function replayVoyages() {
+    if (reduceMotion) { render(Date.now()); return; }
+    const start = performance.now(), dur = 2600;
+    function frame(now) {
+      const k = Math.min(1, (now - start) / dur), ease = 1 - Math.pow(1 - k, 3);
+      ships.forEach(s => {
+        const target = stateAt(s, Date.now());
+        if (!s.route.length || k >= 1) { place(s, target); return; }
+        const goal = s.source === 'live' ? s.liveIdx / (s.route.length - 1) : target.progress;
+        place(s, along(s.route, ease * goal));
+      });
+      if (k < 1) requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // ── Side panel ───────────────────────────────────────────────────────────
+  function renderList(unplaced) {
+    const list = document.getElementById('shipList');
+    if (!ships.length) {
+      list.innerHTML = `<div class="atlas-empty">🌊 No ships on the water yet.<br>
+        Track a bill of lading and give it a port of loading to see it sail to Apia here.</div>`;
+    } else {
+      list.innerHTML = ships.map(s => {
+        const chip = s.source === 'live' ? '<span class="chip chip-live">LIVE</span>'
+          : s.source === 'arrived' ? '<span class="chip chip-arr">ARRIVED</span>' : '<span class="chip chip-est">EST.</span>';
+        const days = s.source === 'arrived' ? 'Arrived' : s.days_left == null ? 'ETA TBC'
+          : s.days_left > 1 ? `${Math.round(s.days_left)} days` : s.days_left > 0 ? '< 1 day' : 'Due';
+        return `<div class="ship-item" data-id="${s.id}" tabindex="0" role="button">
+          <div class="top"><span class="num">${esc(s.number)}${chip}</span><span class="eta">${days}</span></div>
+          <div class="meta">🚢 ${esc(s.vessel)}${s.supplier ? ' · ' + esc(s.supplier) : ''}</div>
+          <div class="meta">${esc(s.origin)} → Apia · ETA ${esc(s.eta_label)}</div>
+          <div class="bar"><span style="width:${Math.round(s.progress * 100)}%"></span></div>
+        </div>`;
+      }).join('');
+      list.querySelectorAll('.ship-item').forEach(el => {
+        const go = () => focusShip(+el.dataset.id);
+        el.addEventListener('click', go);
+        el.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+      });
+    }
+    document.getElementById('unplaced').innerHTML = unplaced.length
+      ? `<div class="unplaced">📍 Not on the map yet (needs a port of loading): ` +
+        unplaced.map(u => `<a href="${u.edit_url}">${esc(u.number)}</a>`).join(', ') + `</div>` : '';
+  }
+
+  function highlight(id) {
+    document.querySelectorAll('.ship-item').forEach(el => el.classList.toggle('active', +el.dataset.id === id));
+  }
+
+  function focusShip(id) {
+    const s = ships.find(x => x.id === id);
+    if (!s) return;
+    highlight(id);
+    map.flyTo(s.marker.getLatLng(), Math.max(map.getZoom(), 5), { duration: reduceMotion ? 0 : 1.2 });
+    setTimeout(() => s.marker.openPopup(), reduceMotion ? 0 : 1250);
+  }
+
+  // ── Timeline ─────────────────────────────────────────────────────────────
+  const slider = document.getElementById('timeSlider'), whenLabel = document.getElementById('whenLabel');
+  const playBtn = document.getElementById('playBtn');
+
+  function setOffset(days) {
+    offsetDays = days;
+    slider.value = days;
+    const t = Date.now() + days * DAY;
+    whenLabel.textContent = days < 0.05 ? 'Today' : fmtDate(new Date(t));
+    render(t);
+  }
+  slider.addEventListener('input', () => { stop(); setOffset(+slider.value); });
+  document.getElementById('nowBtn').addEventListener('click', () => { stop(); setOffset(0); });
+
+  function stop() { playing = false; playBtn.textContent = '▶'; playBtn.setAttribute('aria-label', 'Play'); cancelAnimationFrame(playRaf); }
+  playBtn.addEventListener('click', () => {
+    if (playing) { stop(); return; }
+    // Run far enough for the last ship to reach Apia.
+    const lastEta = Math.max(0, ...ships.map(s => (Date.parse(s.eta) - Date.now()) / DAY));
+    slider.max = Math.max(7, Math.min(60, Math.ceil(lastEta + 1)));
+    if (offsetDays >= +slider.max - 0.1) setOffset(0);
+    playing = true; playBtn.textContent = '❚❚'; playBtn.setAttribute('aria-label', 'Pause');
+    let last = performance.now();
+    const daysPerSec = +slider.max / 10;  // whole run in ~10 seconds
+    (function tick(now) {
+      if (!playing) return;
+      const d = Math.min(+slider.max, offsetDays + (now - last) / 1000 * daysPerSec);
+      last = now;
+      setOffset(d);
+      if (d >= +slider.max) { stop(); return; }
+      playRaf = requestAnimationFrame(tick);
+    })(last);
+  });
+
+  // ── Load ─────────────────────────────────────────────────────────────────
+  function load(fit) {
+    return fetch(DATA_URL + (showArrived ? '?arrived=1' : ''), { credentials: 'same-origin' })
+      .then(r => r.json())
+      .then(data => {
+        const apiaLng = data.apia.lng < 0 ? data.apia.lng + 360 : data.apia.lng;
+        window.__apia = [data.apia.lat, apiaLng];
+        ships = data.ships.map(s => {
+          s.route = s.route || [];
+          if (s.source === 'live' && s.route.length) {
+            // Nearest route vertex to the live fix; the rest of the voyage continues from there.
+            let best = 0, bd = Infinity;
+            s.route.forEach((p, i) => { const d = (p[0] - s.position[0]) ** 2 + (p[1] - s.position[1]) ** 2; if (d < bd) { bd = d; best = i; } });
+            s.liveIdx = Math.min(best, s.route.length - 2);
+            s.restRoute = [s.position].concat(s.route.slice(best + 1));
+          }
+          return s;
+        });
+        draw();
+        renderList(data.unplaced);
+
+        const n = ships.filter(s => s.source !== 'arrived').length;
+        document.getElementById('atlasSubtitle').textContent =
+          n ? `${n} ship${n === 1 ? '' : 's'} bound for Apia, Samoa` : 'No ships on the water right now';
+
+        if (fit) {
+          const pts = [window.__apia];
+          ships.forEach(s => { pts.push(...(s.route.length ? s.route : [s.position])); });
+          if (pts.length > 1) map.fitBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 6 });
+          else map.setView(window.__apia, 5);
+        }
+        offsetDays = 0; slider.value = 0; whenLabel.textContent = 'Today';
+        if (fit) replayVoyages(); else render(Date.now());
+        if (FOCUS && fit) setTimeout(() => focusShip(+FOCUS), reduceMotion ? 0 : 2700);
+      })
+      .catch(() => {
+        document.getElementById('shipList').innerHTML = '<div class="atlas-empty">Could not load ships. Refresh to try again.</div>';
+      });
+  }
+
+  // Apia harbour marker.
+  L.marker([-13.827, 188.242], {
+    icon: L.divIcon({ className: 'apia-marker', iconSize: [20, 20], iconAnchor: [10, 10],
+      html: '<div class="apia-pulse"></div><div class="apia-dot"></div><div class="apia-label">⚓ Apia</div>' }),
+    zIndexOffset: 1000, title: 'Apia, Samoa',
+  }).bindTooltip('Apia Port, Samoa').addTo(map);
+
+  document.getElementById('toggleArrived').addEventListener('click', e => {
+    e.preventDefault();
+    showArrived = !showArrived;
+    e.target.textContent = showArrived ? 'hide arrived' : 'show arrived';
+    stop(); load(false);
+  });
+
+  load(true);
+  // Ships keep moving: re-plot every minute while the page is open (at "now").
+  setInterval(() => { if (!playing && offsetDays < 0.05) render(Date.now()); }, 60000);
+  // Pick up the server's Terminal49 auto-refresh without reloading the page.
+  setInterval(() => { if (!playing && offsetDays < 0.05) load(false); }, 30 * 60000);
+})();
+</script>
+{% endblock %}

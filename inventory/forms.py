@@ -1,7 +1,10 @@
+import re
 from django import forms
+from .validators import (looks_like_container, normalise, validate_container_number,
+                         validate_reference_number)
 from .models import (Product, Supplier, Category, GoodsReceivedNote, GRNItem, Sale, SaleItem,
                      StockMovement, Pallet, ShelfLocation, Invoice, Container, ContainerItem,
-                     ContainerComment, ContainerType)
+                     ContainerComment, ContainerType, ShipmentTracking)
 
 
 class ProductForm(forms.ModelForm):
@@ -173,17 +176,19 @@ class InvoiceUploadForm(forms.ModelForm):
 class ContainerForm(forms.ModelForm):
     class Meta:
         model = Container
-        fields = ['container_number', 'container_type', 'vessel', 'arrival_date', 'supplier', 'notes']
+        fields = ['tracking', 'container_number', 'container_type', 'vessel', 'arrival_date', 'supplier', 'notes']
         widgets = {
             'arrival_date': forms.DateInput(attrs={'type': 'date'}),
             'notes': forms.Textarea(attrs={'rows': 2, 'placeholder': 'Clearance remarks, seal number, anything worth noting…'}),
             'container_number': forms.TextInput(attrs={'placeholder': 'e.g. MSKU1234567', 'autocomplete': 'off'}),
             'vessel': forms.TextInput(attrs={'placeholder': 'e.g. Southern Moana V.24'}),
         }
-        labels = {'arrival_date': 'Wharf arrival date'}
+        labels = {'arrival_date': 'Wharf arrival date', 'tracking': 'Tracked B/L (auto-fills details)'}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields['tracking'].queryset = ShipmentTracking.objects.order_by('-created_at')
+        self.fields['tracking'].empty_label = '— not from a tracked B/L —'
         # A supplier is needed so the GRN can be raised when the container is opened.
         self.fields['supplier'].required = True
         self.fields['supplier'].empty_label = '— select supplier —'
@@ -192,7 +197,12 @@ class ContainerForm(forms.ModelForm):
         self.fields['container_type'].empty_label = '— select container type —'
 
     def clean_container_number(self):
-        return self.cleaned_data['container_number'].strip().upper()
+        number = normalise(self.cleaned_data['container_number'])
+        # Containers lodged before validation existed may be saved without a check digit;
+        # only hold the broker to the standard when the number is new or being changed.
+        if number != (self.instance.container_number or '').upper():
+            number = validate_container_number(number)
+        return number
 
 
 class ContainerItemForm(forms.ModelForm):
@@ -260,3 +270,175 @@ class ContainerPalletForm(forms.Form):
             raise forms.ValidationError(
                 f'Only {self.container_item.remaining_quantity} left to palletize on this line.')
         return qty
+
+
+# ── Shipment tracking (Customs Broker → Track Containers) ────────────────────
+
+class ShipmentTrackingForm(forms.ModelForm):
+    """Track a bill of lading with Terminal49. Only the B/L number is required;
+    the voyage fields let the Atlas place the ship when Terminal49 cannot."""
+
+    SCAC_CHOICES = [
+        ('', 'Auto-detect shipping line'),
+        ('MATS', 'Matson (MATS)'),
+        ('CHNL', 'Swire Shipping / China Navigation (CHNL)'),
+        ('ANNU', 'ANL (ANNU)'),
+        ('CMDU', 'CMA CGM (CMDU)'),
+        ('MAEU', 'Maersk (MAEU)'),
+        ('SUDU', 'Hamburg Süd (SUDU)'),
+        ('MSCU', 'MSC (MSCU)'),
+        ('HLCU', 'Hapag-Lloyd (HLCU)'),
+        ('PCIU', 'PIL — Pacific International Lines (PCIU)'),
+        ('COSU', 'COSCO (COSU)'),
+        ('ONEY', 'ONE (ONEY)'),
+        ('EGLV', 'Evergreen (EGLV)'),
+        ('ZIMU', 'ZIM (ZIMU)'),
+    ]
+    scac = forms.ChoiceField(choices=SCAC_CHOICES, required=False, label='Shipping line')
+
+    class Meta:
+        model = ShipmentTracking
+        fields = ['request_number', 'request_type', 'scac', 'supplier', 'vessel_name', 'voyage_number',
+                  'origin_port', 'departed_at', 'eta_at', 'container_numbers', 'show_in_my_containers']
+        widgets = {
+            'request_number': forms.TextInput(attrs={'placeholder': 'e.g. MATS1234567890', 'autocomplete': 'off',
+                                                     'autofocus': True}),
+            'vessel_name': forms.TextInput(attrs={'placeholder': 'e.g. Southern Moana'}),
+            'voyage_number': forms.TextInput(attrs={'placeholder': 'e.g. 2441S'}),
+            'origin_port': forms.TextInput(attrs={'placeholder': 'e.g. Auckland', 'list': 'portList',
+                                                  'autocomplete': 'off'}),
+            'departed_at': forms.DateInput(attrs={'type': 'date'}, format='%Y-%m-%d'),
+            'eta_at': forms.DateInput(attrs={'type': 'date'}, format='%Y-%m-%d'),
+            'container_numbers': forms.Textarea(attrs={'rows': 2, 'placeholder': 'MSKU1234567, MATU7654321'}),
+        }
+        labels = {'show_in_my_containers': 'Show in My Containers'}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['supplier'].empty_label = '— select supplier (optional) —'
+        self.fields['departed_at'].help_text = 'Optional — estimated from the ETA if left blank'
+        self.fields['eta_at'].help_text = 'Optional — Terminal49 fills this in where the plan allows'
+        # Keep a stored SCAC selectable even if it is not one of the common lines above.
+        current = (self.instance.scac or '').upper() if self.instance and self.instance.pk else ''
+        if current and current not in dict(self.SCAC_CHOICES):
+            self.fields['scac'].choices = self.SCAC_CHOICES + [(current, current)]
+
+    def clean_request_number(self):
+        number = normalise(self.cleaned_data['request_number'])
+        clash = ShipmentTracking.objects.filter(request_number__iexact=number)
+        if self.instance.pk:
+            clash = clash.exclude(pk=self.instance.pk)
+        if clash.exists():
+            raise forms.ValidationError(f'{number} is already being tracked.')
+        return number
+
+    def clean_container_numbers(self):
+        numbers = [n for n in re.split(r'[\s,;]+', self.cleaned_data.get('container_numbers', '').upper()) if n]
+        errors = []
+        for n in numbers:
+            try:
+                validate_container_number(n)
+            except forms.ValidationError as e:
+                errors.extend(e.messages)
+        if errors:
+            raise forms.ValidationError(errors)
+        return '\n'.join(dict.fromkeys(numbers))
+
+    def clean(self):
+        data = super().clean()
+        number, kind = data.get('request_number'), data.get('request_type')
+        if number and looks_like_container(number):
+            # A container number is tracked as a container whatever was picked —
+            # Terminal49 rejects it under any other type.
+            kind = data['request_type'] = 'container'
+            if number not in data.get('container_numbers', '').split('\n') and 'container_numbers' in data:
+                data['container_numbers'] = '\n'.join(filter(None, [number, data['container_numbers']]))
+        if number and kind:
+            try:
+                if kind == 'container':
+                    validate_container_number(number)
+                else:
+                    validate_reference_number(number, dict(ShipmentTracking.TYPE_CHOICES)[kind])
+            except forms.ValidationError as e:
+                self.add_error('request_number', e)
+        dep, eta = data.get('departed_at'), data.get('eta_at')
+        if dep and eta and dep > eta:
+            self.add_error('eta_at', 'ETA must be after the departure date.')
+        return data
+
+
+# ── CMS: Container Management (Customs Broker) ────────────────────────────────
+
+from django.db.models import Q  # noqa: E402
+from .models import CmsContainer, ShippingLine, Yard  # noqa: E402
+
+
+def normalise_container_code(code):
+    return re.sub(r'\s+', '', code or '').upper()
+
+
+class CmsContainerForm(forms.ModelForm):
+    class Meta:
+        model = CmsContainer
+        fields = ['code', 'description', 'yard', 'status', 'owner', 'vessel_voyage', 'arrival_date', 'driver', 'note']
+        widgets = {
+            'code': forms.TextInput(attrs={'placeholder': 'e.g. SWLU1234567', 'autocomplete': 'off',
+                                           'autofocus': True}),
+            'description': forms.TextInput(attrs={'placeholder': "e.g. 40' reefer — frozen chicken"}),
+            'vessel_voyage': forms.TextInput(attrs={'placeholder': 'e.g. Southern Lily 2441N'}),
+            'arrival_date': forms.DateInput(attrs={'type': 'date'}, format='%Y-%m-%d'),
+            'driver': forms.TextInput(attrs={'placeholder': 'Who delivered it', 'list': 'driverList',
+                                             'autocomplete': 'off'}),
+            'note': forms.Textarea(attrs={'rows': 3, 'placeholder': 'Seal number, damage, who to call…'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        yards = Yard.objects.filter(is_active=True)
+        if self.instance.pk and self.instance.yard_id:
+            yards = Yard.objects.filter(Q(is_active=True) | Q(pk=self.instance.yard_id))
+        self.fields['yard'].queryset = yards
+        self.fields['yard'].empty_label = '— select yard —'
+        self.fields['owner'].empty_label = '— select owner —'
+
+    def clean_code(self):
+        code = normalise_container_code(self.cleaned_data['code'])
+        clash = CmsContainer.objects.filter(code=code, returned=False)
+        if self.instance.pk:
+            clash = clash.exclude(pk=self.instance.pk)
+        if clash.exists():
+            raise forms.ValidationError(f'{code} is already in a yard. Return it before adding it again.')
+        return code
+
+
+class ShippingLineForm(forms.ModelForm):
+    class Meta:
+        model = ShippingLine
+        fields = ['name', 'return_days']
+        widgets = {
+            'name': forms.TextInput(attrs={'placeholder': 'e.g. SWIRE'}),
+            'return_days': forms.NumberInput(attrs={'placeholder': 'e.g. 14', 'min': 0}),
+        }
+
+    def clean_name(self):
+        name = self.cleaned_data['name'].strip().upper()
+        clash = ShippingLine.objects.filter(name__iexact=name)
+        if self.instance.pk:
+            clash = clash.exclude(pk=self.instance.pk)
+        if clash.exists():
+            raise forms.ValidationError(f'{name} already exists.')
+        return name
+
+
+class ContainerReturnForm(forms.Form):
+    returned_date = forms.DateField(widget=forms.DateInput(attrs={'type': 'date'}))
+    staff_name = forms.CharField(max_length=120)
+    driver = forms.CharField(max_length=120, required=False)
+
+
+class ContainerTransferForm(forms.Form):
+    to_yard = forms.ModelChoiceField(queryset=Yard.objects.filter(is_active=True), label='Transfer to')
+    transferred_date = forms.DateField(widget=forms.DateInput(attrs={'type': 'date'}))
+    driver = forms.CharField(max_length=120, required=False)
+    staff_name = forms.CharField(max_length=120, required=False)
+    note = forms.CharField(max_length=255, required=False)
