@@ -23,6 +23,13 @@
 .atlas-ct { padding: 10px 16px; border-bottom: 1px solid #f1f2f5; display: block; color: inherit; }
 .atlas-ct:hover { background: #fafcfb; text-decoration: none; }
 .atlas-ct .top { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.atlas-search { padding: 12px 16px 0; }
+.atlas-search .cms-search input { background: #fff; }
+.atlas-section { padding: 10px 16px 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--cms-muted); background: #fafbfc; border-bottom: 1px solid #f1f2f5; }
+.atlas-ct.flash { animation: atlasFlash 1.6s ease; }
+@keyframes atlasFlash { 0%, 40% { background: #fef6dc; } 100% { background: transparent; } }
+.atlas-side mark { background: #fde68a; color: inherit; border-radius: 2px; padding: 0 1px; }
+.pin.dim { opacity: .3; filter: grayscale(1); }
 .atlas-filter { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 
 /* Map overlays */
@@ -94,6 +101,10 @@
     </div>
 
     <aside class="atlas-side">
+      <div class="atlas-search">
+        <div class="cms-search"><input type="search" id="atlasQ" autocomplete="off"
+          placeholder="Search container, yard, owner, driver…" aria-label="Search the Atlas"></div>
+      </div>
       <div class="atlas-side-head" id="sideHead"></div>
       <div class="atlas-scroll" id="sideBody"></div>
     </aside>
@@ -118,6 +129,19 @@
   let statusFilter = '';   // '', 'full', 'storage', 'empty'
   let selected = null;
   let editing = false;
+  let query = [];          // search words, lower-case
+
+  const hay = c => [c.code, c.description, c.owner, c.driver, c.vessel].join(' ').toLowerCase();
+  const containerMatches = c => query.every(w => hay(c).includes(w));
+  const yardMatches = y => query.length > 0 && query.every(w => (y.code + ' ' + (y.description || '')).toLowerCase().includes(w));
+  // Highlight search words with <mark>. Text is escaped first, so match against the escaped word too.
+  function hl(text) {
+    const out = esc(text);
+    if (!query.length) return out;
+    // One pattern for all words, so a later word never matches inside an earlier <mark>.
+    const re = new RegExp(query.map(w => esc(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'gi');
+    return out.replace(re, m => `<mark>${m}</mark>`);
+  }
 
   const map = L.map('map', { maxBounds: UPOLU.pad(0.25), maxBoundsViscosity: 0.9, minZoom: 10, zoomSnap: 0.25 });
   // Esri basemaps need no API key. Satellite helps place the yard pins accurately.
@@ -128,8 +152,10 @@
   const satellite = esri('World_Imagery', 'Esri, Maxar, Earthstar Geographics');
   L.control.layers({ 'Map': streets, 'Satellite': satellite }, null, { position: 'bottomright' }).addTo(map);
 
-  const count = y => statusFilter ? y[statusFilter] : y.total;
-  const visible = y => statusFilter ? y.containers.filter(c => c.status === statusFilter) : y.containers;
+  // Containers shown for a yard: status filter, then the search (unless the yard name itself matches).
+  const visible = y => y.containers.filter(c => (!statusFilter || c.status === statusFilter) &&
+                                                 (!query.length || yardMatches(y) || containerMatches(c)));
+  const count = y => query.length ? visible(y).length : statusFilter ? y[statusFilter] : y.total;
 
   function bar(y) {
     if (!y.total) return '<div class="atlas-bar"></div>';
@@ -154,7 +180,7 @@
   function icon(y) {
     const n = count(y);
     const size = n ? Math.min(30 + Math.sqrt(n) * 4, 58) : 26;
-    const cls = ['pin', y.code === 'WHARF' ? 'wharf' : '', n ? '' : 'zero', y.overdue ? 'alert' : '', selected === y.id ? 'active' : ''].join(' ');
+    const cls = ['pin', y.code === 'WHARF' ? 'wharf' : '', n ? '' : 'zero', y.overdue ? 'alert' : '', selected === y.id ? 'active' : '', query.length && !n && !yardMatches(y) ? 'dim' : ''].join(' ');
     return L.divIcon({ className: '', iconSize: [size, size], iconAnchor: [size / 2, size / 2],
       html: `<div class="${cls}" style="width:${size}px;height:${size}px;font-size:${n > 99 ? 12 : 13}px">${n}<span class="pin-label">${esc(y.code)}</span></div>` });
   }
@@ -201,7 +227,32 @@
       .map(([k, l]) => `<a href="#" class="cms-chip${statusFilter === k ? ' on' : ''}" data-status="${k}">${k ? `<i class="cms-dot" style="background:${COLORS[k]}"></i>` : ''}${l}</a>`).join('') + '</div>';
   }
 
+  function renderResults() {
+    const yards = DATA.yards.filter(yardMatches);
+    const hits = [];
+    DATA.yards.forEach(y => y.containers.forEach(c => {
+      if ((!statusFilter || c.status === statusFilter) && containerMatches(c)) hits.push([y, c]);
+    }));
+    head.innerHTML = `<h2>Search results</h2><p>${yards.length} yard${yards.length === 1 ? '' : 's'} · ${hits.length} container${hits.length === 1 ? '' : 's'}
+      — <a href="#" id="clearQ">clear search</a></p>${filterChips()}`;
+    let html = '';
+    if (yards.length) {
+      html += '<div class="atlas-section">Yards</div>' + yards.map(y => `<div class="atlas-yard" data-id="${y.id}" tabindex="0">
+        <div class="n${y.total ? '' : ' zero'}">${y.total}</div>
+        <div style="flex:1;min-width:0"><div class="name">${hl(y.code)}</div><div class="meta">${hl(y.description || '')}</div>${bar(y)}</div></div>`).join('');
+    }
+    if (hits.length) {
+      html += '<div class="atlas-section">Containers</div>' + hits.slice(0, 150).map(([y, c]) => `<a class="atlas-ct" href="#" data-yard="${y.id}" data-ct="${c.id}">
+        <div class="top"><span class="cms-code">${hl(c.code)}</span><span class="cms-status ${c.status}">${c.status_label.toUpperCase()}</span></div>
+        ${c.description ? `<div class="cms-sub" style="margin-top:2px">${hl(c.description)}</div>` : ''}
+        <div class="top" style="margin-top:6px"><span class="cms-sub">📍 <strong>${esc(y.code)}</strong> · <span class="cms-owner">${hl(c.owner)}</span>${c.driver ? ' · 🚚 ' + hl(c.driver) : ''}${c.vessel ? ' · ' + hl(c.vessel) : ''}</span>${dueBadge(c)}</div></a>`).join('');
+      if (hits.length > 150) html += `<div class="cms-pager">Showing 150 of ${hits.length} — type more to narrow it down.</div>`;
+    }
+    body.innerHTML = html || `<div class="cms-empty"><strong>No matches</strong>Nothing in the yards matches “${esc(query.join(' '))}”.</div>`;
+  }
+
   function renderOverview() {
+    if (query.length) return renderResults();
     const total = DATA.yards.reduce((a, y) => a + count(y), 0);
     const overdue = DATA.yards.reduce((a, y) => a + y.overdue, 0);
     head.innerHTML = `<h2>All yards</h2><p>${total} ${statusFilter ? LABELS[statusFilter].toLowerCase() + ' ' : ''}container${total === 1 ? '' : 's'} across ${DATA.yards.filter(y => count(y)).length} yard(s)${overdue ? ` · <span style="color:var(--cms-critical);font-weight:700">⚠ ${overdue} overdue</span>` : ''}</p>${filterChips()}`;
@@ -232,18 +283,23 @@
       <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
         <a class="cms-icon-btn go" href="${y.list_url}${statusFilter ? '&status=' + statusFilter : ''}">Open in Containers →</a>
         <a class="cms-icon-btn" href="${y.add_url}">➕ Add here</a></div>`;
-    body.innerHTML = list.length ? list.map(c => `<a class="atlas-ct" href="${c.edit_url}?next=${encodeURIComponent(location.pathname + '?yard=' + y.id)}">
-        <div class="top"><span class="cms-code">${esc(c.code)}</span><span class="cms-status ${c.status}">${c.status_label.toUpperCase()}</span></div>
-        ${c.description ? `<div class="cms-sub" style="margin-top:2px">${esc(c.description)}</div>` : ''}
-        <div class="top" style="margin-top:6px"><span class="cms-sub"><span class="cms-owner">${esc(c.owner)}</span> ${c.arrival ? '· ' + esc(c.arrival) : ''}${c.driver ? ' · 🚚 ' + esc(c.driver) : ''}</span>${dueBadge(c)}</div></a>`).join('')
-      : `<div class="cms-empty"><strong>No ${statusFilter ? LABELS[statusFilter].toLowerCase() + ' ' : ''}containers here</strong><a href="${y.add_url}">Add one</a></div>`;
+    body.innerHTML = (query.length && !yardMatches(y) ? `<div class="atlas-section">Matching “${esc(query.join(' '))}”</div>` : '') +
+      (list.length ? list.map(c => `<a class="atlas-ct" data-ct="${c.id}" href="${c.edit_url}?next=${encodeURIComponent(location.pathname + '?yard=' + y.id)}">
+        <div class="top"><span class="cms-code">${hl(c.code)}</span><span class="cms-status ${c.status}">${c.status_label.toUpperCase()}</span></div>
+        ${c.description ? `<div class="cms-sub" style="margin-top:2px">${hl(c.description)}</div>` : ''}
+        <div class="top" style="margin-top:6px"><span class="cms-sub"><span class="cms-owner">${hl(c.owner)}</span> ${c.arrival ? '· ' + esc(c.arrival) : ''}${c.driver ? ' · 🚚 ' + hl(c.driver) : ''}</span>${dueBadge(c)}</div></a>`).join('')
+      : `<div class="cms-empty"><strong>No ${query.length ? 'matching ' : statusFilter ? LABELS[statusFilter].toLowerCase() + ' ' : ''}containers here</strong><a href="${y.add_url}">Add one</a></div>`);
   }
 
-  function select(id) {
+  function select(id, ctId) {
     selected = id;
     const y = DATA.yards.find(y => y.id === id);
     refreshIcons();
     renderYard(y);
+    if (ctId) {
+      const row = body.querySelector(`[data-ct="${ctId}"]`);
+      if (row) { row.scrollIntoView({ block: 'center' }); row.classList.add('flash'); }
+    }
     if (!editing) map.panTo([y.lat, y.lng], { animate: true });
     history.replaceState(null, '', '?yard=' + id);
   }
@@ -256,8 +312,13 @@
       selected ? renderYard(DATA.yards.find(y => y.id === selected)) : renderOverview();
     }
     if (e.target.id === 'backAll') { e.preventDefault(); deselect(); }
+    if (e.target.id === 'clearQ') { e.preventDefault(); setQuery(''); }
   });
-  body.addEventListener('click', e => { const row = e.target.closest('.atlas-yard'); if (row) select(+row.dataset.id); });
+  body.addEventListener('click', e => {
+    const hit = e.target.closest('.atlas-ct[data-yard]');   // a search result → open its yard
+    if (hit) { e.preventDefault(); select(+hit.dataset.yard, +hit.dataset.ct); return; }
+    const row = e.target.closest('.atlas-yard'); if (row) select(+row.dataset.id);
+  });
   body.addEventListener('keydown', e => { const row = e.target.closest('.atlas-yard'); if (row && e.key === 'Enter') select(+row.dataset.id); });
   body.addEventListener('mouseover', e => { const row = e.target.closest('.atlas-yard'); if (row) showHover(DATA.yards.find(y => y.id === +row.dataset.id)); });
   body.addEventListener('mouseout', e => { const row = e.target.closest('.atlas-yard'); if (row) hideHover(); });
@@ -286,6 +347,31 @@
         y.lat = res.lat; y.lng = res.lng;
       }).catch(err => { marker.setLatLng([y.lat, y.lng]); alert('Could not move ' + y.code + ': ' + (err.message || 'error')); });
   }
+
+  // ── Search ──
+  const qInput = document.getElementById('atlasQ');
+  function setQuery(text) {
+    qInput.value = text;
+    query = text.toLowerCase().split(/\s+/).filter(Boolean);
+    refreshIcons();
+    selected ? renderYard(DATA.yards.find(y => y.id === selected)) : renderOverview();
+  }
+  let timer;
+  qInput.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => setQuery(qInput.value), 120); });
+  qInput.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { setQuery(''); return; }
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    setQuery(qInput.value);
+    if (selected) return;
+    // Enter jumps straight to the only match.
+    const results = body.querySelectorAll('.atlas-ct[data-yard], .atlas-yard');
+    if (results.length === 1) results[0].click();
+  });
+  // "/" focuses the search box.
+  document.addEventListener('keydown', e => {
+    if (e.key === '/' && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); qInput.focus(); }
+  });
 
   fitYards();
   renderOverview();

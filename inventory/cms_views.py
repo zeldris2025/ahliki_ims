@@ -84,6 +84,7 @@ def _active_stats():
         'returned_month': ContainerReturn.objects.filter(
             Q(returned_date__gte=month_start) | Q(returned_date__isnull=True, created_at__date__gte=month_start)
         ).count(),
+        'returned_total': ContainerReturn.objects.count(),
     }
 
 
@@ -112,21 +113,91 @@ def dashboard(request):
     owner_chart = {'labels': [o.name for o in owners], 'ids': [o.pk for o in owners],
                    'data': [o.n for o in owners]}
 
-    # Arrivals per week (Monday-start) for the last 12 weeks, returned boxes included.
+    # When each visit left for the wharf: its return date, else the day the return was recorded.
+    left_on = {}
+    for cid, d, created in ContainerReturn.objects.values_list('container_id', 'returned_date', 'created_at'):
+        d = d or timezone.localdate(created)
+        left_on[cid] = max(left_on.get(cid, d), d)
+
+    # Flow per week (Monday-start), last 12 weeks: boxes in by A/Date vs boxes back to the wharf.
     week0 = today - timedelta(days=today.weekday()) - timedelta(weeks=11)
-    weeks = Counter()
+    arrived, returned = Counter(), Counter()
     for d in CmsContainer.objects.filter(arrival_date__gte=week0, arrival_date__lte=today) \
             .values_list('arrival_date', flat=True):
-        weeks[(d - week0).days // 7] += 1
-    arrivals_chart = {'labels': [(week0 + timedelta(weeks=i)).strftime('%d %b') for i in range(12)],
-                      'data': [weeks[i] for i in range(12)]}
+        arrived[(d - week0).days // 7] += 1
+    for d in left_on.values():
+        if week0 <= d <= today:
+            returned[(d - week0).days // 7] += 1
+    flow_chart = {'labels': [(week0 + timedelta(weeks=i)).strftime('%d %b') for i in range(12)],
+                  'arrived': [arrived[i] for i in range(12)],
+                  'returned': [returned[i] for i in range(12)]}
+
+    # Boxes in yards on each of the last 90 days, rebuilt from arrival and return dates.
+    day0 = today - timedelta(days=89)
+    delta = Counter()
+    for pk, arrival, is_returned in CmsContainer.objects.filter(arrival_date__isnull=False) \
+            .values_list('pk', 'arrival_date', 'returned'):
+        gone = left_on.get(pk) if is_returned else None
+        if is_returned and gone is None:
+            continue    # returned with no date on record — can't place it in time
+        if gone is not None and gone <= day0:
+            continue
+        delta[max((arrival - day0).days, 0)] += 1
+        if gone is not None:
+            delta[(gone - day0).days] -= 1
+    level, series = 0, []
+    for i in range(90):
+        level += delta[i]
+        series.append(level)
+    occupancy_chart = {'labels': [(day0 + timedelta(days=i)).strftime('%d %b') for i in range(90)],
+                       'undated': active.filter(arrival_date__isnull=True).count(),
+                       'data': series}
+
+    # Return runway: active boxes bucketed by days until (or past) their deadline.
+    runway_buckets = [('>30d late', -10**6, -31), ('15–30d late', -30, -15), ('8–14d late', -14, -8),
+                      ('1–7d late', -7, -1), ('Due ≤7d', 0, 7), ('8–14d', 8, 14),
+                      ('15–30d', 15, 30), ('30d+', 31, 10**6)]
+    runway = Counter()
+    no_deadline = 0
+    for c in active:
+        left = c.days_left
+        if left is None:
+            no_deadline += 1
+            continue
+        for label, lo, hi in runway_buckets:
+            if lo <= left <= hi:
+                runway[label] += 1
+                break
+    runway_chart = {'labels': [b[0] for b in runway_buckets],
+                    'data': [runway[b[0]] for b in runway_buckets],
+                    'no_deadline': no_deadline}
+
+    # Yard × owner matrix for the heatmap.
+    cells = Counter({(y, o): n for y, o, n in
+                     active.values_list('yard_id', 'owner_id').annotate(n=Count('pk'))})
+    heat_owners = [o for o in owners if o.n]
+    heat_yards = [y for y in yards if any(cells[(y.pk, o.pk)] for o in heat_owners)]
+    heatmap = {'yards': [{'id': y.pk, 'code': y.code} for y in heat_yards],
+               'owners': [{'id': o.pk, 'name': o.name} for o in heat_owners],
+               'cells': [[cells[(y.pk, o.pk)] for o in heat_owners] for y in heat_yards]}
 
     # Return deadlines: overdue plus anything due in the next 14 days, most urgent first.
     due_soon = [c for c in active.filter(arrival_date__isnull=False, owner__return_days__isnull=False)
                 if c.days_left is not None and c.days_left <= 14]
     due_soon.sort(key=lambda c: (c.days_left, c.code))
 
-    chart_json = json.dumps({'yards': yard_chart, 'owners': owner_chart, 'arrivals': arrivals_chart,
+    # Return calendar: every box in a yard keyed by the day it is due back.
+    due_calendar = {}
+    for c in active:
+        due = c.return_due
+        if due is not None:
+            due_calendar.setdefault(due.isoformat(), []).append(
+                {'id': c.pk, 'code': c.code, 'owner': c.owner.name, 'yard': c.yard.code})
+
+    chart_json = json.dumps({'yards': yard_chart, 'owners': owner_chart, 'flow': flow_chart,
+                             'occupancy': occupancy_chart, 'runway': runway_chart, 'heatmap': heatmap,
+                             'due_calendar': due_calendar, 'today': today.isoformat(),
+                             'edit_url': reverse('cms_container_edit', args=[0]),
                              'containers_url': reverse('cms_containers')}).replace('<', '\\u003c')
     return render(request, 'cms/dashboard.html', {
         'stats': _active_stats(),
@@ -205,6 +276,8 @@ def container_list(request):
         tile = f['status']
     elif active_filters == 1 and f['due'] == 'overdue':
         tile = 'overdue'
+    elif active_filters == 1 and f['returned'] == 'yes':
+        tile = 'returned'
     else:
         tile = ''
     return render(request, 'cms/containers.html', {

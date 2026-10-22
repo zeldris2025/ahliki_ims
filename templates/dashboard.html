@@ -109,45 +109,20 @@
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
 
-  <!-- Low Stock -->
-  <div class="card">
-    <div class="card-header">
-      <h2>⚠️ Low Stock Products</h2>
-      <a href="{% url 'product_list' %}" class="btn btn-sm btn-secondary">View all</a>
-    </div>
-    {% if low_stock_products %}
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Product</th><th>SKU</th><th>Stock</th><th>Reorder</th></tr></thead>
-        <tbody>
-        {% for p in low_stock_products %}
-        <tr class="low-stock">
-          <td><a href="{% url 'product_detail' p.pk %}">{{ p.name }}</a></td>
-          <td><code>{{ p.sku }}</code></td>
-          <td><span class="badge badge-red">{{ p.current_stock }} {{ p.unit }}</span></td>
-          <td>{{ p.reorder_level }}</td>
-        </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}
-    <div class="card-body" style="color:var(--gray-500);font-size:13px">✅ All products are adequately stocked.</div>
-    {% endif %}
-  </div>
+  {% include '_low_stock_card.html' %}
 
   <!-- Out of Stock -->
-  <div class="card">
+  <div class="card" id="out-of-stock">
     <div class="card-header">
       <h2>🚫 Out of Stock</h2>
       <a href="{% url 'stock_adjust' %}" class="btn btn-sm btn-secondary">Adjust Stock</a>
     </div>
-    {% if out_of_stock %}
+    {% if out_of_stock_page.object_list %}
     <div class="table-wrap">
       <table>
         <thead><tr><th>Product</th><th>SKU</th><th>Reorder Level</th></tr></thead>
         <tbody>
-        {% for p in out_of_stock %}
+        {% for p in out_of_stock_page %}
         <tr>
           <td><a href="{% url 'product_detail' p.pk %}">{{ p.name }}</a></td>
           <td><code>{{ p.sku }}</code></td>
@@ -156,6 +131,16 @@
         {% endfor %}
         </tbody>
       </table>
+    </div>
+    <div class="card-body" style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;color:var(--gray-500)">
+      <span>Showing {{ out_of_stock_page.start_index }}–{{ out_of_stock_page.end_index }} of {{ out_of_stock_page.paginator.count }}</span>
+      {% if out_of_stock_page.has_other_pages %}
+      <div style="display:flex;align-items:center;gap:6px">
+        {% if out_of_stock_page.has_previous %}<a href="?out_page={{ out_of_stock_page.previous_page_number }}#out-of-stock" class="btn btn-sm btn-secondary">← Prev</a>{% endif %}
+        <span>Page {{ out_of_stock_page.number }} / {{ out_of_stock_page.paginator.num_pages }}</span>
+        {% if out_of_stock_page.has_next %}<a href="?out_page={{ out_of_stock_page.next_page_number }}#out-of-stock" class="btn btn-sm btn-secondary">Next →</a>{% endif %}
+      </div>
+      {% endif %}
     </div>
     {% else %}
     <div class="card-body" style="color:var(--gray-500);font-size:13px">✅ No products are completely out of stock.</div>
@@ -312,32 +297,7 @@ new Chart(document.getElementById('stockHealthChart'), {
 </div>
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-  <!-- Low Stock -->
-  <div class="card">
-    <div class="card-header">
-      <h2>⚠️ Low Stock Products</h2>
-      <a href="{% url 'product_list' %}" class="btn btn-sm btn-secondary">View all</a>
-    </div>
-    {% if low_stock_products %}
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Product</th><th>SKU</th><th>Stock</th><th>Reorder</th></tr></thead>
-        <tbody>
-        {% for p in low_stock_products %}
-        <tr class="low-stock">
-          <td><a href="{% url 'product_detail' p.pk %}">{{ p.name }}</a></td>
-          <td><code>{{ p.sku }}</code></td>
-          <td><span class="badge badge-red">{{ p.current_stock }} {{ p.unit }}</span></td>
-          <td>{{ p.reorder_level }}</td>
-        </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}
-    <div class="card-body" style="color:var(--gray-500);font-size:13px">✅ All products are adequately stocked.</div>
-    {% endif %}
-  </div>
+  {% include '_low_stock_card.html' %}
 
   <!-- Recent Alerts -->
   <div class="card">

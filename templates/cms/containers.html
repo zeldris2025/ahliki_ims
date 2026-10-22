@@ -31,6 +31,9 @@
   <a class="cms-kpi{% if stats.overdue %} is-alert{% endif %}{% if tile == 'overdue' %} on{% endif %}" href="?due=overdue"{% if tile == 'overdue' %} aria-current="true"{% endif %}>
     <div class="cms-kpi-label">⚠ Overdue</div><div class="cms-kpi-value">{{ stats.overdue }}</div>
     <div class="cms-kpi-sub">Past return days</div></a>
+  <a class="cms-kpi{% if tile == 'returned' %} on{% endif %}" href="?returned=yes"{% if tile == 'returned' %} aria-current="true"{% endif %}>
+    <div class="cms-kpi-label">↩ Returned</div><div class="cms-kpi-value">{{ stats.returned_total }}</div>
+    <div class="cms-kpi-sub">Returned overall</div></a>
 </nav>
 
 <section class="cms-panel">

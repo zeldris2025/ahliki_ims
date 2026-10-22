@@ -1,6 +1,6 @@
 {% extends 'cms/_base.html' %}
 {% block title %}Container Dashboard — Ah Liki IMS{% endblock %}
-{% block topbar_title %}Container Management{% endblock %}
+{% block topbar_title %}Container Management System{% endblock %}
 {% block cms_content %}
 
 <div class="cms-head">
@@ -14,7 +14,7 @@
   </div>
 </div>
 
-<div class="cms-modules">
+{% comment %} <div class="cms-modules">
   <a class="cms-module" href="{% url 'cms_containers' %}"><div class="cms-module-icon">🚢</div>
     <div><div class="cms-module-title">Containers</div><div class="cms-module-sub">{{ stats.active }} in yards</div></div></a>
   <a class="cms-module" href="{% url 'cms_shipping' %}"><div class="cms-module-icon">⚓</div>
@@ -25,7 +25,7 @@
     <div><div class="cms-module-title">Ah Liki Atlas</div><div class="cms-module-sub">Yards on the map</div></div></a>
   <div class="cms-module disabled" aria-disabled="true" title="Coming soon"><div class="cms-module-icon">📡</div>
     <div><div class="cms-module-title">Track Container</div><div class="cms-module-sub"><span class="cms-soon">Coming soon</span></div></div></div>
-</div>
+</div> {% endcomment %}
 
 <div class="cms-kpis">
   <a class="cms-kpi" href="{% url 'cms_containers' %}">
@@ -59,8 +59,53 @@
   <a href="{% url 'cms_shipping' %}" style="margin-left:4px;font-weight:600">Set return days on the Shipping page →</a></div>
 {% endif %}
 
+<section class="cms-panel" data-export="Return calendar">
+  <div class="cms-panel-head">
+    <div><h2>Return calendar</h2><p>Containers due back at the wharf each day and week · click a day to see which boxes</p></div>
+    <div class="cms-cal-nav">
+      <button type="button" class="cms-icon-btn" id="calPrev" aria-label="Previous month">‹</button>
+      <strong id="calTitle"></strong>
+      <button type="button" class="cms-icon-btn" id="calNext" aria-label="Next month">›</button>
+      <button type="button" class="cms-icon-btn" id="calToday">This month</button>
+    </div>
+  </div>
+  <div class="cms-panel-body">
+    <div class="cms-cal-wrap">
+      <div class="cms-cal" id="calendar"></div>
+      <div class="cms-cal-detail" id="calDetail"></div>
+    </div>
+    <div class="cms-chart-note" id="calNote"></div>
+  </div>
+</section>
+
 <div class="cms-grid-2">
-  <section class="cms-panel">
+  <section class="cms-panel" data-export="Yard occupancy">
+    <div class="cms-panel-head">
+      <div><h2>Yard occupancy</h2><p>Containers with an A/Date sitting in yards each day · last 90 days</p></div>
+      <div class="cms-hero" id="occHero"></div>
+    </div>
+    <div class="cms-panel-body">
+      <div class="cms-chart" id="occWrap"><canvas id="occChart" role="img" aria-label="Containers in yards each day over the last 90 days"></canvas></div>
+      <div class="cms-chart-note" id="occNote"></div>
+      <button class="cms-table-toggle" type="button" data-table="occTable">View as table</button>
+      <div class="cms-data-table" id="occTable"></div>
+    </div>
+  </section>
+
+  <section class="cms-panel" data-export="Status mix">
+    <div class="cms-panel-head"><div><h2>Status mix</h2><p>Every box in a yard right now · click to filter</p></div></div>
+    <div class="cms-panel-body">
+      <div class="cms-donut-wrap">
+        <div class="cms-chart donut"><canvas id="statusChart" role="img" aria-label="Share of containers that are Full, Storage and Empty"></canvas>
+          <div class="cms-donut-center"><strong>{{ stats.active }}</strong><span>in yards</span></div></div>
+        <ul class="cms-donut-legend" id="statusLegend"></ul>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="cms-grid-2">
+  <section class="cms-panel" data-export="Containers by yard">
     <div class="cms-panel-head">
       <div><h2>Containers by yard</h2><p>Click a bar to see that yard's containers</p></div>
       <div class="cms-legend" aria-hidden="true">
@@ -107,20 +152,47 @@
 </div>
 
 <div class="cms-grid-even">
-  <section class="cms-panel">
-    <div class="cms-panel-head"><div><h2>Containers by owner</h2><p>In yards now · click a bar to filter</p></div></div>
+  <section class="cms-panel" data-export="Container flow">
+    <div class="cms-panel-head">
+      <div><h2>Container flow</h2><p>In by A/Date vs back to the wharf · last 12 weeks</p></div>
+      <div class="cms-legend" aria-hidden="true">
+        <span><i class="cms-dot" style="background:var(--cms-viz-in)"></i>Arrived</span>
+        <span><i class="cms-dot" style="background:var(--cms-viz-out)"></i>Returned</span>
+      </div>
+    </div>
     <div class="cms-panel-body">
-      <div class="cms-chart short"><canvas id="ownerChart" role="img" aria-label="Containers in yards by owner"></canvas></div>
-      <button class="cms-table-toggle" type="button" data-table="ownerTable">View as table</button>
-      <div class="cms-data-table" id="ownerTable"></div>
+      <div class="cms-chart short"><canvas id="flowChart" role="img" aria-label="Containers arriving and returned per week over the last 12 weeks"></canvas></div>
+      <button class="cms-table-toggle" type="button" data-table="flowTable">View as table</button>
+      <div class="cms-data-table" id="flowTable"></div>
     </div>
   </section>
-  <section class="cms-panel">
-    <div class="cms-panel-head"><div><h2>Arrivals per week</h2><p>Containers by A/Date, last 12 weeks</p></div></div>
+  <section class="cms-panel" data-export="Return runway">
+    <div class="cms-panel-head">
+      <div><h2>Return runway</h2><p>Days until each box is due back · left of centre is late</p></div>
+    </div>
     <div class="cms-panel-body">
-      <div class="cms-chart short"><canvas id="arrivalsChart" role="img" aria-label="Container arrivals per week over the last 12 weeks"></canvas></div>
-      <button class="cms-table-toggle" type="button" data-table="arrivalsTable">View as table</button>
-      <div class="cms-data-table" id="arrivalsTable"></div>
+      <div class="cms-chart short"><canvas id="runwayChart" role="img" aria-label="Containers in yards grouped by days late or days left until their return deadline"></canvas></div>
+      <div class="cms-chart-note" id="runwayNote"></div>
+      <button class="cms-table-toggle" type="button" data-table="runwayTable">View as table</button>
+      <div class="cms-data-table" id="runwayTable"></div>
+    </div>
+  </section>
+</div>
+
+<div class="cms-grid-2">
+  <section class="cms-panel" data-export="Yard x owner">
+    <div class="cms-panel-head">
+      <div><h2>Yard × owner</h2><p>Who has boxes where · click a cell to open that list</p></div>
+      <div class="cms-heat-scale" id="heatScale" aria-hidden="true"></div>
+    </div>
+    <div class="cms-panel-body"><div class="cms-heat" id="heatmap"></div></div>
+  </section>
+  <section class="cms-panel" data-export="Containers by owner">
+    <div class="cms-panel-head"><div><h2>Containers by owner</h2><p>In yards now · click a bar to filter</p></div></div>
+    <div class="cms-panel-body">
+      <div class="cms-chart" id="ownerWrap"><canvas id="ownerChart" role="img" aria-label="Containers in yards by owner"></canvas></div>
+      <button class="cms-table-toggle" type="button" data-table="ownerTable">View as table</button>
+      <div class="cms-data-table" id="ownerTable"></div>
     </div>
   </section>
 </div>
@@ -154,67 +226,299 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script>
 (function () {
   const D = {{ chart_json|safe }};
   const css = getComputedStyle(document.querySelector('.cms'));
   const v = name => css.getPropertyValue(name).trim();
   const COLORS = { full: v('--cms-full'), storage: v('--cms-storage'), empty: v('--cms-empty') };
-  const INK = '#52514e', GRID = '#eef0f3';
+  const IN = v('--cms-viz-in'), OUT = v('--cms-viz-out');
+  const INK = '#52514e', GRID = '#eef0f3', SURFACE = '#ffffff';
+  // Blue sequential ramp (light → dark) and the red/blue diverging arms for the runway.
+  const RAMP = ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95', '#0d366b'];
+  const RUNWAY = ['#8f1d1d', '#c62828', '#e34948', '#e66767', '#86b6ef', '#5598e7', '#2a78d6', '#1c5cab'];
   Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
   Chart.defaults.font.size = 11.5;
   Chart.defaults.color = INK;
-  const tooltip = { backgroundColor: '#111827', padding: 10, cornerRadius: 8, boxPadding: 4, titleFont: { weight: '700' } };
+  const tooltip = { backgroundColor: '#111827', padding: 10, cornerRadius: 8, boxPadding: 4,
+    titleFont: { weight: '700' }, usePointStyle: true };
   const go = (key, ids) => (evt, els) => { if (els.length) location.href = D.containers_url + '?' + key + '=' + ids[els[0].index]; };
   const pointer = (evt, els) => { evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; };
+  const sum = a => a.reduce((x, y) => x + y, 0);
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const valueAxis = extra => ({ beginAtZero: true, ticks: { precision: 0 }, grid: { color: GRID },
+    border: { display: false }, ...extra });
+  const catAxis = { grid: { display: false }, border: { display: false }, ticks: { font: { weight: '600' } } };
 
-  // Containers by yard — horizontal stacked bars, one colour per status.
-  const yardWrap = document.getElementById('yardChartWrap');
-  yardWrap.style.height = Math.max(240, D.yards.labels.length * 30 + 40) + 'px';
+  // Vertical guide under the hovered point, for line/area charts.
+  const crosshair = { id: 'crosshair', afterDatasetsDraw(chart) {
+    const a = chart.tooltip && chart.tooltip.getActiveElements();
+    if (!a || !a.length) return;
+    const { ctx, chartArea: { top, bottom } } = chart, x = a[0].element.x;
+    ctx.save(); ctx.strokeStyle = '#9ca3af'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke(); ctx.restore();
+  } };
+
+  // ── Yard occupancy: gradient area with crosshair and a headline number ──
+  const occ = D.occupancy.data, now = occ[occ.length - 1], diff = now - occ[occ.length - 31];
+  document.getElementById('occHero').innerHTML =
+    '<strong>' + now + '</strong><span class="' + (diff > 0 ? 'up' : diff < 0 ? 'down' : '') + '">' +
+    (diff > 0 ? '▲ ' : diff < 0 ? '▼ ' : '') + Math.abs(diff) + ' vs 30 days ago</span>';
+  if (D.occupancy.undated) document.getElementById('occNote').textContent =
+    '+ ' + D.occupancy.undated + ' in yards with no A/Date, so they can’t be placed on the timeline.';
+  new Chart(document.getElementById('occChart'), {
+    type: 'line',
+    data: { labels: D.occupancy.labels, datasets: [{ label: 'In yards', data: occ,
+      borderColor: COLORS.full, borderWidth: 2, tension: 0.35, fill: 'origin',
+      pointRadius: 0, pointHoverRadius: 5, pointHoverBorderWidth: 2, pointHoverBorderColor: SURFACE,
+      pointHoverBackgroundColor: COLORS.full,
+      backgroundColor: ctx => {
+        const area = ctx.chart.chartArea;
+        if (!area) return 'transparent';
+        const g = ctx.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+        g.addColorStop(0, 'rgba(42,120,214,.28)'); g.addColorStop(1, 'rgba(42,120,214,0)');
+        return g;
+      } }] },
+    options: {
+      maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false }, tooltip: { ...tooltip, displayColors: false,
+        callbacks: { label: i => i.parsed.y + ' containers in yards' } } },
+      scales: { y: valueAxis({ beginAtZero: false, grace: '10%' }),
+        x: { ...catAxis, ticks: { maxTicksLimit: 7, maxRotation: 0, font: { weight: '600' } } } } },
+    plugins: [crosshair]
+  });
+
+  // ── Status mix: donut with the total in the middle and a % legend ──
+  const statusKeys = D.yards.series.map(s => s.key);
+  const statusTotals = D.yards.series.map(s => sum(s.data));
+  const statusAll = sum(statusTotals) || 1;
+  const pct = n => Math.round(n / statusAll * 100);
+  new Chart(document.getElementById('statusChart'), {
+    type: 'doughnut',
+    data: { labels: D.yards.series.map(s => s.label), datasets: [{ data: statusTotals,
+      backgroundColor: statusKeys.map(k => COLORS[k]), borderColor: SURFACE, borderWidth: 2,
+      borderRadius: 4, hoverOffset: 6 }] },
+    options: { maintainAspectRatio: false, cutout: '74%', layout: { padding: 8 },
+      onClick: (e, els) => { if (els.length) location.href = D.containers_url + '?status=' + statusKeys[els[0].index]; },
+      onHover: pointer,
+      plugins: { legend: { display: false }, tooltip: { ...tooltip, callbacks: {
+        label: i => ' ' + i.label + ': ' + i.parsed + ' (' + pct(i.parsed) + '%)' } } } }
+  });
+  document.getElementById('statusLegend').innerHTML = D.yards.series.map((s, i) =>
+    '<li><a href="' + D.containers_url + '?status=' + s.key + '"><i class="cms-dot" style="background:' + COLORS[s.key] + '"></i>' +
+    '<span class="lbl">' + esc(s.label) + '</span><span class="val">' + statusTotals[i] + '</span>' +
+    '<span class="pct">' + pct(statusTotals[i]) + '%</span></a>' +
+    '<div class="bar"><div style="width:' + (statusTotals[i] / statusAll * 100) + '%;background:' + COLORS[s.key] + '"></div></div></li>').join('');
+
+  // ── Containers by yard: horizontal stacked bars ──
+  document.getElementById('yardChartWrap').style.height = Math.max(240, D.yards.labels.length * 30 + 40) + 'px';
   new Chart(document.getElementById('yardChart'), {
     type: 'bar',
     data: { labels: D.yards.labels, datasets: D.yards.series.map(s => ({
       label: s.label, data: s.data, backgroundColor: COLORS[s.key],
-      borderColor: '#fff', borderWidth: { left: 0, right: 2, top: 0, bottom: 0 }, borderSkipped: false,
+      borderColor: SURFACE, borderWidth: { left: 0, right: 2, top: 0, bottom: 0 }, borderSkipped: false,
       borderRadius: 3, barThickness: 16 })) },
     options: {
       indexAxis: 'y', maintainAspectRatio: false, onClick: go('yard', D.yards.ids), onHover: pointer,
       interaction: { mode: 'index', axis: 'y', intersect: false },
       plugins: { legend: { display: false }, tooltip: { ...tooltip, callbacks: {
         footer: items => 'Total: ' + items.reduce((a, i) => a + i.parsed.x, 0) } } },
-      scales: {
-        x: { stacked: true, beginAtZero: true, ticks: { precision: 0 }, grid: { color: GRID }, border: { display: false } },
-        y: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { font: { weight: '600' } } } } }
+      scales: { x: valueAxis({ stacked: true }), y: { ...catAxis, stacked: true } } }
   });
 
-  const single = (id, labels, data, opts) => new Chart(document.getElementById(id), {
+  // ── Container flow: arrivals above the line, returns mirrored below ──
+  new Chart(document.getElementById('flowChart'), {
     type: 'bar',
-    data: { labels, datasets: [{ label: opts.label, data, backgroundColor: v('--cms-full'), borderRadius: 4,
-      borderSkipped: 'start', maxBarThickness: opts.thick || 28 }] },
-    options: {
-      indexAxis: opts.axis || 'x', maintainAspectRatio: false, onClick: opts.onClick, onHover: opts.onClick ? pointer : undefined,
-      plugins: { legend: { display: false }, tooltip },
-      scales: {
-        [opts.axis === 'y' ? 'x' : 'y']: { beginAtZero: true, ticks: { precision: 0 }, grid: { color: GRID }, border: { display: false } },
-        [opts.axis === 'y' ? 'y' : 'x']: { grid: { display: false }, border: { display: false }, ticks: { font: { weight: '600' } } } } }
+    data: { labels: D.flow.labels, datasets: [
+      { label: 'Arrived', data: D.flow.arrived, backgroundColor: IN, borderRadius: 4, borderSkipped: 'start', maxBarThickness: 22 },
+      { label: 'Returned', data: D.flow.returned.map(n => -n), backgroundColor: OUT, borderRadius: 4, borderSkipped: 'start', maxBarThickness: 22 }] },
+    options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false }, tooltip: { ...tooltip, callbacks: {
+        title: items => 'Week of ' + items[0].label,
+        label: i => ' ' + i.dataset.label + ': ' + Math.abs(i.parsed.y),
+        footer: items => { const n = sum(items.map(i => i.parsed.y)); return 'Net: ' + (n > 0 ? '+' : '') + n; } } } },
+      scales: { x: { ...catAxis, stacked: true, ticks: { maxRotation: 0, autoSkipPadding: 8, font: { weight: '600' } } },
+        y: valueAxis({ stacked: true, ticks: { precision: 0, callback: n => Math.abs(n) },
+          grid: { color: c => c.tick.value === 0 ? '#9ca3af' : GRID } }) } }
   });
-  single('ownerChart', D.owners.labels, D.owners.data,
-         { label: 'Containers', axis: 'y', thick: 18, onClick: go('owner', D.owners.ids) });
-  single('arrivalsChart', D.arrivals.labels, D.arrivals.data, { label: 'Arrivals' });
+
+  // ── Return runway: late (red, left of TODAY) ↔ time left (blue, right) ──
+  new Chart(document.getElementById('runwayChart'), {
+    type: 'bar',
+    data: { labels: D.runway.labels, datasets: [{ label: 'Containers', data: D.runway.data,
+      backgroundColor: RUNWAY, borderRadius: 4, borderSkipped: 'start', maxBarThickness: 34 }] },
+    options: { maintainAspectRatio: false, layout: { padding: { top: 14 } },
+      onClick: (e, els) => { if (!els.length) return; const i = els[0].index;
+        if (i < 4) location.href = D.containers_url + '?due=overdue'; else if (i === 4) location.href = D.containers_url + '?due=week'; },
+      onHover: (e, els) => { e.native.target.style.cursor = els.length && els[0].index <= 4 ? 'pointer' : 'default'; },
+      plugins: { legend: { display: false }, tooltip: { ...tooltip, displayColors: false,
+        callbacks: { label: i => i.parsed.y + ' container' + (i.parsed.y === 1 ? '' : 's') } } },
+      scales: { y: valueAxis(), x: { ...catAxis, ticks: { maxRotation: 0, autoSkip: false, font: { size: 10.5, weight: '600' } } } } },
+    plugins: [{ id: 'todayLine', afterDatasetsDraw(chart) {
+      const xs = chart.scales.x, { ctx, chartArea: { top, bottom } } = chart;
+      const x = (xs.getPixelForValue(3) + xs.getPixelForValue(4)) / 2;
+      ctx.save(); ctx.strokeStyle = '#6b7280'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke();
+      ctx.fillStyle = '#374151'; ctx.font = '700 10px ' + Chart.defaults.font.family; ctx.textAlign = 'center';
+      ctx.fillText('TODAY', x, top - 4); ctx.restore();
+    } }]
+  });
+  document.getElementById('runwayNote').innerHTML =
+    '<span class="late">⚠ ' + sum(D.runway.data.slice(0, 4)) + ' late</span> · ' + sum(D.runway.data.slice(4)) + ' on time' +
+    (D.runway.no_deadline ? ' · ' + D.runway.no_deadline + ' with no deadline' : '');
+
+  // ── Yard × owner heatmap (HTML grid, blue sequential ramp) ──
+  const H = D.heatmap;
+  const heatMax = Math.max(1, ...H.cells.flat());
+  const step = n => Math.min(RAMP.length - 1, Math.round(Math.sqrt(n / heatMax) * (RAMP.length - 1)));
+  if (!H.yards.length) {
+    document.getElementById('heatmap').innerHTML = '<div class="cms-empty"><strong>No containers in yards</strong></div>';
+  } else {
+    document.getElementById('heatmap').innerHTML = '<table><thead><tr><th></th>' +
+      H.owners.map(o => '<th scope="col"><span>' + esc(o.name) + '</span></th>').join('') +
+      '<th scope="col" class="tot">Total</th></tr></thead><tbody>' +
+      H.yards.map((y, r) => '<tr><th scope="row">' + esc(y.code) + '</th>' + H.cells[r].map((n, c) => {
+        if (!n) return '<td class="zero">·</td>';
+        const s = step(n);
+        return '<td><a href="' + D.containers_url + '?yard=' + y.id + '&owner=' + H.owners[c].id + '" style="background:' + RAMP[s] +
+          ';color:' + (s >= 3 ? '#fff' : '#0d366b') + '" title="' + esc(y.code) + ' · ' + esc(H.owners[c].name) + ': ' + n + '">' + n + '</a></td>';
+      }).join('') + '<td class="tot">' + sum(H.cells[r]) + '</td></tr>').join('') + '</tbody></table>';
+    document.getElementById('heatScale').innerHTML = '<span>1</span><i style="background:linear-gradient(90deg,' +
+      RAMP.join(',') + ')"></i><span>' + heatMax + '</span>';
+  }
+
+  // ── Return calendar: one month, Monday-start weeks, count due per day + week total ──
+  const CAL = D.due_calendar, TODAY = D.today;
+  const LATE = ['#fbd5d5', '#f3a3a3', '#e66767', '#c62828', '#8f1d1d'];
+  const iso = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const dueOn = k => (CAL[k] || []).length;
+  const calMax = Math.max(1, ...Object.values(CAL).map(a => a.length));
+  const calStep = (n, ramp) => Math.min(ramp.length - 1, Math.round(Math.sqrt(n / calMax) * (ramp.length - 1)));
+  const editUrl = id => D.edit_url.replace('/0/', '/' + id + '/') + '?next=' + encodeURIComponent(location.pathname);
+  const t0 = new Date(TODAY + 'T00:00:00');
+  let calMonth = new Date(t0.getFullYear(), t0.getMonth(), 1);
+
+  function showDays(title, keys) {
+    const boxes = keys.flatMap(k => (CAL[k] || []).map(b => ({ ...b, due: k })));
+    document.getElementById('calDetail').innerHTML = '<h3>' + esc(title) + '</h3>' + (boxes.length
+      ? '<ul>' + boxes.map(b => '<li' + (b.due < TODAY ? ' class="late"' : '') + '><a class="cms-code" href="' + editUrl(b.id) + '">' +
+          esc(b.code) + '</a><span>' + esc(b.owner) + ' · ' + esc(b.yard) +
+          (keys.length > 1 ? ' · ' + new Date(b.due + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' }) : '') +
+          '</span></li>').join('') + '</ul>'
+      : '<p class="cms-sub">Nothing due.</p>');
+  }
+
+  function drawCalendar() {
+    const y = calMonth.getFullYear(), m = calMonth.getMonth();
+    document.getElementById('calTitle').textContent = calMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    const start = new Date(y, m, 1 - (new Date(y, m, 1).getDay() + 6) % 7);   // Monday on/before the 1st
+    let html = '<table><thead><tr>' + ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => '<th scope="col">' + d + '</th>').join('') +
+      '<th scope="col" class="tot">Week</th></tr></thead><tbody>';
+    let monthTotal = 0;
+    for (let d = new Date(start); d.getMonth() === m || d < new Date(y, m, 1); ) {
+      const keys = [];
+      html += '<tr>';
+      for (let i = 0; i < 7; i++, d.setDate(d.getDate() + 1)) {
+        const k = iso(d), n = dueOn(k), out = d.getMonth() !== m, late = k < TODAY;
+        keys.push(k);
+        if (!out) monthTotal += n;
+        const cls = [out ? 'out' : '', k === TODAY ? 'today' : '', n ? 'has' : ''].join(' ').trim();
+        let style = '';
+        if (n) { const ramp = late ? LATE : RAMP, s = calStep(n, ramp);
+          style = ' style="background:' + ramp[s] + ';color:' + (s >= (late ? 2 : 3) ? '#fff' : (late ? '#8f1d1d' : '#0d366b')) + '"'; }
+        html += '<td class="' + cls + '"><button type="button" data-day="' + k + '"' + style +
+          ' title="' + d.toDateString() + ': ' + n + ' due' + (late && n ? ' (overdue)' : '') + '">' +
+          '<span class="d">' + d.getDate() + '</span><span class="n">' + (n || '') + '</span></button></td>';
+      }
+      const wk = sum(keys.map(dueOn));
+      html += '<td class="tot"><button type="button" data-week="' + keys.join(',') + '"' + (wk ? '' : ' disabled') + '>' + wk + '</button></td></tr>';
+    }
+    document.getElementById('calendar').innerHTML = html + '</tbody></table>';
+    const late = Object.keys(CAL).filter(k => k < TODAY).reduce((a, k) => a + CAL[k].length, 0);
+    document.getElementById('calNote').innerHTML = '<strong>' + monthTotal + '</strong> due in ' + esc(document.getElementById('calTitle').textContent) +
+      (late ? ' · <span class="late">⚠ ' + late + ' already overdue</span> (red days)' : '');
+    document.getElementById('calDetail').innerHTML = '<p class="cms-sub">Click a day or a week total to list its containers.</p>';
+  }
+  document.getElementById('calendar').addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.day) showDays(new Date(b.dataset.day + 'T00:00:00').toLocaleDateString(undefined,
+      { weekday: 'long', day: 'numeric', month: 'long' }), [b.dataset.day]);
+    else if (b.dataset.week) { const ks = b.dataset.week.split(',');
+      showDays('Week of ' + new Date(ks[0] + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' }), ks); }
+  });
+  const shift = n => { calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + n, 1); drawCalendar(); };
+  document.getElementById('calPrev').addEventListener('click', () => shift(-1));
+  document.getElementById('calNext').addEventListener('click', () => shift(1));
+  document.getElementById('calToday').addEventListener('click', () => { calMonth = new Date(t0.getFullYear(), t0.getMonth(), 1); drawCalendar(); });
+  drawCalendar();
+
+  // ── Containers by owner ──
+  document.getElementById('ownerWrap').style.height = Math.max(220, D.owners.labels.length * 28 + 40) + 'px';
+  new Chart(document.getElementById('ownerChart'), {
+    type: 'bar',
+    data: { labels: D.owners.labels, datasets: [{ label: 'Containers', data: D.owners.data,
+      backgroundColor: COLORS.full, borderRadius: 4, borderSkipped: 'start', maxBarThickness: 18 }] },
+    options: { indexAxis: 'y', maintainAspectRatio: false, onClick: go('owner', D.owners.ids), onHover: pointer,
+      plugins: { legend: { display: false }, tooltip: { ...tooltip, displayColors: false } },
+      scales: { x: valueAxis(), y: catAxis } }
+  });
 
   // "View as table" for each chart.
-  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   const table = (head, rows) => '<table class="cms-table"><thead><tr>' + head.map(h => '<th>' + esc(h) + '</th>').join('') +
     '</tr></thead><tbody>' + rows.map(r => '<tr>' + r.map(c => '<td>' + esc(c) + '</td>').join('') + '</tr>').join('') + '</tbody></table>';
+  document.getElementById('occTable').innerHTML = table(['Day', 'In yards'],
+    D.occupancy.labels.map((l, i) => [l, occ[i]]).reverse());
   document.getElementById('yardTable').innerHTML = table(['Yard', 'Full', 'Storage', 'Empty', 'Total'],
-    D.yards.labels.map((l, i) => { const r = D.yards.series.map(s => s.data[i]); return [l, ...r, r.reduce((a, b) => a + b, 0)]; }));
+    D.yards.labels.map((l, i) => { const r = D.yards.series.map(s => s.data[i]); return [l, ...r, sum(r)]; }));
+  document.getElementById('flowTable').innerHTML = table(['Week of', 'Arrived', 'Returned', 'Net'],
+    D.flow.labels.map((l, i) => [l, D.flow.arrived[i], D.flow.returned[i], D.flow.arrived[i] - D.flow.returned[i]]));
+  document.getElementById('runwayTable').innerHTML = table(['Deadline', 'Containers'], D.runway.labels.map((l, i) => [l, D.runway.data[i]]));
   document.getElementById('ownerTable').innerHTML = table(['Owner', 'Containers'], D.owners.labels.map((l, i) => [l, D.owners.data[i]]));
-  document.getElementById('arrivalsTable').innerHTML = table(['Week of', 'Arrivals'], D.arrivals.labels.map((l, i) => [l, D.arrivals.data[i]]));
   document.querySelectorAll('.cms-table-toggle').forEach(b => b.addEventListener('click', () => {
     const t = document.getElementById(b.dataset.table);
     t.classList.toggle('open');
     b.textContent = t.classList.contains('open') ? 'Hide table' : 'View as table';
   }));
+
+  // PNG download for each chart panel: title, chart and legend at 2× for reports.
+  const stamp = new Date();
+  const isoDay = stamp.getFullYear() + '-' + String(stamp.getMonth() + 1).padStart(2, '0') + '-' + String(stamp.getDate()).padStart(2, '0');
+  const skip = el => el.classList && (el.classList.contains('cms-dl') || el.classList.contains('cms-table-toggle') ||
+                                      el.classList.contains('cms-data-table'));
+  document.querySelectorAll('[data-export]').forEach(panel => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cms-dl';
+    btn.title = 'Download this chart as PNG';
+    btn.setAttribute('aria-label', 'Download ' + panel.dataset.export + ' as PNG');
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" ' +
+      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>PNG';
+    panel.querySelector('.cms-panel-head').appendChild(btn);
+    btn.addEventListener('click', () => {
+      if (!window.html2canvas) { alert('The image tool could not load. Check your internet connection and try again.'); return; }
+      btn.disabled = true;
+      html2canvas(panel, {
+        scale: 2, backgroundColor: '#ffffff', logging: false, ignoreElements: skip,
+        onclone: doc => {
+          const p = doc.querySelector('[data-export="' + panel.dataset.export + '"]');
+          p.style.boxShadow = 'none';
+          const foot = doc.createElement('div');
+          foot.className = 'cms-dl-foot';
+          foot.textContent = 'Ah Liki IMS · ' + stamp.toLocaleString(undefined, { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+          p.appendChild(foot);
+        }
+      }).then(canvas => {
+        const a = document.createElement('a');
+        a.download = 'ahliki-' + panel.dataset.export.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + isoDay + '.png';
+        a.href = canvas.toDataURL('image/png');
+        a.click();
+      }).catch(() => alert('Could not create the image. Please try again.'))
+        .finally(() => { btn.disabled = false; });
+    });
+  });
 })();
 </script>
 {% endblock %}
+

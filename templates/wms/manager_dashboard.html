@@ -114,10 +114,10 @@
         <tr>
           <td><a href="{% url 'product_detail' p.pk %}">{{ p.name }}</a></td>
           <td>
-            {% if p.current_stock <= 0 %}
+            {% if p.stock <= 0 %}
               <span class="badge badge-red">Out of Stock</span>
             {% else %}
-              <span class="badge badge-amber">{{ p.current_stock }} {{ p.unit }}</span>
+              <span class="badge badge-amber">{{ p.stock }} {{ p.unit }}</span>
             {% endif %}
           </td>
           <td>{{ p.reorder_level }}</td>

@@ -5,8 +5,10 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.urls import reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Sum, Count, Min, Q, Case, When, Value, IntegerField
+from django.db.models import Sum, Count, Min, Q, F, Case, When, Value, IntegerField, DecimalField
+from django.db.models.functions import Coalesce
 from django.http import JsonResponse, HttpResponse
 from django.utils import timezone
 
@@ -49,6 +51,26 @@ def role_required(*roles):
     return decorator
 
 
+def with_stock(products):
+    """Annotate ``stock`` in SQL — reading ``Product.current_stock`` in a loop is one query per product."""
+    return products.annotate(stock=Coalesce(Sum('stock_movements__quantity'), 0))
+
+
+def stock_by_product(product_ids):
+    """{product_id: stock} for a handful of products, in one query."""
+    rows = (StockMovement.objects.filter(product_id__in=product_ids)
+            .values('product_id').annotate(total=Sum('quantity')))
+    stock = dict.fromkeys(product_ids, 0)
+    stock.update({r['product_id']: r['total'] or 0 for r in rows})
+    return stock
+
+
+def total_stock_value():
+    """Sum of stock × cost price over active products, in one query."""
+    return StockMovement.objects.filter(product__is_active=True).aggregate(
+        t=Sum(F('quantity') * F('product__cost_price'), output_field=DecimalField()))['t'] or 0
+
+
 def check_and_create_alerts(product):
     """Create stock alerts for a product if needed."""
     # Low stock alert
@@ -74,8 +96,12 @@ def check_and_create_alerts(product):
 @login_required
 @role_required('admin', 'manager', 'finance', 'warehouse', 'cashier')
 def dashboard(request):
-    products = Product.objects.filter(is_active=True)
-    low_stock = [p for p in products if p.is_low_stock]
+    products = with_stock(Product.objects.filter(is_active=True)).order_by('name')
+    low_stock = products.filter(stock__lte=F('reorder_level'))
+    out_of_stock = products.filter(stock__lte=0)
+    total_products = products.count()
+    low_stock_count = low_stock.count()
+    out_of_stock_count = out_of_stock.count()
     recent_sales = Sale.objects.order_by('-created_at')[:5]
     recent_grns = GoodsReceivedNote.objects.order_by('-received_at')[:5]
     open_alerts = StockAlert.objects.filter(is_resolved=False).order_by('-created_at')[:10]
@@ -92,12 +118,11 @@ def dashboard(request):
         sales_chart.append({'date': d.strftime('%d %b'), 'amount': float(amt)})
 
     # Stock value
-    stock_value = sum(p.stock_value for p in products)
+    stock_value = total_stock_value()
 
     # Warehouse-specific
     pending_dispatch = Invoice.objects.filter(dispatch_status='pending').select_related('cashier').order_by('-created_at')[:8]
     pending_dispatch_count = Invoice.objects.filter(dispatch_status='pending').count()
-    out_of_stock = [p for p in products if p.current_stock <= 0]
 
     # Dispatch activity — last 7 days
     dispatch_chart = []
@@ -107,15 +132,15 @@ def dashboard(request):
         dispatch_chart.append({'date': d.strftime('%d %b'), 'count': count})
 
     # Stock health breakdown
-    healthy_stock = products.count() - len(low_stock)
-    low_not_zero = len(low_stock) - len(out_of_stock)
+    healthy_stock = total_products - low_stock_count
+    low_not_zero = low_stock_count - out_of_stock_count
 
     context = {
-        'total_products': products.count(),
-        'low_stock_count': len(low_stock),
-        'low_stock_products': low_stock,
-        'out_of_stock': out_of_stock,
-        'out_of_stock_count': len(out_of_stock),
+        'total_products': total_products,
+        'low_stock_count': low_stock_count,
+        'low_stock_page': Paginator(low_stock, 20).get_page(request.GET.get('low_page')),
+        'out_of_stock_page': Paginator(out_of_stock, 20).get_page(request.GET.get('out_page')),
+        'out_of_stock_count': out_of_stock_count,
         'open_alerts_count': open_alerts.count(),
         'open_alerts': open_alerts,
         'recent_sales': recent_sales,
@@ -145,10 +170,8 @@ def product_list(request):
     if category_id:
         products = products.filter(category_id=category_id)
     categories = Category.objects.all()
-    # Annotate with current stock
-    product_data = []
-    for p in products:
-        product_data.append({'product': p, 'stock': p.current_stock, 'low': p.is_low_stock})
+    product_data = [{'product': p, 'stock': p.stock, 'low': p.stock <= p.reorder_level}
+                    for p in with_stock(products)]
     return render(request, 'products/list.html', {'product_data': product_data, 'categories': categories, 'q': q, 'selected_cat': category_id})
 
 
@@ -485,8 +508,7 @@ def alert_resolve(request, pk):
 @login_required
 @role_required('admin', 'manager')
 def reports(request):
-    products = Product.objects.filter(is_active=True)
-    total_stock_value = sum(p.stock_value for p in products)
+    products = with_stock(Product.objects.filter(is_active=True))
     top_sellers = SaleItem.objects.values('product__name').annotate(
         total_qty=Sum('quantity'), total_rev=Sum('unit_price')
     ).order_by('-total_qty')[:10]
@@ -498,14 +520,14 @@ def reports(request):
         amt = Sale.objects.filter(created_at__year=d.year, created_at__month=d.month).aggregate(t=Sum('total_amount'))['t'] or 0
         monthly.append({'month': d.strftime('%b %Y'), 'amount': float(amt)})
 
-    low_stock = [p for p in products if p.is_low_stock]
+    low_stock = products.filter(stock__lte=F('reorder_level'))
     expiring_soon = GRNItem.objects.filter(
         expiry_date__lte=date.today() + timedelta(days=30),
         expiry_date__gte=date.today()
     ).select_related('product')
 
     context = {
-        'total_stock_value': total_stock_value,
+        'total_stock_value': total_stock_value(),
         'top_sellers': top_sellers,
         'monthly_json': json.dumps(monthly),
         'low_stock': low_stock,
@@ -523,9 +545,9 @@ def export_stock_csv(request):
     response['Content-Disposition'] = 'attachment; filename="ah_liki_stock.csv"'
     writer = csv.writer(response)
     writer.writerow(['SKU', 'Product', 'Category', 'Supplier', 'Current Stock', 'Unit', 'Reorder Level', 'Cost Price', 'Stock Value (SAT$)'])
-    for p in Product.objects.filter(is_active=True).select_related('category', 'supplier'):
-        writer.writerow([p.sku, p.name, p.category or '', p.supplier or '', p.current_stock,
-                         p.unit, p.reorder_level, p.cost_price, p.stock_value])
+    for p in with_stock(Product.objects.filter(is_active=True).select_related('category', 'supplier')):
+        writer.writerow([p.sku, p.name, p.category or '', p.supplier or '', p.stock,
+                         p.unit, p.reorder_level, p.cost_price, p.stock * p.cost_price])
     return response
 
 
@@ -866,7 +888,7 @@ def invoice_upload(request):
 
 
 def quote_new(request):
-    products = Product.objects.filter(is_active=True).order_by('name')
+    products = with_stock(Product.objects.filter(is_active=True)).order_by('name')
     if request.method == 'POST':
         import json as _json
         data = _json.loads(request.body)
@@ -955,10 +977,11 @@ def warehouse_dispatch_detail(request, pk):
             messages.success(request, 'Comment added.')
         return redirect('warehouse_dispatch_detail', pk=pk)
 
-    items = invoice.items.select_related('product').all()
+    items = list(invoice.items.select_related('product').all())
+    stock_map = stock_by_product([i.product_id for i in items])
     item_data = []
     for item in items:
-        stock = item.product.current_stock
+        stock = stock_map[item.product_id]
         item_data.append({
             'item': item,
             'current_stock': stock,
@@ -1017,6 +1040,7 @@ def warehouse_dispatch_submit(request, pk):
             dqty = item.quantity
         dispatch_quantities[item.pk] = dqty
 
+    stock_map = stock_by_product([i.product_id for i in items])
     errors = []
     for item in items:
         if str(item.pk) not in checked_item_ids:
@@ -1025,10 +1049,10 @@ def warehouse_dispatch_submit(request, pk):
             dqty = dispatch_quantities[item.pk]
             if dqty <= 0:
                 errors.append(f"Dispatch quantity for {item.product.name} must be at least 1.")
-            elif dqty > item.product.current_stock:
+            elif dqty > stock_map[item.product_id]:
                 errors.append(
                     f"Dispatch quantity for {item.product.name} ({dqty}) exceeds available stock "
-                    f"({item.product.current_stock} {item.product.unit})."
+                    f"({stock_map[item.product_id]} {item.product.unit})."
                 )
 
     if errors:
@@ -1047,7 +1071,7 @@ def warehouse_dispatch_submit(request, pk):
                 adjustments.append(
                     f"\u2022 {item.product.name}: ordered {original_qty} {item.product.unit}, "
                     f"dispatched {dqty} {item.product.unit} "
-                    f"(stock available: {item.product.current_stock} {item.product.unit})"
+                    f"(stock available: {stock_map[item.product_id]} {item.product.unit})"
                 )
                 item.quantity = dqty
                 item.save(update_fields=['quantity'])
@@ -1167,13 +1191,9 @@ def invoice_mark_paid(request, pk):
 @login_required
 def api_products_all(request):
     """Return all products as JSON for the POS."""
-    products = list(Product.objects.filter(is_active=True).select_related('category').values(
-        'id', 'sku', 'name', 'unit_price', 'unit', 'category__name', 'barcode'
+    products = list(with_stock(Product.objects.filter(is_active=True)).values(
+        'id', 'sku', 'name', 'unit_price', 'unit', 'category__name', 'barcode', 'stock'
     ))
-    # annotate stock
-    for p in products:
-        obj = Product.objects.get(pk=p['id'])
-        p['stock'] = obj.current_stock
     return JsonResponse({'products': products})
 
 
@@ -1492,9 +1512,9 @@ def manager_dashboard(request):
     )
     free_shelves = total_shelves - occupied_shelves
 
-    products = Product.objects.filter(is_active=True)
-    low_stock = [p for p in products if p.is_low_stock]
-    out_of_stock = [p for p in products if p.current_stock <= 0]
+    products = with_stock(Product.objects.filter(is_active=True)).order_by('name')
+    low_stock = products.filter(stock__lte=F('reorder_level'))
+    out_of_stock = products.filter(stock__lte=0)
 
     expiring_pallets = Pallet.objects.filter(
         expiry_date__lte=soon,
@@ -1516,9 +1536,9 @@ def manager_dashboard(request):
 
     # All pallets with locations for the full stock view
     all_pallets = Pallet.objects.select_related('product', 'created_by').order_by('product__name', '-created_at')
-    pallet_stock = []
-    for p in all_pallets:
-        pallet_stock.append({'pallet': p, 'location': p.current_location})
+    shelf_by_pallet = {loc.pallet_id: loc.shelf for loc in
+                       PalletLocation.objects.filter(is_current=True).select_related('shelf')}
+    pallet_stock = [{'pallet': p, 'location': shelf_by_pallet.get(p.pk)} for p in all_pallets]
 
     context = {
         'total_pallets': total_pallets,
@@ -1528,9 +1548,9 @@ def manager_dashboard(request):
         'occupied_shelves': occupied_shelves,
         'free_shelves': free_shelves,
         'low_stock': low_stock,
-        'low_stock_count': len(low_stock),
+        'low_stock_count': low_stock.count(),
         'out_of_stock': out_of_stock,
-        'out_of_stock_count': len(out_of_stock),
+        'out_of_stock_count': out_of_stock.count(),
         'expiring_pallets': expiring_pallets,
         'expiring_count': expiring_pallets.count(),
         'expired_pallets': expired_pallets,
@@ -1602,11 +1622,9 @@ def dispatcher_edit_order(request, pk):
         edit_reason = request.POST.get('edit_reason', '').strip()
         if not edit_reason:
             messages.error(request, 'A reason is required when editing order items.')
-            items = invoice.items.select_related('product').all()
-            item_data = [{'item': i, 'current_stock': i.product.current_stock} for i in items]
             return render(request, 'warehouse/edit_order.html', {
                 'invoice': invoice,
-                'item_data': item_data,
+                'item_data': _edit_order_rows(invoice),
             })
 
         with transaction.atomic():
@@ -1649,12 +1667,16 @@ def dispatcher_edit_order(request, pk):
         messages.success(request, f'Order {invoice.invoice_number} updated successfully.')
         return redirect('warehouse_dispatch_detail', pk=pk)
 
-    items = invoice.items.select_related('product').all()
-    item_data = [{'item': i, 'current_stock': i.product.current_stock} for i in items]
     return render(request, 'warehouse/edit_order.html', {
         'invoice': invoice,
-        'item_data': item_data,
+        'item_data': _edit_order_rows(invoice),
     })
+
+
+def _edit_order_rows(invoice):
+    items = list(invoice.items.select_related('product').all())
+    stock_map = stock_by_product([i.product_id for i in items])
+    return [{'item': i, 'current_stock': stock_map[i.product_id]} for i in items]
 
 
 # ── CONTAINERS ────────────────────────────────────────────────────────────────

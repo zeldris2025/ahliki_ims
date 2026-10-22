@@ -288,7 +288,7 @@ body * {
     <div class="quick-section" id="quickSection">
       <div class="quick-grid" id="quickGrid">
         {% for p in products|slice:":12" %}
-        <button class="quick-item {% cycle 'amber' 'green' 'blue' 'purple' 'teal' 'amber' 'green' 'blue' 'purple' 'teal' 'amber' 'green' %}" onclick="addToCartById({{ p.pk }}, '{{ p.sku|escapejs }}', '{{ p.name|escapejs }}', {{ p.unit_price }}, {{ p.current_stock }})">
+        <button class="quick-item {% cycle 'amber' 'green' 'blue' 'purple' 'teal' 'amber' 'green' 'blue' 'purple' 'teal' 'amber' 'green' %}" onclick="addToCartById({{ p.pk }}, '{{ p.sku|escapejs }}', '{{ p.name|escapejs }}', {{ p.unit_price }}, {{ p.stock }})">
           {{ p.name|truncatechars:22 }}
         </button>
         {% endfor %}

@@ -41,7 +41,7 @@
       <table>
         <thead><tr><th>Product</th><th>Stock</th><th>Reorder At</th></tr></thead>
         <tbody>
-        {% for p in low_stock %}<tr class="low-stock"><td><a href="{% url 'product_detail' p.pk %}">{{ p.name }}</a></td><td><span class="badge badge-red">{{ p.current_stock }}</span></td><td>{{ p.reorder_level }}</td></tr>{% empty %}<tr><td colspan="3" style="text-align:center;color:var(--gray-500)">All stocked OK.</td></tr>{% endfor %}
+        {% for p in low_stock %}<tr class="low-stock"><td><a href="{% url 'product_detail' p.pk %}">{{ p.name }}</a></td><td><span class="badge badge-red">{{ p.stock }}</span></td><td>{{ p.reorder_level }}</td></tr>{% empty %}<tr><td colspan="3" style="text-align:center;color:var(--gray-500)">All stocked OK.</td></tr>{% endfor %}
         </tbody>
       </table>
     </div>
