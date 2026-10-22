@@ -11,3 +11,5 @@ docker-data/
 ahliki_ims/local_settings.py
 *.md
 PPT_PROMPT_FOR_AI.md
+.vscode/
+.claude/

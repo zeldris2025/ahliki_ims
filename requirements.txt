@@ -11,3 +11,5 @@ pypdfium2==5.12.1
 sqlparse==0.5.5
 gunicorn==23.0.0
 whitenoise==6.11.0
+dj-database-url==2.3.0
+psycopg[binary]==3.2.9
