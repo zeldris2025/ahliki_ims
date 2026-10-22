@@ -90,11 +90,25 @@ def _active_stats():
 
 # ── Dashboard ────────────────────────────────────────────────────────────────
 
+def _dashboard_years(request, today):
+    """Years offered in the dashboard's year picker, and the one chosen (?year=, else this year).
+    Runs from the first year on record to next year, so the default rolls over on 1 January."""
+    first = CmsContainer.objects.filter(arrival_date__isnull=False).order_by('arrival_date') \
+        .values_list('arrival_date', flat=True).first()
+    years = list(range(min(first.year if first else today.year, today.year), today.year + 2))
+    picked = request.GET.get('year', '')
+    year = int(picked) if picked.isdigit() and int(picked) in years else today.year
+    return years[::-1], year
+
+
 @login_required
 @role_required(*CMS_ROLES)
 def dashboard(request):
     active = CmsContainer.objects.filter(returned=False).select_related('yard', 'owner')
     today = timezone.localdate()
+    years, year = _dashboard_years(request, today)
+    year_start = date(year, 1, 1)
+    history_end = min(date(year, 12, 31), today)   # charts of past events stop at today
 
     # Containers per yard, split by status (stacked bar).
     per_yard = {}
@@ -119,37 +133,38 @@ def dashboard(request):
         d = d or timezone.localdate(created)
         left_on[cid] = max(left_on.get(cid, d), d)
 
-    # Flow per week (Monday-start), last 12 weeks: boxes in by A/Date vs boxes back to the wharf.
-    week0 = today - timedelta(days=today.weekday()) - timedelta(weeks=11)
+    # Flow per month of the chosen year: boxes in by A/Date vs boxes back to the wharf.
     arrived, returned = Counter(), Counter()
-    for d in CmsContainer.objects.filter(arrival_date__gte=week0, arrival_date__lte=today) \
+    for d in CmsContainer.objects.filter(arrival_date__gte=year_start, arrival_date__lte=history_end) \
             .values_list('arrival_date', flat=True):
-        arrived[(d - week0).days // 7] += 1
+        arrived[d.month - 1] += 1
     for d in left_on.values():
-        if week0 <= d <= today:
-            returned[(d - week0).days // 7] += 1
-    flow_chart = {'labels': [(week0 + timedelta(weeks=i)).strftime('%d %b') for i in range(12)],
-                  'arrived': [arrived[i] for i in range(12)],
-                  'returned': [returned[i] for i in range(12)]}
+        if year_start <= d <= history_end:
+            returned[d.month - 1] += 1
+    months = 12 if year < today.year else (today.month if year == today.year else 0)
+    flow_chart = {'labels': [date(year, m, 1).strftime('%b') for m in range(1, months + 1)],
+                  'arrived': [arrived[i] for i in range(months)],
+                  'returned': [returned[i] for i in range(months)]}
 
-    # Boxes in yards on each of the last 90 days, rebuilt from arrival and return dates.
-    day0 = today - timedelta(days=89)
+    # Boxes in yards on each day of the chosen year (up to today), rebuilt from arrival and return dates.
+    days = max((history_end - year_start).days + 1, 0)
     delta = Counter()
-    for pk, arrival, is_returned in CmsContainer.objects.filter(arrival_date__isnull=False) \
+    for pk, arrival, is_returned in CmsContainer.objects.filter(arrival_date__isnull=False,
+                                                                arrival_date__lte=history_end) \
             .values_list('pk', 'arrival_date', 'returned'):
         gone = left_on.get(pk) if is_returned else None
         if is_returned and gone is None:
             continue    # returned with no date on record — can't place it in time
-        if gone is not None and gone <= day0:
+        if gone is not None and gone <= year_start:
             continue
-        delta[max((arrival - day0).days, 0)] += 1
+        delta[max((arrival - year_start).days, 0)] += 1
         if gone is not None:
-            delta[(gone - day0).days] -= 1
+            delta[(gone - year_start).days] -= 1
     level, series = 0, []
-    for i in range(90):
+    for i in range(days):
         level += delta[i]
         series.append(level)
-    occupancy_chart = {'labels': [(day0 + timedelta(days=i)).strftime('%d %b') for i in range(90)],
+    occupancy_chart = {'labels': [(year_start + timedelta(days=i)).strftime('%d %b') for i in range(days)],
                        'undated': active.filter(arrival_date__isnull=True).count(),
                        'data': series}
 
@@ -196,7 +211,7 @@ def dashboard(request):
 
     chart_json = json.dumps({'yards': yard_chart, 'owners': owner_chart, 'flow': flow_chart,
                              'occupancy': occupancy_chart, 'runway': runway_chart, 'heatmap': heatmap,
-                             'due_calendar': due_calendar, 'today': today.isoformat(),
+                             'due_calendar': due_calendar, 'today': today.isoformat(), 'year': year,
                              'edit_url': reverse('cms_container_edit', args=[0]),
                              'containers_url': reverse('cms_containers')}).replace('<', '\\u003c')
     return render(request, 'cms/dashboard.html', {
@@ -204,7 +219,11 @@ def dashboard(request):
         'chart_json': chart_json,
         'due_soon': due_soon[:25],
         'due_soon_total': len(due_soon),
-        'recent_returns': ContainerReturn.objects.select_related('container', 'yard')[:6],
+        'recent_returns': ContainerReturn.objects.filter(
+            Q(returned_date__year=year) | Q(returned_date__isnull=True, created_at__year=year)
+        ).select_related('container', 'yard')[:6],
+        'year': year,
+        'years': years,
         'no_deadlines': not ShippingLine.objects.filter(return_days__isnull=False).exists(),
         'today': today,
         'staff_name': _staff_name(request.user),

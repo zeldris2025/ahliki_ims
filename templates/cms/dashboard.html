@@ -9,6 +9,13 @@
     <p>Every box on Upolu at a glance — where it sits, who owns it, and when it is due back at the wharf.</p>
   </div>
   <div class="cms-actions">
+    <form method="get" class="cms-year" aria-label="Dashboard year">
+      <label for="dashYear">Year</label>
+      <select class="cms-input" name="year" id="dashYear" onchange="this.form.submit()">
+        {% for y in years %}<option value="{{ y }}"{% if y == year %} selected{% endif %}>{{ y }}</option>{% endfor %}
+      </select>
+      <noscript><button type="submit" class="btn btn-secondary">Show</button></noscript>
+    </form>
     <a href="{% url 'cms_container_import' %}" class="btn btn-secondary">⬆️ Import CSV</a>
     <a href="{% url 'cms_container_add' %}" class="btn btn-primary">➕ Add container</a>
   </div>
@@ -61,7 +68,7 @@
 
 <section class="cms-panel" data-export="Return calendar">
   <div class="cms-panel-head">
-    <div><h2>Return calendar</h2><p>Containers due back at the wharf each day and week · click a day to see which boxes</p></div>
+    <div><h2>Return calendar · {{ year }}</h2><p>Containers due back at the wharf each day and week · click a day to see which boxes</p></div>
     <div class="cms-cal-nav">
       <button type="button" class="cms-icon-btn" id="calPrev" aria-label="Previous month">‹</button>
       <strong id="calTitle"></strong>
@@ -81,11 +88,11 @@
 <div class="cms-grid-2">
   <section class="cms-panel" data-export="Yard occupancy">
     <div class="cms-panel-head">
-      <div><h2>Yard occupancy</h2><p>Containers with an A/Date sitting in yards each day · last 90 days</p></div>
+      <div><h2>Yard occupancy · {{ year }}</h2><p>Containers with an A/Date sitting in yards each day of {{ year }}</p></div>
       <div class="cms-hero" id="occHero"></div>
     </div>
     <div class="cms-panel-body">
-      <div class="cms-chart" id="occWrap"><canvas id="occChart" role="img" aria-label="Containers in yards each day over the last 90 days"></canvas></div>
+      <div class="cms-chart" id="occWrap"><canvas id="occChart" role="img" aria-label="Containers in yards each day of {{ year }}"></canvas></div>
       <div class="cms-chart-note" id="occNote"></div>
       <button class="cms-table-toggle" type="button" data-table="occTable">View as table</button>
       <div class="cms-data-table" id="occTable"></div>
@@ -154,14 +161,14 @@
 <div class="cms-grid-even">
   <section class="cms-panel" data-export="Container flow">
     <div class="cms-panel-head">
-      <div><h2>Container flow</h2><p>In by A/Date vs back to the wharf · last 12 weeks</p></div>
+      <div><h2>Container flow · {{ year }}</h2><p>In by A/Date vs back to the wharf · per month</p></div>
       <div class="cms-legend" aria-hidden="true">
         <span><i class="cms-dot" style="background:var(--cms-viz-in)"></i>Arrived</span>
         <span><i class="cms-dot" style="background:var(--cms-viz-out)"></i>Returned</span>
       </div>
     </div>
     <div class="cms-panel-body">
-      <div class="cms-chart short"><canvas id="flowChart" role="img" aria-label="Containers arriving and returned per week over the last 12 weeks"></canvas></div>
+      <div class="cms-chart short"><canvas id="flowChart" role="img" aria-label="Containers arriving and returned each month of {{ year }}"></canvas></div>
       <button class="cms-table-toggle" type="button" data-table="flowTable">View as table</button>
       <div class="cms-data-table" id="flowTable"></div>
     </div>
@@ -198,7 +205,7 @@
 </div>
 
 <section class="cms-panel">
-  <div class="cms-panel-head"><div><h2>Recently returned</h2><p>Latest containers taken back to the wharf</p></div>
+  <div class="cms-panel-head"><div><h2>Recently returned · {{ year }}</h2><p>Latest containers taken back to the wharf in {{ year }}</p></div>
     <a href="{% url 'cms_returns' %}" class="cms-icon-btn">All returns</a></div>
   {% if recent_returns %}
   <div class="table-wrap">
@@ -218,7 +225,7 @@
     </table>
   </div>
   {% else %}
-  <div class="cms-empty"><strong>No returns yet</strong>Containers you mark as returned will show here.</div>
+  <div class="cms-empty"><strong>No returns in {{ year }}</strong>Containers you mark as returned will show here.</div>
   {% endif %}
 </section>
 
@@ -261,13 +268,14 @@
   } };
 
   // ── Yard occupancy: gradient area with crosshair and a headline number ──
-  const occ = D.occupancy.data, now = occ[occ.length - 1], diff = now - occ[occ.length - 31];
-  document.getElementById('occHero').innerHTML =
-    '<strong>' + now + '</strong><span class="' + (diff > 0 ? 'up' : diff < 0 ? 'down' : '') + '">' +
-    (diff > 0 ? '▲ ' : diff < 0 ? '▼ ' : '') + Math.abs(diff) + ' vs 30 days ago</span>';
+  const occ = D.occupancy.data, now = occ[occ.length - 1], diff = occ.length > 30 ? now - occ[occ.length - 31] : null;
+  if (occ.length) document.getElementById('occHero').innerHTML =
+    '<strong>' + now + '</strong>' + (diff === null ? '' : '<span class="' + (diff > 0 ? 'up' : diff < 0 ? 'down' : '') + '">' +
+    (diff > 0 ? '▲ ' : diff < 0 ? '▼ ' : '') + Math.abs(diff) + ' vs 30 days before</span>');
+  else document.getElementById('occWrap').innerHTML = '<div class="cms-empty"><strong>No history for ' + D.year + ' yet</strong>This year has not started.</div>';
   if (D.occupancy.undated) document.getElementById('occNote').textContent =
     '+ ' + D.occupancy.undated + ' in yards with no A/Date, so they can’t be placed on the timeline.';
-  new Chart(document.getElementById('occChart'), {
+  if (occ.length) new Chart(document.getElementById('occChart'), {
     type: 'line',
     data: { labels: D.occupancy.labels, datasets: [{ label: 'In yards', data: occ,
       borderColor: COLORS.full, borderWidth: 2, tension: 0.35, fill: 'origin',
@@ -328,20 +336,23 @@
   });
 
   // ── Container flow: arrivals above the line, returns mirrored below ──
-  new Chart(document.getElementById('flowChart'), {
+  if (D.flow.labels.length) new Chart(document.getElementById('flowChart'), {
     type: 'bar',
     data: { labels: D.flow.labels, datasets: [
       { label: 'Arrived', data: D.flow.arrived, backgroundColor: IN, borderRadius: 4, borderSkipped: 'start', maxBarThickness: 22 },
       { label: 'Returned', data: D.flow.returned.map(n => -n), backgroundColor: OUT, borderRadius: 4, borderSkipped: 'start', maxBarThickness: 22 }] },
     options: { maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
       plugins: { legend: { display: false }, tooltip: { ...tooltip, callbacks: {
-        title: items => 'Week of ' + items[0].label,
+        title: items => items[0].label + ' ' + D.year,
         label: i => ' ' + i.dataset.label + ': ' + Math.abs(i.parsed.y),
         footer: items => { const n = sum(items.map(i => i.parsed.y)); return 'Net: ' + (n > 0 ? '+' : '') + n; } } } },
       scales: { x: { ...catAxis, stacked: true, ticks: { maxRotation: 0, autoSkipPadding: 8, font: { weight: '600' } } },
         y: valueAxis({ stacked: true, ticks: { precision: 0, callback: n => Math.abs(n) },
           grid: { color: c => c.tick.value === 0 ? '#9ca3af' : GRID } }) } }
   });
+
+  if (!D.flow.labels.length) document.getElementById('flowChart').parentNode.innerHTML =
+    '<div class="cms-empty"><strong>No history for ' + D.year + ' yet</strong>This year has not started.</div>';
 
   // ── Return runway: late (red, left of TODAY) ↔ time left (blue, right) ──
   new Chart(document.getElementById('runwayChart'), {
@@ -397,7 +408,8 @@
   const calStep = (n, ramp) => Math.min(ramp.length - 1, Math.round(Math.sqrt(n / calMax) * (ramp.length - 1)));
   const editUrl = id => D.edit_url.replace('/0/', '/' + id + '/') + '?next=' + encodeURIComponent(location.pathname);
   const t0 = new Date(TODAY + 'T00:00:00');
-  let calMonth = new Date(t0.getFullYear(), t0.getMonth(), 1);
+  const calHome = () => new Date(D.year, D.year === t0.getFullYear() ? t0.getMonth() : 0, 1);
+  let calMonth = calHome();
 
   function showDays(title, keys) {
     const boxes = keys.flatMap(k => (CAL[k] || []).map(b => ({ ...b, due: k })));
@@ -412,6 +424,8 @@
   function drawCalendar() {
     const y = calMonth.getFullYear(), m = calMonth.getMonth();
     document.getElementById('calTitle').textContent = calMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    document.getElementById('calPrev').disabled = m === 0;
+    document.getElementById('calNext').disabled = m === 11;
     const start = new Date(y, m, 1 - (new Date(y, m, 1).getDay() + 6) % 7);   // Monday on/before the 1st
     let html = '<table><thead><tr>' + ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => '<th scope="col">' + d + '</th>').join('') +
       '<th scope="col" class="tot">Week</th></tr></thead><tbody>';
@@ -448,10 +462,12 @@
     else if (b.dataset.week) { const ks = b.dataset.week.split(',');
       showDays('Week of ' + new Date(ks[0] + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' }), ks); }
   });
-  const shift = n => { calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + n, 1); drawCalendar(); };
+  const shift = n => { const m = calMonth.getMonth() + n; if (m < 0 || m > 11) return; calMonth = new Date(D.year, m, 1); drawCalendar(); };
   document.getElementById('calPrev').addEventListener('click', () => shift(-1));
   document.getElementById('calNext').addEventListener('click', () => shift(1));
-  document.getElementById('calToday').addEventListener('click', () => { calMonth = new Date(t0.getFullYear(), t0.getMonth(), 1); drawCalendar(); });
+  const calToday = document.getElementById('calToday');
+  if (D.year !== t0.getFullYear()) calToday.hidden = true;
+  calToday.addEventListener('click', () => { calMonth = calHome(); drawCalendar(); });
   drawCalendar();
 
   // ── Containers by owner ──
@@ -472,7 +488,7 @@
     D.occupancy.labels.map((l, i) => [l, occ[i]]).reverse());
   document.getElementById('yardTable').innerHTML = table(['Yard', 'Full', 'Storage', 'Empty', 'Total'],
     D.yards.labels.map((l, i) => { const r = D.yards.series.map(s => s.data[i]); return [l, ...r, sum(r)]; }));
-  document.getElementById('flowTable').innerHTML = table(['Week of', 'Arrived', 'Returned', 'Net'],
+  document.getElementById('flowTable').innerHTML = table(['Month', 'Arrived', 'Returned', 'Net'],
     D.flow.labels.map((l, i) => [l, D.flow.arrived[i], D.flow.returned[i], D.flow.arrived[i] - D.flow.returned[i]]));
   document.getElementById('runwayTable').innerHTML = table(['Deadline', 'Containers'], D.runway.labels.map((l, i) => [l, D.runway.data[i]]));
   document.getElementById('ownerTable').innerHTML = table(['Owner', 'Containers'], D.owners.labels.map((l, i) => [l, D.owners.data[i]]));
