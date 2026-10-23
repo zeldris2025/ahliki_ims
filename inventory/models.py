@@ -320,9 +320,9 @@ class InvoiceItem(models.Model):
 # ── WMS: PALLETS & SHELF LOCATIONS ────────────────────────────────────────────
 
 class ShelfLocation(models.Model):
-    code = models.CharField(max_length=10, unique=True)   # e.g. A1, B2, Z3
-    letter = models.CharField(max_length=1)                # A–Z
-    story = models.PositiveSmallIntegerField()             # 1, 2, or 3
+    code = models.CharField(max_length=20, unique=True)   # e.g. A1, B2, Z3, AA1
+    letter = models.CharField(max_length=10)               # the row: A–Z, or a longer name added later (AA)
+    story = models.PositiveSmallIntegerField()             # the level within the row: 1, 2, 3…
 
     class Meta:
         ordering = ['letter', 'story']
@@ -459,6 +459,9 @@ class Container(models.Model):
     # The tracked B/L this container came in on, if the broker followed it on the Atlas.
     tracking = models.ForeignKey('ShipmentTracking', on_delete=models.SET_NULL, null=True, blank=True,
                                  related_name='containers', verbose_name='Tracked B/L')
+    # The CMS box at the HQ yard this manifest was added for; closing marks it Empty.
+    cms_container = models.OneToOneField('CmsContainer', on_delete=models.SET_NULL, null=True, blank=True,
+                                         related_name='warehouse_container', verbose_name='CMS container')
 
     class Meta:
         ordering = ['-created_at']
@@ -670,6 +673,7 @@ class Yard(models.Model):
     """A container yard on Upolu. The coordinates place its pin on the Ah Liki Atlas."""
     WHARF = 'WHARF'
     WHARF_NOTE = 'NOT YET RELEASED'
+    HQ = 'HQ-ALW-VAI'   # the warehouse yard — its boxes are unloaded through Warehouse → Containers
 
     code = models.CharField(max_length=40, unique=True, help_text='e.g. HQ-ALW-VAI')
     description = models.CharField(max_length=200, blank=True)
@@ -687,6 +691,8 @@ class Yard(models.Model):
 
 class ShippingLine(models.Model):
     """Who owns the box, and how many days after arrival it must be back at the wharf."""
+    AH_LIKI = 'ALW'   # Ah Liki's own boxes (freezers, storage) — never unloaded by the warehouse
+
     name = models.CharField(max_length=80, unique=True, verbose_name='Shipping name')
     return_days = models.PositiveIntegerField(null=True, blank=True,
                                               help_text='Days after arrival the container must be returned. '

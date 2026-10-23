@@ -38,7 +38,7 @@
   </div>
   <div style="display:flex;gap:8px">
     {% if perms.can_edit %}<a href="{% url 'container_edit' container.pk %}" class="btn btn-secondary">✏️ Edit manifest</a>{% endif %}
-    <a href="{% url 'container_list' %}" class="btn btn-secondary">← Containers</a>
+    <a href="{% url 'warehouse_container_list' %}" class="btn btn-secondary">← Containers</a>
   </div>
 </div>
 

@@ -1,4 +1,5 @@
 from django.urls import path
+from django.views.generic import RedirectView
 from . import views, cms_views
 
 urlpatterns = [
@@ -79,6 +80,8 @@ urlpatterns = [
     # WMS — Shelves
     path('wms/shelves/', views.shelf_list, name='shelf_list'),
     path('wms/shelves/qr-print/', views.shelf_qr_print, name='shelf_qr_print'),
+    path('wms/shelves/add/', views.shelf_add, name='shelf_add'),
+    path('wms/shelves/<str:shelf_code>/edit/', views.shelf_edit, name='shelf_edit'),
 
     # WMS — Check-In
     path('wms/checkin/', views.wms_checkin, name='wms_checkin'),
@@ -104,7 +107,8 @@ urlpatterns = [
     path('warehouse/dispatch/<int:pk>/edit/', views.dispatcher_edit_order, name='dispatcher_edit_order'),
 
     # Containers — Customs Broker
-    path('containers/', views.container_list, name='container_list'),
+    # The old broker list — containers are now worked from Warehouse → Containers.
+    path('containers/', RedirectView.as_view(pattern_name='warehouse_container_list'), name='container_list'),
     path('containers/new/', views.container_create, name='container_create'),
     path('containers/<int:pk>/', views.container_detail, name='container_detail'),
     path('containers/<int:pk>/edit/', views.container_edit, name='container_edit'),

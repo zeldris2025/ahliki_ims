@@ -129,6 +129,8 @@ else:
         'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
         'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage'},
     }
+    # LIVE_RELOAD (docker-compose.dev.yml): serve static/ as it is on disk, so CSS/JS edits show on refresh.
+    WHITENOISE_USE_FINDERS = WHITENOISE_AUTOREFRESH = env_bool('LIVE_RELOAD', DEBUG)
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/'

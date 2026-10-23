@@ -1,0 +1,11 @@
+# Live-reload mode — code, template and CSS changes show up without rebuilding. Run with:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# Rebuild (--build) only after changing requirements.txt or the Dockerfile. See DOCKER.md.
+services:
+  web:
+    environment:
+      LIVE_RELOAD: "1"
+    volumes:
+      # The project folder replaces the copy baked into the image.
+      - .:/app
+      - ./docker-data:/app/data

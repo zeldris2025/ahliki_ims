@@ -135,6 +135,41 @@ class TransferForm(forms.Form):
     notes = forms.CharField(required=False, widget=forms.Textarea(attrs={'rows': 2}))
 
 
+class ShelfAddForm(forms.Form):
+    """Admin: add a new row of shelves, or extra levels to an existing row."""
+    row = forms.RegexField(
+        regex=r'^[A-Za-z]{1,10}$', max_length=10, label='Row',
+        error_messages={'invalid': 'Use letters only, e.g. AA or COLD — the level number is added for you.'},
+        widget=forms.TextInput(attrs={'placeholder': 'e.g. AA', 'autocomplete': 'off'}),
+    )
+    levels = forms.IntegerField(min_value=1, max_value=20, initial=3, label='Levels',
+                                help_text='Creates levels 1 up to this number; existing ones are skipped.')
+
+    def clean_row(self):
+        return self.cleaned_data['row'].upper()
+
+
+class ShelfEditForm(forms.Form):
+    """Admin: move a shelf location to a different row / level (its code follows)."""
+    row = ShelfAddForm.base_fields['row']
+    level = forms.IntegerField(min_value=1, max_value=20, label='Level')
+
+    def __init__(self, *args, shelf=None, **kwargs):
+        self.shelf = shelf
+        super().__init__(*args, **kwargs)
+
+    def clean_row(self):
+        return self.cleaned_data['row'].upper()
+
+    def clean(self):
+        data = super().clean()
+        if 'row' in data and 'level' in data:
+            data['code'] = f"{data['row']}{data['level']}"
+            if ShelfLocation.objects.filter(code=data['code']).exclude(pk=self.shelf.pk).exists():
+                raise forms.ValidationError(f"Shelf {data['code']} already exists.")
+        return data
+
+
 class PalletEditForm(forms.ModelForm):
     class Meta:
         model = Pallet
@@ -185,7 +220,8 @@ class ContainerForm(forms.ModelForm):
         }
         labels = {'arrival_date': 'Wharf arrival date', 'tracking': 'Tracked B/L (auto-fills details)'}
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, cms_container=None, **kwargs):
+        self.cms_container = cms_container
         super().__init__(*args, **kwargs)
         self.fields['tracking'].queryset = ShipmentTracking.objects.order_by('-created_at')
         self.fields['tracking'].empty_label = '— not from a tracked B/L —'
@@ -200,6 +236,9 @@ class ContainerForm(forms.ModelForm):
         number = normalise(self.cleaned_data['container_number'])
         # Containers lodged before validation existed may be saved without a check digit;
         # only hold the broker to the standard when the number is new or being changed.
+        # A list added for a CMS box keeps the code the yard already knows it by.
+        if self.cms_container and number == normalise(self.cms_container.code):
+            return number
         if number != (self.instance.container_number or '').upper():
             number = validate_container_number(number)
         return number

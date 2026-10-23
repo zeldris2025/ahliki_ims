@@ -15,12 +15,13 @@ from django.utils import timezone
 from .models import (Product, Category, Supplier, GoodsReceivedNote, GRNItem,
                      StockMovement, Sale, SaleItem, StockAlert, PurchaseOrder, UserProfile,
                      Pallet, ShelfLocation, PalletLocation, DispatchComment,
-                     Container, ContainerItem, ContainerComment, ShipmentTracking)
+                     Container, ContainerItem, ContainerComment, ShipmentTracking,
+                     CmsContainer, ShippingLine, Yard)
 from .forms import (ProductForm, SupplierForm, CategoryForm, GRNForm, GRNItemFormSet,
                     SaleForm, SaleItemFormSet, StockAdjustForm,
                     PalletForm, CheckInForm, TransferForm, PalletEditForm,
                     ContainerForm, ContainerItemFormSet, ContainerCommentForm,
-                    ContainerPalletForm, ShipmentTrackingForm)
+                    ContainerPalletForm, ShipmentTrackingForm, ShelfAddForm, ShelfEditForm)
 from . import auto_refresh, terminal49
 
 
@@ -160,6 +161,9 @@ def dashboard(request):
 
 # ── PRODUCTS ──────────────────────────────────────────────────────────────────
 
+PRODUCTS_PER_PAGE = 50
+
+
 @login_required
 def product_list(request):
     q = request.GET.get('q', '')
@@ -170,9 +174,15 @@ def product_list(request):
     if category_id:
         products = products.filter(category_id=category_id)
     categories = Category.objects.all()
+    page = Paginator(with_stock(products).order_by('name', 'pk'), PRODUCTS_PER_PAGE).get_page(request.GET.get('page'))
     product_data = [{'product': p, 'stock': p.stock, 'low': p.stock <= p.reorder_level}
-                    for p in with_stock(products)]
-    return render(request, 'products/list.html', {'product_data': product_data, 'categories': categories, 'q': q, 'selected_cat': category_id})
+                    for p in page]
+    # Keep the search and category filter on the page links.
+    params = request.GET.copy()
+    params.pop('page', None)
+    return render(request, 'products/list.html', {'product_data': product_data, 'page': page,
+                                                  'query': params.urlencode(), 'categories': categories,
+                                                  'q': q, 'selected_cat': category_id})
 
 
 @login_required
@@ -520,7 +530,8 @@ def reports(request):
         amt = Sale.objects.filter(created_at__year=d.year, created_at__month=d.month).aggregate(t=Sum('total_amount'))['t'] or 0
         monthly.append({'month': d.strftime('%b %Y'), 'amount': float(amt)})
 
-    low_stock = products.filter(stock__lte=F('reorder_level'))
+    low_stock = Paginator(products.filter(stock__lte=F('reorder_level')).order_by('name', 'pk'),
+                          PRODUCTS_PER_PAGE).get_page(request.GET.get('low_page'))
     expiring_soon = GRNItem.objects.filter(
         expiry_date__lte=date.today() + timedelta(days=30),
         expiry_date__gte=date.today()
@@ -1332,13 +1343,76 @@ def shelf_list(request):
         letter = row['shelf'].letter
         shelf_by_letter.setdefault(letter, []).append(row)
 
-    return render(request, 'wms/shelf_list.html', {'shelf_data': shelf_data, 'shelf_by_letter': shelf_by_letter})
+    return render(request, 'wms/shelf_list.html', {'shelf_data': shelf_data, 'shelf_by_letter': shelf_by_letter,
+                                                   'add_form': ShelfAddForm(),
+                                                   'is_admin': _user_role(request.user) == 'admin'})
+
+
+@login_required
+@role_required('admin')
+def shelf_add(request):
+    """Admin adds a row of shelves (or more levels to a row); QR codes follow from the codes."""
+    if request.method != 'POST':
+        return redirect('shelf_list')
+    form = ShelfAddForm(request.POST)
+    if not form.is_valid():
+        for errors in form.errors.values():
+            messages.error(request, ' '.join(errors))
+        return redirect('shelf_list')
+    row, levels = form.cleaned_data['row'], form.cleaned_data['levels']
+    created = [code for code in (f'{row}{n}' for n in range(1, levels + 1))
+               if ShelfLocation.objects.get_or_create(
+                   code=code, defaults={'letter': row, 'story': int(code[len(row):])})[1]]
+    if created:
+        messages.success(request, f"Added {', '.join(created)}. Print their QR codes from Row {row}.")
+    else:
+        messages.info(request, f'Row {row} already has levels 1–{levels} — nothing added.')
+    return redirect(f"{reverse('shelf_list')}#row-{row}")
+
+
+@login_required
+@role_required('admin')
+def shelf_edit(request, shelf_code):
+    """Admin renames a shelf location, or deletes one that has never held a pallet."""
+    shelf = get_object_or_404(ShelfLocation, code=shelf_code.upper())
+    # Deleting would cascade away pallet location history, so only never-used shelves can go.
+    used = shelf.pallet_assignments.exists()
+
+    if request.method == 'POST' and 'delete' in request.POST:
+        if used:
+            messages.error(request, f'Shelf {shelf.code} has held pallets, so it cannot be deleted — rename it instead.')
+            return redirect('shelf_edit', shelf_code=shelf.code)
+        shelf.delete()
+        messages.success(request, f'Shelf {shelf.code} deleted. Remove its QR label from the racking.')
+        return redirect(f"{reverse('shelf_list')}#row-{shelf.letter}")
+
+    form = ShelfEditForm(request.POST or None, shelf=shelf,
+                         initial={'row': shelf.letter, 'level': shelf.story})
+    if request.method == 'POST' and form.is_valid():
+        old = shelf.code
+        shelf.code, shelf.letter, shelf.story = (form.cleaned_data['code'], form.cleaned_data['row'],
+                                                 form.cleaned_data['level'])
+        shelf.save()
+        if shelf.code != old:
+            messages.success(request, f'Shelf {old} is now {shelf.code}. Reprint its QR label — the old one '
+                                      f'still points to {old}.')
+        return redirect(f"{reverse('shelf_list')}#row-{shelf.letter}")
+
+    return render(request, 'wms/shelf_edit.html', {
+        'shelf': shelf, 'form': form, 'used': used,
+        'pallets': Pallet.objects.filter(location_history__shelf=shelf, location_history__is_current=True)
+                                 .select_related('product'),
+    })
 
 
 @login_required
 @role_required('admin', 'manager', 'warehouse', 'wms_operator')
 def shelf_qr_print(request):
     shelves = ShelfLocation.objects.all()
+    # ?row=AA prints just that row — handy after adding new shelves.
+    row = request.GET.get('row', '').upper()
+    if row:
+        shelves = shelves.filter(letter=row)
     return render(request, 'wms/shelf_qr_print.html', {'shelves': shelves})
 
 
@@ -1687,6 +1761,13 @@ def _edit_order_rows(invoice):
 
 # The customs broker now works in the CMS (cms_views.py); manifests are lodged from the warehouse side.
 BROKER_ROLES = ('admin', 'manager', 'warehouse')
+CONTAINERS_PER_PAGE = 20
+
+
+def hq_cms_containers():
+    """CMS boxes at the HQ yard that the warehouse unloads — not Ah Liki's own, not yet emptied."""
+    return (CmsContainer.objects.filter(yard__code=Yard.HQ, returned=False)
+            .exclude(owner__name=ShippingLine.AH_LIKI).exclude(status=CmsContainer.STATUS_EMPTY))
 CONTAINER_WAREHOUSE_ROLES = ('admin', 'manager', 'warehouse', 'wms_operator')
 CONTAINER_VIEW_ROLES = ('admin', 'manager', 'warehouse', 'wms_operator')
 
@@ -1752,18 +1833,24 @@ def container_list(request):
 @role_required(*BROKER_ROLES)
 def container_create(request):
     """Customs broker lodges a container sitting at the wharf, with its manifest —
-    or adds a new supplier (second tab) which is then pre-selected on the container."""
+    or adds a new supplier (second tab) which is then pre-selected on the container.
+    With ?cms=<id>, Inventory adds the list for a box already at the HQ yard instead."""
+    cms = _cms_from_request(request)
+    if cms and hasattr(cms, 'warehouse_container'):
+        return redirect('container_edit', pk=cms.warehouse_container.pk)
+
     if request.method == 'POST' and 'add_supplier' in request.POST:
         supplier_form = SupplierForm(request.POST, prefix='sup')
         if supplier_form.is_valid():
             supplier = supplier_form.save()
             messages.success(request, f'Supplier {supplier.name} added — now lodge their container.')
-            return redirect(f"{reverse('container_create')}?supplier={supplier.pk}")
+            return redirect(f"{reverse('container_create')}?supplier={supplier.pk}"
+                            + (f"&cms={cms.pk}" if cms else ''))
         return render(request, 'containers/form.html', _container_form_context(
-            ContainerForm(initial=_container_initial(request)), ContainerItemFormSet(), None,
+            ContainerForm(initial=_container_initial(request), cms_container=cms), ContainerItemFormSet(), None,
             supplier_form=supplier_form, active_tab='supplier'))
 
-    form = ContainerForm(request.POST or None, initial=_container_initial(request))
+    form = ContainerForm(request.POST or None, initial=_container_initial(request), cms_container=cms)
     formset = ContainerItemFormSet(request.POST or None)
     if request.method == 'POST':
         if form.is_valid() and formset.is_valid():
@@ -1777,6 +1864,12 @@ def container_create(request):
                     container = form.save(commit=False)
                     container.created_by = request.user
                     container.status = Container.STATUS_AT_WHARF
+                    if cms:
+                        # Already sitting at the HQ yard — ready to open as soon as the list is in.
+                        container.cms_container = cms
+                        container.status = Container.STATUS_CHECKED_IN
+                        container.checked_in_by = request.user
+                        container.checked_in_at = timezone.now()
                     container.save()
                     formset.instance = container
                     formset.save()
@@ -1785,9 +1878,10 @@ def container_create(request):
                     if tracking and not tracking.arrived_at:
                         tracking.arrived_at = timezone.now()
                         tracking.save(update_fields=['arrived_at'])
+                where = 'added at HQ, ready to open,' if cms else 'lodged at the wharf'
                 messages.success(
                     request,
-                    f'Container {container.container_number} lodged at the wharf with '
+                    f'Container {container.container_number} {where} with '
                     f'{container.items.count()} line(s).')
                 return redirect('container_detail', pk=container.pk)
     return render(request, 'containers/form.html', _container_form_context(form, formset, None))
@@ -1804,8 +1898,20 @@ def _container_initial(request):
     supplier_id = request.GET.get('supplier', '')
     if supplier_id.isdigit() and Supplier.objects.filter(pk=supplier_id).exists():
         initial['supplier'] = supplier_id
+    cms = _cms_from_request(request)
+    if cms:
+        initial.update(container_number=cms.code, vessel=cms.vessel_voyage, arrival_date=cms.arrival_date,
+                       notes=cms.description)
     initial.pop('container_numbers', None)
     return {k: v for k, v in initial.items() if v not in ('', None)}
+
+
+def _cms_from_request(request):
+    """The HQ-yard CMS box named by ?cms=<id>, if any."""
+    cms_id = request.GET.get('cms', '')
+    if not cms_id.isdigit():
+        return None
+    return hq_cms_containers().filter(pk=cms_id).first()
 
 
 def _tracking_autofill(tracking):
@@ -1893,17 +1999,39 @@ def container_detail(request, pk):
 @login_required
 @role_required(*CONTAINER_WAREHOUSE_ROLES)
 def warehouse_container_list(request):
-    """Warehouse 'Containers' tab — check in containers arriving from the wharf."""
+    """Warehouse 'Containers' tab — boxes at the HQ yard, then opening, palletizing and closing."""
     containers = Container.objects.select_related('supplier', 'container_type', 'created_by', 'checked_in_by') \
         .prefetch_related('items')
-    return render(request, 'warehouse/container_list.html', {
-        'awaiting_checkin': containers.filter(status=Container.STATUS_AT_WHARF),
-        'at_hq': containers.filter(status=Container.STATUS_CHECKED_IN),
-        'open_containers': containers.filter(
-            status__in=[Container.STATUS_OPENED, Container.STATUS_PALLETIZED]),
-        'closed': containers.filter(status=Container.STATUS_CLOSED),
-        'today': date.today(),
-    })
+    # A box leaves 'At HQ' once it is opened; until then it waits for Inventory's list, then for opening.
+    at_hq = hq_cms_containers().select_related('owner', 'warehouse_container') \
+        .exclude(warehouse_container__status__in=[Container.STATUS_OPENED, Container.STATUS_PALLETIZED,
+                                                  Container.STATUS_CLOSED]) \
+        .annotate(lines=Count('warehouse_container__items')).order_by('arrival_date', 'code')
+    owners = ShippingLine.objects.filter(pk__in=hq_cms_containers().values('owner'))
+    q = request.GET.get('q', '').strip()
+    owner = request.GET.get('owner', '')
+    if q:
+        at_hq = at_hq.filter(Q(code__icontains=q) | Q(description__icontains=q))
+        containers = containers.filter(Q(container_number__icontains=q) | Q(notes__icontains=q)
+                                       | Q(cms_container__description__icontains=q))
+    if owner.isdigit():
+        at_hq = at_hq.filter(owner_id=owner)
+        containers = containers.filter(cms_container__owner_id=owner)
+    tabs = {
+        'at_hq': ('hq_page', at_hq),
+        'open_containers': ('open_page', containers.filter(
+            status__in=[Container.STATUS_OPENED, Container.STATUS_PALLETIZED])),
+        'closed': ('closed_page', containers.filter(status=Container.STATUS_CLOSED)),
+    }
+    context = {'can_add_list': _user_role(request.user) in BROKER_ROLES, 'today': date.today(),
+               'owners': owners, 'q': q, 'selected_owner': owner}
+    # Each tab pages on its own; its links keep the other tabs' pages.
+    for name, (param, qs) in tabs.items():
+        params = request.GET.copy()
+        params.pop(param, None)
+        context[name] = Paginator(qs, CONTAINERS_PER_PAGE).get_page(request.GET.get(param))
+        context[f'{name}_pager'] = {'param': param, 'query': params.urlencode()}
+    return render(request, 'warehouse/container_list.html', context)
 
 
 @login_required
@@ -2054,10 +2182,15 @@ def container_close(request, pk):
             is_damage=bool(request.POST.get('closing_is_damage')),
         )
 
-    container.status = Container.STATUS_CLOSED
-    container.closed_by = request.user
-    container.closed_at = timezone.now()
-    container.save(update_fields=['status', 'closed_by', 'closed_at'])
+    with transaction.atomic():
+        container.status = Container.STATUS_CLOSED
+        container.closed_by = request.user
+        container.closed_at = timezone.now()
+        container.save(update_fields=['status', 'closed_by', 'closed_at'])
+        # Unloaded — the broker now sees the box as Empty, ready to go back.
+        if container.cms_container:
+            container.cms_container.status = CmsContainer.STATUS_EMPTY
+            container.cms_container.save()
     messages.success(request, f'Container {container.container_number} closed.')
     return redirect('container_detail', pk=pk)
 

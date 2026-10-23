@@ -18,97 +18,80 @@
 <div class="page-header">
   <div>
     <h1>Containers</h1>
-    <p>Check in containers arriving from the wharf, open them, and palletize the contents.</p>
+    <p>Containers at the HQ yard (HQ-ALW-VAI) — open them once Inventory has added the list, then palletize the contents.</p>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     <a href="{% url 'warehouse_dispatch_list' %}" class="btn btn-secondary">🚚 Dispatch Orders</a>
-    {% if request.user|user_role != 'wms_operator' %}<a href="{% url 'container_create' %}" class="btn btn-primary">➕ Lodge manifest</a>{% endif %}
   </div>
 </div>
+
+<!-- Filters — apply to every tab -->
+<form method="get" class="search-bar" style="margin-bottom:16px">
+  <input type="text" name="q" value="{{ q }}" placeholder="Search container code or description…">
+  <select name="owner" onchange="this.form.submit()">
+    <option value="">All owners</option>
+    {% for o in owners %}<option value="{{ o.pk }}" {% if selected_owner == o.pk|stringformat:"s" %}selected{% endif %}>{{ o.name }}</option>{% endfor %}
+  </select>
+  <button type="submit" class="btn btn-secondary">Search</button>
+  {% if q or selected_owner %}<a href="{% url 'warehouse_container_list' %}" class="btn btn-secondary">✕ Clear</a>{% endif %}
+</form>
 
 <!-- Tab bar -->
 <div style="display:flex;gap:0;border-bottom:2px solid var(--gray-200);margin-bottom:24px;overflow-x:auto">
-  <button class="wtab-btn" data-tab="await" onclick="switchWTab('await')">
-    🚢 Awaiting Check-In <span class="badge badge-amber" style="margin-left:6px">{{ awaiting_checkin.count }}</span>
-  </button>
   <button class="wtab-btn" data-tab="hq" onclick="switchWTab('hq')">
-    🏢 At HQ <span class="badge badge-blue" style="margin-left:6px">{{ at_hq.count }}</span>
+    🏢 At HQ <span class="badge badge-blue" style="margin-left:6px">{{ at_hq.paginator.count }}</span>
   </button>
   <button class="wtab-btn" data-tab="open" onclick="switchWTab('open')">
-    📂 Open / Unloading <span class="badge badge-blue" style="margin-left:6px">{{ open_containers.count }}</span>
+    📂 Open / Unloading <span class="badge badge-blue" style="margin-left:6px">{{ open_containers.paginator.count }}</span>
   </button>
   <button class="wtab-btn" data-tab="closed" onclick="switchWTab('closed')">
-    ✅ Closed <span class="badge badge-green" style="margin-left:6px">{{ closed.count }}</span>
+    ✅ Closed <span class="badge badge-green" style="margin-left:6px">{{ closed.paginator.count }}</span>
   </button>
 </div>
 
-<!-- ── AWAITING CHECK-IN ── -->
-<div class="wtab-panel" data-tab="await">
-  <div class="card">
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr><th>Container #</th><th>Supplier</th><th>Vessel</th><th>Lines</th><th>Units</th><th>Arrived at wharf</th><th>Lodged by</th><th></th></tr>
-        </thead>
-        <tbody>
-        {% for c in awaiting_checkin %}
-          <tr>
-            <td><strong>{{ c.container_number }}</strong></td>
-            <td>{{ c.supplier.name|default:"—" }}</td>
-            <td style="font-size:12px">{{ c.vessel|default:"—" }}</td>
-            <td>{{ c.items.count }}</td>
-            <td>{{ c.total_quantity }}</td>
-            <td style="font-size:12px">{{ c.arrival_date|date:"d M Y"|default:"—" }}</td>
-            <td style="font-size:12px">{{ c.created_by.get_full_name|default:c.created_by.username|default:"—" }}</td>
-            <td style="display:flex;gap:6px;align-items:center">
-              <form method="post" action="{% url 'container_check_in' c.pk %}" style="margin:0">
-                {% csrf_token %}
-                <button type="submit" class="btn btn-primary btn-sm">📥 Check In</button>
-              </form>
-              <a href="{% url 'container_detail' c.pk %}" class="btn btn-secondary btn-sm">View</a>
-            </td>
-          </tr>
-        {% empty %}
-          <tr><td colspan="8" style="text-align:center;color:var(--gray-400);padding:26px">No containers waiting at the wharf.</td></tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<!-- ── AT HQ (checked in, not yet opened) ── -->
+<!-- ── AT HQ (CMS boxes at HQ-ALW-VAI, not yet opened) ── -->
 <div class="wtab-panel" data-tab="hq">
   <div class="card">
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>Container #</th><th>Supplier</th><th>Lines</th><th>Units</th><th>Checked in</th><th>By</th><th></th></tr>
+          <tr><th>Container #</th><th>Owner</th><th>Description</th><th>Status</th><th>Arrived</th><th>List</th><th></th></tr>
         </thead>
         <tbody>
         {% for c in at_hq %}
+          {% with wc=c.warehouse_container %}
           <tr>
-            <td><strong>{{ c.container_number }}</strong></td>
-            <td>{{ c.supplier.name|default:"—" }}</td>
-            <td>{{ c.items.count }}</td>
-            <td>{{ c.total_quantity }}</td>
-            <td style="font-size:12px">{{ c.checked_in_at|date:"d M Y H:i" }}</td>
-            <td style="font-size:12px">{{ c.checked_in_by.get_full_name|default:c.checked_in_by.username|default:"—" }}</td>
+            <td><strong>{{ c.code }}</strong></td>
+            <td>{{ c.owner.name }}</td>
+            <td style="font-size:12px;max-width:280px">{{ c.description|default:"—" }}</td>
+            <td><span class="badge {% if c.status == 'full' %}badge-blue{% else %}badge-amber{% endif %}">{{ c.get_status_display }}</span></td>
+            <td style="font-size:12px">{{ c.arrival_date|date:"d M Y"|default:"—" }}</td>
+            <td>
+              {% if c.lines %}{{ c.lines }} line{{ c.lines|pluralize }}
+              {% else %}<span style="font-size:12px;color:var(--gray-500)">⏳ Waiting for Inventory to add the list</span>{% endif %}
+            </td>
             <td style="display:flex;gap:6px;align-items:center">
-              <form method="post" action="{% url 'container_open' c.pk %}" style="margin:0"
-                    onsubmit="return confirm('Open {{ c.container_number }}? This raises a GRN and puts the full manifest on hand as stock.');">
-                {% csrf_token %}
-                <button type="submit" class="btn btn-primary btn-sm">📂 Open</button>
-              </form>
-              <a href="{% url 'container_detail' c.pk %}" class="btn btn-secondary btn-sm">View</a>
+              {% if c.lines %}
+                <form method="post" action="{% url 'container_open' wc.pk %}" style="margin:0"
+                      onsubmit="return confirm('Open {{ c.code }}? This raises a GRN and puts the full list on hand as stock.');">
+                  {% csrf_token %}
+                  <button type="submit" class="btn btn-primary btn-sm">📂 Open</button>
+                </form>
+                <a href="{% url 'container_detail' wc.pk %}" class="btn btn-secondary btn-sm">View</a>
+              {% elif can_add_list %}
+                <a href="{% if wc %}{% url 'container_edit' wc.pk %}{% else %}{% url 'container_create' %}?cms={{ c.pk }}{% endif %}"
+                   class="btn btn-secondary btn-sm">➕ Add list</a>
+              {% endif %}
             </td>
           </tr>
+          {% endwith %}
         {% empty %}
-          <tr><td colspan="7" style="text-align:center;color:var(--gray-400);padding:26px">No containers checked in at HQ.</td></tr>
+          <tr><td colspan="7" style="text-align:center;color:var(--gray-400);padding:26px">No containers at HQ-ALW-VAI.</td></tr>
         {% endfor %}
         </tbody>
       </table>
     </div>
+    {% include 'warehouse/_pager.html' with page=at_hq pager=at_hq_pager %}
   </div>
 </div>
 
@@ -138,6 +121,7 @@
         </tbody>
       </table>
     </div>
+    {% include 'warehouse/_pager.html' with page=open_containers pager=open_containers_pager %}
   </div>
 </div>
 
@@ -167,6 +151,7 @@
         </tbody>
       </table>
     </div>
+    {% include 'warehouse/_pager.html' with page=closed pager=closed_pager %}
   </div>
 </div>
 
@@ -180,9 +165,9 @@ function switchWTab(tab) {
   try { localStorage.setItem('whContainerTab', tab); } catch (e) {}
 }
 (function () {
-  let tab = 'await';
-  try { tab = localStorage.getItem('whContainerTab') || 'await'; } catch (e) {}
-  if (!document.querySelector('.wtab-btn[data-tab="' + tab + '"]')) tab = 'await';
+  let tab = 'hq';
+  try { tab = localStorage.getItem('whContainerTab') || 'hq'; } catch (e) {}
+  if (!document.querySelector('.wtab-btn[data-tab="' + tab + '"]')) tab = 'hq';
   switchWTab(tab);
 })();
 </script>

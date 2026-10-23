@@ -39,7 +39,7 @@
     <h1>{% if container %}Edit Container {{ container.container_number }}{% else %}New Container / Supplier{% endif %}</h1>
     <p>{% if container %}Record the container and everything inside it, straight off the manifest.{% else %}Lodge a container at the wharf — pick a tracked B/L or supplier and the details fill themselves in.{% endif %}</p>
   </div>
-  <a href="{% if container %}{% url 'container_detail' container.pk %}{% else %}{% url 'container_list' %}{% endif %}" class="btn btn-secondary">← Back</a>
+  <a href="{% if container %}{% url 'container_detail' container.pk %}{% else %}{% url 'warehouse_container_list' %}{% endif %}" class="btn btn-secondary">← Back</a>
 </div>
 
 {% if form.non_field_errors or formset.non_form_errors %}
@@ -126,7 +126,7 @@
     <button type="submit" class="btn btn-primary" style="min-height:46px;padding:12px 24px;font-size:15px;font-weight:700">
       {% if container %}💾 Save Changes{% else %}✅ Lodge Container{% endif %}
     </button>
-    <a href="{% if container %}{% url 'container_detail' container.pk %}{% else %}{% url 'container_list' %}{% endif %}"
+    <a href="{% if container %}{% url 'container_detail' container.pk %}{% else %}{% url 'warehouse_container_list' %}{% endif %}"
        class="btn btn-secondary" style="min-height:46px;display:flex;align-items:center">Cancel</a>
   </div>
 </form>

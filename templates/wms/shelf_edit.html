@@ -1,0 +1,68 @@
+{% extends 'base.html' %}
+{% block title %}Edit Shelf {{ shelf.code }} — Ahliki WMS{% endblock %}
+{% block topbar_title %}✏️ Edit Shelf{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Edit Shelf {{ shelf.code }}</h1>
+    <p>Move this location to a different row or level. Its code — and QR code — change with it.</p>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <a href="{% url 'shelf_qr_print' %}?row={{ shelf.letter }}" class="btn btn-secondary">🖨 Print QR</a>
+    <a href="{% url 'shelf_list' %}#row-{{ shelf.letter }}" class="btn btn-secondary">← Shelves</a>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <div class="card-header"><h2>Location</h2></div>
+  <div class="card-body">
+    {% if form.non_field_errors %}<div class="alert alert-danger">{{ form.non_field_errors|join:" " }}</div>{% endif %}
+    <form method="post" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+      {% csrf_token %}
+      <div class="form-group" style="margin:0">
+        <label for="id_row">{{ form.row.label }}</label>
+        {{ form.row }}
+        {% for e in form.row.errors %}<div style="color:#dc2626;font-size:12px">{{ e }}</div>{% endfor %}
+      </div>
+      <div class="form-group" style="margin:0;width:110px">
+        <label for="id_level">{{ form.level.label }}</label>
+        {{ form.level }}
+        {% for e in form.level.errors %}<div style="color:#dc2626;font-size:12px">{{ e }}</div>{% endfor %}
+      </div>
+      <button type="submit" class="btn btn-primary">💾 Save</button>
+    </form>
+    <p style="font-size:12px;color:var(--gray-500);margin-top:8px">
+      ⚠️ After changing the row or level, reprint this shelf's QR label — the old label still opens {{ shelf.code }}.
+      Pallets on this shelf stay on it and show under the new code.
+    </p>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <div class="card-header"><h2>Pallets on {{ shelf.code }} ({{ pallets|length }})</h2></div>
+  <div class="card-body" style="font-size:13px">
+    {% for p in pallets %}
+      <div><strong>{{ p.lot_number }}</strong> — {{ p.product.name }} ({{ p.quantity }})</div>
+    {% empty %}
+      <span style="color:var(--gray-400)">Empty</span>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="card" style="border-left:4px solid #dc2626">
+  <div class="card-header"><h2>Delete shelf</h2></div>
+  <div class="card-body">
+    {% if used %}
+      <p style="font-size:13px;color:var(--gray-500)">
+        {{ shelf.code }} has held pallets, so it can't be deleted — its pallet history would be lost. Rename it instead.
+      </p>
+    {% else %}
+      <form method="post" onsubmit="return confirm('Delete shelf {{ shelf.code }}? This cannot be undone.');">
+        {% csrf_token %}
+        <button type="submit" name="delete" value="1" class="btn" style="background:#dc2626;color:#fff">🗑 Delete {{ shelf.code }}</button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
