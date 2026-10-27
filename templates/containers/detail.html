@@ -105,6 +105,16 @@
     🔒 Close Container
   </button>
   {% endif %}
+
+  {% if perms.can_reopen %}
+  <form method="post" action="{% url 'container_reopen' container.pk %}" style="display:inline">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary" style="padding:12px 26px;font-size:15px;font-weight:700"
+      onclick="return confirm('Re-open {{ container.container_number }} to palletize the {{ container.remaining_quantity }} unit{{ container.remaining_quantity|pluralize }} left inside?')">
+      🔓 Re-open Container
+    </button>
+  </form>
+  {% endif %}
 </div>
 
 <!-- Manifest -->
@@ -212,9 +222,18 @@
 <div class="card" id="closeBox" style="margin-top:16px;border-left:4px solid var(--green-dark)">
   <div class="card-header"><h2>Close Container</h2></div>
   <div class="card-body">
+    {% with left=container.remaining_quantity %}
+    {% if left %}
+    <div class="alert alert-warning" style="margin-bottom:12px">
+      ⚠️ {{ left }} unit{{ left|pluralize }} {{ left|pluralize:"is,are" }} still inside. You can close it now and set it aside —
+      it will be listed under <strong>Closed</strong> with the products left, and you can re-open it later to finish palletizing.
+    </div>
+    {% else %}
     <p style="font-size:13px;color:var(--gray-500);margin-bottom:12px">
       Everything is out and palletized. Add a final note if anything came out broken or short, then close the container.
     </p>
+    {% endif %}
+    {% endwith %}
     <form method="post" action="{% url 'container_close' container.pk %}">
       {% csrf_token %}
       <div class="form-group">
@@ -227,15 +246,16 @@
         <input type="checkbox" name="closing_is_damage" value="1"> Flag this note as a damaged / broken goods report
       </label>
       <button type="submit" class="btn btn-primary" style="background:var(--green-dark);padding:12px 26px;font-size:15px;font-weight:700"
-        onclick="return confirm('Close {{ container.container_number }}? No further comments can be added afterwards.')">
+        onclick="return confirm('Close {{ container.container_number }}?{% if container.remaining_quantity %} {{ container.remaining_quantity }} unit{{ container.remaining_quantity|pluralize }} will stay inside until it is re-opened.{% else %} No further comments can be added afterwards.{% endif %}')">
         🔒 Close Container
       </button>
     </form>
   </div>
 </div>
-{% elif container.status == 'opened' %}
-<div class="alert alert-info" style="margin-top:16px">
-  ℹ️ {{ container.remaining_quantity }} unit{{ container.remaining_quantity|pluralize }} still to palletize before this container can be closed.
+{% elif perms.can_reopen %}
+<div class="alert alert-warning" style="margin-top:16px">
+  📦 Closed with {{ container.remaining_quantity }} unit{{ container.remaining_quantity|pluralize }} still inside.
+  Re-open it to palletize the rest.
 </div>
 {% endif %}
 

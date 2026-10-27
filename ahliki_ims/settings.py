@@ -37,6 +37,10 @@ if not ALLOWED_HOSTS:
     ALLOWED_HOSTS = ['*']
 # Full origins the site is opened from, e.g. http://10.10.8.49:8080 — needed for logins/forms behind a port map.
 CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_TRUSTED_ORIGINS') + [f'https://{h}' for h in AZURE_HOSTS]
+# Address printed into shelf QR codes, so a scan opens the public site whichever address the labels
+# were printed from. Defaults to the Azure address on Azure; blank means "the address in use".
+QR_BASE_URL = (os.environ.get('QR_BASE_URL', '')
+               or (f'https://{AZURE_HOSTS[0]}' if AZURE_HOSTS else '')).rstrip('/')
 
 # HTTPS. Azure ends TLS in front of the app and passes the original scheme in X-Forwarded-Proto.
 # On by default on Azure; the office Docker install stays on plain http unless DJANGO_HTTPS=true.
@@ -142,6 +146,29 @@ LOGOUT_REDIRECT_URL = '/login/'
 TERMINAL49_API_KEY = os.environ.get('TERMINAL49_API_KEY', '')
 # Re-sync tracked B/Ls still on the water this often (hours); 0 turns the background refresher off.
 TRACKING_AUTO_REFRESH_HOURS = float(os.environ.get('TRACKING_AUTO_REFRESH_HOURS', 4))
+
+# Email through Office 365 (Microsoft Graph, OAuth client credentials — see AZURE.md, "Email (Office 365)").
+# Until the tenant/client ID and secret are set, emails are printed to the console instead of sent.
+MS_GRAPH_TENANT_ID = os.environ.get('MS_GRAPH_TENANT_ID', '')
+MS_GRAPH_CLIENT_ID = os.environ.get('MS_GRAPH_CLIENT_ID', '')
+MS_GRAPH_CLIENT_SECRET = os.environ.get('MS_GRAPH_CLIENT_SECRET', '')
+# The Office 365 mailbox that sends, e.g. ims@ahliki.ws. Defaults to the address in DEFAULT_FROM_EMAIL.
+MS_GRAPH_SENDER = os.environ.get('MS_GRAPH_SENDER', '')
+MS_GRAPH_SAVE_TO_SENT = env_bool('MS_GRAPH_SAVE_TO_SENT', True)
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', MS_GRAPH_SENDER or 'webmaster@localhost')
+SERVER_EMAIL = os.environ.get('SERVER_EMAIL', DEFAULT_FROM_EMAIL)
+EMAIL_TIMEOUT = int(os.environ.get('EMAIL_TIMEOUT', 30))
+EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND') or (
+    'ahliki_ims.mail.GraphEmailBackend'
+    if MS_GRAPH_TENANT_ID and MS_GRAPH_CLIENT_ID and MS_GRAPH_CLIENT_SECRET
+    else 'django.core.mail.backends.console.EmailBackend')
+
+# Public address of the site, used for links in emails. Defaults to the QR address (the Azure address).
+SITE_URL = (os.environ.get('SITE_URL', '') or QR_BASE_URL).rstrip('/')
+
+# Daily container report email (inventory/scheduler.py). Time is Apia time, 24-hour; blank turns it off.
+CONTAINER_REPORT_TIME = os.environ.get('CONTAINER_REPORT_TIME', '07:00').strip()
+CONTAINER_REPORT_RECIPIENTS = env_list('CONTAINER_REPORT_RECIPIENTS')
 
 # Errors and warnings go to the console, which is what Azure's log stream shows.
 LOGGING = {

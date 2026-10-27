@@ -3,12 +3,14 @@ import json
 from datetime import date, timedelta
 from django.shortcuts import render, get_object_or_404, redirect
 from django.urls import reverse
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Sum, Count, Min, Q, F, Case, When, Value, IntegerField, DecimalField
-from django.db.models.functions import Coalesce
+from django.db.models import Sum, Count, Min, Q, F, Case, When, Value, IntegerField, DecimalField, OuterRef, Subquery
+from django.db.models.functions import Coalesce, Greatest
+from django.template.defaultfilters import pluralize
 from django.http import JsonResponse, HttpResponse
 from django.utils import timezone
 
@@ -1413,7 +1415,8 @@ def shelf_qr_print(request):
     row = request.GET.get('row', '').upper()
     if row:
         shelves = shelves.filter(letter=row)
-    return render(request, 'wms/shelf_qr_print.html', {'shelves': shelves})
+    base_url = settings.QR_BASE_URL or f'{request.scheme}://{request.get_host()}'
+    return render(request, 'wms/shelf_qr_print.html', {'shelves': shelves, 'base_url': base_url})
 
 
 # ── WMS: CHECK-IN ─────────────────────────────────────────────────────────────
@@ -1790,7 +1793,9 @@ def _container_permissions(user, container):
         'can_open': is_warehouse and container.status == Container.STATUS_CHECKED_IN,
         'can_palletize': is_warehouse and container.status in (
             Container.STATUS_OPENED, Container.STATUS_PALLETIZED),
-        'can_close': is_warehouse and container.status == Container.STATUS_PALLETIZED,
+        # A box can be closed before everything is palletized and set aside; it is re-opened later.
+        'can_close': is_warehouse and container.status in (Container.STATUS_OPENED, Container.STATUS_PALLETIZED),
+        'can_reopen': is_warehouse and container.status == Container.STATUS_CLOSED and container.remaining_quantity > 0,
         'can_comment': (is_warehouse or is_broker) and container.status != Container.STATUS_CLOSED,
     }
 
@@ -1996,6 +2001,18 @@ def container_detail(request, pk):
     })
 
 
+def _with_units_left(containers):
+    """Annotate units_left: manifest units not yet built into pallets."""
+    def total(qs):
+        return Subquery(qs.values('container').annotate(t=Sum('quantity')).values('t')[:1])
+    return containers.annotate(
+        units_total=Coalesce(total(ContainerItem.objects.filter(container=OuterRef('pk'))), 0),
+        units_palletized=Coalesce(Subquery(
+            Pallet.objects.filter(container_item__container=OuterRef('pk')).values('container_item__container')
+            .annotate(t=Sum('quantity')).values('t')[:1]), 0),
+    ).annotate(units_left=Greatest(F('units_total') - F('units_palletized'), 0))
+
+
 @login_required
 @role_required(*CONTAINER_WAREHOUSE_ROLES)
 def warehouse_container_list(request):
@@ -2021,7 +2038,10 @@ def warehouse_container_list(request):
         'at_hq': ('hq_page', at_hq),
         'open_containers': ('open_page', containers.filter(
             status__in=[Container.STATUS_OPENED, Container.STATUS_PALLETIZED])),
-        'closed': ('closed_page', containers.filter(status=Container.STATUS_CLOSED)),
+        # Boxes closed with products still inside come first, most left first; then the empty ones.
+        'closed': ('closed_page', _with_units_left(containers.filter(status=Container.STATUS_CLOSED))
+                   .order_by(Case(When(units_left__gt=0, then=Value(0)), default=Value(1)),
+                             '-units_left', '-closed_at')),
     }
     context = {'can_add_list': _user_role(request.user) in BROKER_ROLES, 'today': date.today(),
                'owners': owners, 'q': q, 'selected_owner': owner}
@@ -2156,7 +2176,7 @@ def container_palletize(request, pk, item_pk):
 @login_required
 @role_required(*CONTAINER_WAREHOUSE_ROLES)
 def container_close(request, pk):
-    """Close the container once everything is out and palletized."""
+    """Close the container. Anything not yet palletized stays inside, set aside to re-open later."""
     container = get_object_or_404(Container, pk=pk)
     if request.method != 'POST':
         return redirect('container_detail', pk=pk)
@@ -2165,11 +2185,8 @@ def container_close(request, pk):
     if container.status == Container.STATUS_CLOSED:
         messages.warning(request, f'Container {container.container_number} is already closed.')
         return redirect('container_detail', pk=pk)
-    if container.status != Container.STATUS_PALLETIZED:
-        messages.error(
-            request,
-            f'Container {container.container_number} still has {container.remaining_quantity} '
-            f'unit(s) to palletize before it can be closed.')
+    if container.status not in (Container.STATUS_OPENED, Container.STATUS_PALLETIZED):
+        messages.error(request, f'Open container {container.container_number} before closing it.')
         return redirect('container_detail', pk=pk)
 
     # A closing note is optional, but capture it as a comment when supplied.
@@ -2182,16 +2199,42 @@ def container_close(request, pk):
             is_damage=bool(request.POST.get('closing_is_damage')),
         )
 
+    left = container.remaining_quantity
     with transaction.atomic():
         container.status = Container.STATUS_CLOSED
         container.closed_by = request.user
         container.closed_at = timezone.now()
         container.save(update_fields=['status', 'closed_by', 'closed_at'])
         # Unloaded — the broker now sees the box as Empty, ready to go back.
-        if container.cms_container:
+        # With products still inside it stays as it is until it is re-opened and emptied.
+        if container.cms_container and not left:
             container.cms_container.status = CmsContainer.STATUS_EMPTY
             container.cms_container.save()
-    messages.success(request, f'Container {container.container_number} closed.')
+    if left:
+        messages.success(request, f'Container {container.container_number} closed with {left} unit{pluralize(left)} '
+                                  f'still inside. Re-open it from the Closed tab to finish palletizing.')
+    else:
+        messages.success(request, f'Container {container.container_number} closed.')
+    return redirect('container_detail', pk=pk)
+
+
+@login_required
+@role_required(*CONTAINER_WAREHOUSE_ROLES)
+def container_reopen(request, pk):
+    """Re-open a container that was closed with products still inside, to palletize the rest."""
+    container = get_object_or_404(Container, pk=pk)
+    if request.method != 'POST':
+        return redirect('container_detail', pk=pk)
+    if container.status != Container.STATUS_CLOSED or container.remaining_quantity <= 0:
+        messages.warning(request, f'Container {container.container_number} has nothing left to palletize.')
+        return redirect('container_detail', pk=pk)
+
+    container.status = Container.STATUS_OPENED
+    container.closed_by = None
+    container.closed_at = None
+    container.save(update_fields=['status', 'closed_by', 'closed_at'])
+    messages.success(request, f'Container {container.container_number} re-opened — '
+                              f'{container.remaining_quantity} unit{pluralize(container.remaining_quantity)} to palletize.')
     return redirect('container_detail', pk=pk)
 
 

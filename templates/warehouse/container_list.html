@@ -113,7 +113,7 @@
             <td>{% include 'containers/_status_badge.html' with container=c %}</td>
             <td style="font-size:12px">{{ c.opened_at|date:"d M Y H:i" }}</td>
             <td><a href="{% url 'container_detail' c.pk %}" class="btn btn-primary btn-sm">
-              {% if c.status == 'palletized' %}Close →{% else %}Palletize →{% endif %}</a></td>
+              {% if c.status == 'palletized' %}Close →{% else %}Palletize / Close →{% endif %}</a></td>
           </tr>
         {% empty %}
           <tr><td colspan="7" style="text-align:center;color:var(--gray-400);padding:26px">No containers being unloaded.</td></tr>
@@ -131,7 +131,7 @@
     <div class="table-wrap">
       <table>
         <thead>
-          <tr><th>Container #</th><th>Supplier</th><th>GRN</th><th>Units</th><th>Comments</th><th>Closed</th><th>By</th><th></th></tr>
+          <tr><th>Container #</th><th>Supplier</th><th>GRN</th><th>Units</th><th>Left inside</th><th>Comments</th><th>Closed</th><th>By</th><th></th></tr>
         </thead>
         <tbody>
         {% for c in closed %}
@@ -139,14 +139,16 @@
             <td><strong>{{ c.container_number }}</strong></td>
             <td>{{ c.supplier.name|default:"—" }}</td>
             <td style="font-size:12px">{% if c.grn %}<a href="{% url 'grn_detail' c.grn.pk %}">{{ c.grn.grn_number }}</a>{% else %}—{% endif %}</td>
-            <td>{{ c.total_quantity }}</td>
+            <td>{{ c.units_total }}</td>
+            <td>{% if c.units_left %}<span class="badge badge-amber">📦 {{ c.units_left }} left</span>{% else %}<span class="badge badge-green">Empty</span>{% endif %}</td>
             <td style="font-size:12px">{{ c.comments.count }}</td>
             <td style="font-size:12px">{{ c.closed_at|date:"d M Y H:i" }}</td>
             <td style="font-size:12px">{{ c.closed_by.get_full_name|default:c.closed_by.username|default:"—" }}</td>
-            <td><a href="{% url 'container_detail' c.pk %}" class="btn btn-secondary btn-sm">View</a></td>
+            <td><a href="{% url 'container_detail' c.pk %}" class="btn {% if c.units_left %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">
+              {% if c.units_left %}Re-open →{% else %}View{% endif %}</a></td>
           </tr>
         {% empty %}
-          <tr><td colspan="8" style="text-align:center;color:var(--gray-400);padding:26px">No closed containers yet.</td></tr>
+          <tr><td colspan="9" style="text-align:center;color:var(--gray-400);padding:26px">No closed containers yet.</td></tr>
         {% endfor %}
         </tbody>
       </table>

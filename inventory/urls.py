@@ -149,6 +149,7 @@ urlpatterns = [
     path('warehouse/containers/<int:pk>/open/', views.container_open, name='container_open'),
     path('warehouse/containers/<int:pk>/palletize/<int:item_pk>/', views.container_palletize, name='container_palletize'),
     path('warehouse/containers/<int:pk>/close/', views.container_close, name='container_close'),
+    path('warehouse/containers/<int:pk>/reopen/', views.container_reopen, name='container_reopen'),
 
     # WMS — API
     path('api/pallet/<str:lot_number>/', views.api_pallet_lookup, name='api_pallet_lookup'),

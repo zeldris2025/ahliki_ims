@@ -5,5 +5,6 @@ class InventoryConfig(AppConfig):
     name = 'inventory'
 
     def ready(self):
-        from . import auto_refresh
+        from . import auto_refresh, scheduler
         auto_refresh.start()
+        scheduler.start()

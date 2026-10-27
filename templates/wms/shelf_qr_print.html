@@ -90,7 +90,7 @@
 <script>
   {% for shelf in shelves %}
   new QRCode(document.getElementById("qr-{{ shelf.code }}"), {
-    text: "{{ request.scheme }}://{{ request.get_host }}/wms/checkin/{{ shelf.code }}/",
+    text: "{{ base_url }}/wms/checkin/{{ shelf.code }}/",
     width: 80,
     height: 80,
     colorDark: "#000000",

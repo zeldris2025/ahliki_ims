@@ -831,3 +831,20 @@ class ContainerTransfer(models.Model):
 
     def __str__(self):
         return f"{self.container.code}: {self.from_yard} → {self.to_yard}"
+
+
+class ScheduledRun(models.Model):
+    """One row per scheduled job per day. Every gunicorn worker (and every Azure instance) runs the
+    scheduler, so the first to insert today's row does the work and the rest skip it."""
+    job = models.CharField(max_length=50)
+    run_date = models.DateField()
+    started_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    result = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ['-run_date', 'job']
+        constraints = [models.UniqueConstraint(fields=['job', 'run_date'], name='scheduled_run_once_a_day')]
+
+    def __str__(self):
+        return f'{self.job} {self.run_date}'
