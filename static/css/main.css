@@ -125,8 +125,8 @@ tr:hover td { background: var(--gray-50); }
 canvas { max-width: 100%; }
 
 /* Login */
-.login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--green-dark); }
-.login-card { background: var(--white); border-radius: 14px; padding: 40px; width: 380px; }
+.login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--green-dark); padding: 16px; }
+.login-card { background: var(--white); border-radius: 14px; padding: 40px; width: 100%; max-width: 380px; }
 .login-logo { text-align: center; margin-bottom: 28px; }
 .login-logo .mark { width: 56px; height: 56px; background: var(--green-dark); border-radius: 12px; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px; color: white; font-size: 22px; font-weight: 800; }
 .login-logo h1 { font-size: 20px; font-weight: 700; }
@@ -135,14 +135,16 @@ canvas { max-width: 100%; }
 /* Low stock row highlight */
 tr.low-stock td { background: #fff7ed !important; }
 
-/* Responsive */
-@media (max-width: 900px) {
-  .stats-grid { grid-template-columns: 1fr 1fr; }
-  .charts-grid { grid-template-columns: 1fr; }
-  .form-grid { grid-template-columns: 1fr; }
-}
+/* Page layout grids (stack on smaller screens — see responsive section) */
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; }
+.grid-main-side { display: grid; grid-template-columns: 2fr 1fr; }
+.grid-side-main { display: grid; grid-template-columns: 1fr 2fr; }
 
-/* ── Mobile & Tablet responsive ─────────────────────────────────────────── */
+/* ── Responsive modes ───────────────────────────────────────────────────────
+   Desktop  > 1024px : full sidebar
+   Tablet   769–1024 : icon rail sidebar, ☰ expands it over the page
+   Mobile   ≤ 768px  : sidebar is an off-canvas drawer, single-column pages
+   ─────────────────────────────────────────────────────────────────────── */
 
 /* Hamburger button — hidden on desktop */
 .hamburger-btn {
@@ -168,45 +170,131 @@ tr.low-stock td { background: #fff7ed !important; }
   z-index: 99;
 }
 .sidebar-overlay.open { display: block; }
+body.nav-locked { overflow: hidden; }
 
+.topbar-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.topbar-user { font-size: 12px; color: var(--gray-500); text-decoration: none; white-space: nowrap; }
+.topbar-logout { background: #fee2e2; border: none; color: #dc2626; padding: 5px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; font-family: inherit; font-weight: 600; white-space: nowrap; }
+
+/* Touch devices: comfortable tap targets everywhere */
+@media (pointer: coarse) {
+  .btn { min-height: 40px; }
+  .btn-sm { min-height: 34px; }
+  .sidebar-nav a { padding-top: 11px; padding-bottom: 11px; }
+}
+
+/* ── Tablet & below (≤1024px) ── */
+@media (max-width: 1024px) {
+  .content { padding: 18px; }
+  .topbar { padding: 0 16px; }
+  .hamburger-btn { display: flex; align-items: center; justify-content: center; }
+
+  .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .charts-grid { grid-template-columns: 1fr; }
+  .grid-main-side { grid-template-columns: 1fr; }
+  .form-grid-3 { grid-template-columns: 1fr 1fr; }
+  .search-bar { flex-wrap: wrap; }
+  .search-bar input { min-width: 200px; }
+}
+
+/* Portrait tablets: side-by-side panels get too narrow for their tables */
+@media (max-width: 900px) {
+  .grid-2 { grid-template-columns: 1fr; }
+}
+
+/* ── Tablet mode (769–1024px): collapsed icon rail ── */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .layout:not(.wms-op-layout) { --rail-w: 68px; }
+  .layout:not(.wms-op-layout) .main { margin-left: var(--rail-w); }
+  .layout:not(.wms-op-layout) .sidebar { width: var(--rail-w); transition: width 0.2s ease; z-index: 200; overflow-x: hidden; }
+
+  /* Collapsed rail: icons only (labels come back when ☰ expands it) */
+  .layout:not(.wms-op-layout) .sidebar:not(.open) .sidebar-brand { padding: 16px 0 12px; }
+  .layout:not(.wms-op-layout) .sidebar:not(.open) .logo { justify-content: center; }
+  .layout:not(.wms-op-layout) .sidebar:not(.open) .logo > div,
+  .layout:not(.wms-op-layout) .sidebar:not(.open) .user-info,
+  .layout:not(.wms-op-layout) .sidebar:not(.open) .dropdown-arrow,
+  .layout:not(.wms-op-layout) .sidebar:not(.open) .nav-soon { display: none; }
+  .layout:not(.wms-op-layout) .sidebar:not(.open) .logo-image { max-width: 40px; }
+  .layout:not(.wms-op-layout) .sidebar:not(.open) .nav-section { font-size: 0; padding: 0; margin: 8px 14px; border-top: 1px solid rgba(255,255,255,0.15); }
+  .layout:not(.wms-op-layout) .sidebar:not(.open) .sidebar-nav a,
+  .layout:not(.wms-op-layout) .sidebar:not(.open) .nav-disabled { font-size: 0; justify-content: center; padding: 12px 0; position: relative; }
+  .layout:not(.wms-op-layout) .sidebar:not(.open) .sidebar-nav .icon { font-size: 18px; width: auto; }
+  .layout:not(.wms-op-layout) .sidebar:not(.open) .sidebar-nav .badge { position: absolute; top: 6px; right: 10px; margin: 0; padding: 0 5px; font-size: 10px; }
+  .layout:not(.wms-op-layout) .sidebar:not(.open) .user-btn { justify-content: center; padding: 8px 0; }
+
+  /* Expanded: full-width sidebar floats over the page */
+  .layout:not(.wms-op-layout) .sidebar.open { width: var(--sidebar-w); box-shadow: 4px 0 24px rgba(0,0,0,0.25); }
+}
+
+/* ── Mobile mode (≤768px): off-canvas drawer ── */
 @media (max-width: 768px) {
-  /* Show hamburger */
-  .hamburger-btn { display: block; }
-
   /* Sidebar becomes a full-height drawer */
   .sidebar {
+    width: min(var(--sidebar-w), 85vw);
     transform: translateX(-100%);
     transition: transform 0.22s ease;
     z-index: 200;
   }
-  .sidebar.open { transform: translateX(0); }
+  .sidebar.open { transform: translateX(0); box-shadow: 4px 0 24px rgba(0,0,0,0.25); }
 
   /* Main fills full width */
-  .main { margin-left: 0 !important; }
+  .main { margin-left: 0 !important; min-width: 0; }
 
   /* Content padding tighter on small screens */
   .content { padding: 14px 12px; }
-  .topbar { padding: 0 12px; }
+  .topbar { padding: 0 10px; gap: 8px; }
+  .topbar-title { font-size: 15px; }
+  .topbar-title > :not(.hamburger-btn) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar-right { gap: 10px; flex-shrink: 0; }
+  .topbar-user { display: none; }
+  .topbar-logout { padding: 6px 9px; }
+  .topbar-logout .lbl { display: none; }
 
   /* Page headers stack vertically */
   .page-header { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .page-header h1 { font-size: 18px; }
   .page-header > div:last-child { width: 100%; display: flex; gap: 8px; flex-wrap: wrap; }
   .page-header .btn { flex: 1; min-width: 120px; justify-content: center; text-align: center; }
 
-  /* Stats: 2-up on tablet, 1-up on very small */
+  /* Stats: 2-up on phones, 1-up on very small */
   .stats-grid { grid-template-columns: 1fr 1fr !important; gap: 10px; }
+  .stat-card { padding: 14px; }
+  .stat-card .stat-value { font-size: 22px; }
 
-  /* Tables: horizontal scroll */
+  /* Every multi-column page grid collapses to one column */
+  .grid-2, .grid-side-main, .form-grid, .form-grid-3 { grid-template-columns: 1fr; }
+  .grid-side-main { max-width: none !important; }
+
+  /* Tables: horizontal scroll inside their card instead of the page */
   .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  table { min-width: 500px; }
+  .table-wrap > table { min-width: 560px; }
+  .card, .cms-panel { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  th, td { padding: 9px 10px; }
 
   /* Cards */
   .card { border-radius: 8px; }
+  .card-header { flex-wrap: wrap; gap: 8px; padding: 12px 14px; }
+  .card-body { padding: 14px; }
+
+  /* Forms: 16px inputs stop iOS from zooming on focus */
+  input:not([type="checkbox"]):not([type="radio"]), select, textarea { font-size: 16px !important; }
+  .search-bar { flex-direction: column; }
+  .search-bar > * { width: 100%; }
+  .search-bar input { min-width: 0; }
+
+  /* Fixed-width boxes (forms, modals) never exceed the screen */
+  .card[style*="max-width"], [style*="width:360px"], [style*="width:480px"], [style*="width:520px"] { max-width: 100% !important; }
+
+  .alert { font-size: 13px; padding: 10px 12px; }
 }
 
 @media (max-width: 480px) {
-  .stats-grid { grid-template-columns: 1fr !important; }
   .content { padding: 10px; }
+  .login-card { padding: 28px 20px; }
+}
+@media (max-width: 360px) {
+  .stats-grid { grid-template-columns: 1fr !important; }
 }
 
 /* ── WMS Mobile Styles ────────────────────────────────────────────────────── */

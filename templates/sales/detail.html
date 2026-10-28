@@ -6,7 +6,7 @@
   <div><h1>{{ sale.sale_number }}</h1><p>{{ sale.created_at|date:"d M Y H:i" }} &mdash; {{ sale.cashier.username }}</p></div>
   <a href="{% url 'sale_list' %}" class="btn btn-secondary">← Back</a>
 </div>
-<div style="display:grid;grid-template-columns:2fr 1fr;gap:16px">
+<div class="grid-main-side" style="gap:16px">
   <div class="card">
     <div class="card-header"><h2>Items Sold</h2></div>
     <div class="table-wrap">

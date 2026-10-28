@@ -1,5 +1,9 @@
 from django.contrib import admin
-from .models import (UserProfile, Supplier, Category, Product, PurchaseOrder,
+from django.contrib.auth.admin import UserAdmin
+from django.contrib.auth.models import User
+from django.db.models import Case, Value, When
+from django.utils.html import format_html, format_html_join
+from .models import (AuditLog, UserProfile, Supplier, Category, Product, PurchaseOrder,
                      PurchaseOrderItem, GoodsReceivedNote, GRNItem,
                      StockMovement, Sale, SaleItem, StockAlert,
                      Container, ContainerItem, ContainerComment, ContainerType, ShipmentTracking)
@@ -8,9 +12,149 @@ from .csv_import import CSVImportMixin, to_bool, to_decimal, to_int
 admin.site.site_header = "Ah Liki IMS Admin"
 admin.site.site_title = "Ah Liki IMS"
 
+# ── Staff, grouped by the side of the business they work on ──────────────────
+
+def department_case(superuser='is_superuser', role='profile__role'):
+    """SQL expression giving each staff member's department key, matching
+    UserProfile.department. The arguments are the paths to User.is_superuser
+    and UserProfile.role from the model being listed."""
+    whens = [When(**{superuser: True}, then=Value('management'))]
+    whens += [When(**{f'{role}__in': UserProfile.roles_in_department(dept)}, then=Value(dept))
+              for dept, _ in UserProfile.DEPARTMENT_CHOICES]
+    return Case(*whens, default=Value('management'))
+
+
+# Departments in the order they are listed, for sorting staff into groups.
+DEPARTMENT_ORDER = Case(*[When(dept_key=dept, then=Value(i))
+                          for i, (dept, _) in enumerate(UserProfile.DEPARTMENT_CHOICES)])
+
+
+class DepartmentFilter(admin.SimpleListFilter):
+    """Filter staff by department (Warehouse, Containers, Sales…) — the
+    queryset must be annotated with `dept_key` (see department_case)."""
+    title = 'department'
+    parameter_name = 'department'
+
+    def lookups(self, request, model_admin):
+        return UserProfile.DEPARTMENT_CHOICES
+
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(dept_key=self.value())
+        return queryset
+
+
+class UserProfileInline(admin.StackedInline):
+    model = UserProfile
+    can_delete = False
+    verbose_name_plural = 'Role & department'
+    fields = ['role', 'department_name']
+    readonly_fields = ['department_name']
+
+    @admin.display(description='Department')
+    def department_name(self, obj):
+        return obj.get_department_display() if obj.pk else 'Set by role when saved'
+
+
+admin.site.unregister(User)
+
+
+@admin.register(User)
+class StaffUserAdmin(UserAdmin):
+    inlines = [UserProfileInline]
+    list_display = ['username', 'full_name', 'department', 'role', 'is_active', 'last_login']
+    list_filter = [DepartmentFilter, 'profile__role', 'is_active', 'is_superuser']
+    list_select_related = ['profile']
+
+    def get_queryset(self, request):
+        # Built here rather than via super(), which orders before dept_order exists.
+        qs = self.model._default_manager.annotate(dept_key=department_case()).annotate(dept_order=DEPARTMENT_ORDER)
+        return qs.order_by(*self.get_ordering(request))
+
+    def get_ordering(self, request):
+        return ['dept_order', 'username']  # annotated in get_queryset, so not allowed in `ordering`
+
+    @admin.display(description='Full name', ordering='first_name')
+    def full_name(self, obj):
+        return obj.get_full_name() or '—'
+
+    @admin.display(description='Department', ordering='dept_order')
+    def department(self, obj):
+        return dict(UserProfile.DEPARTMENT_CHOICES)[obj.dept_key]
+
+    @admin.display(description='Role', ordering='profile__role')
+    def role(self, obj):
+        profile = getattr(obj, 'profile', None)
+        return profile.get_role_display() if profile else '—'
+
+
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ['user', 'role']
+    list_display = ['user', 'department', 'role']
+    list_filter = [DepartmentFilter, 'role']
+    list_select_related = ['user']
+    search_fields = ['user__username', 'user__first_name', 'user__last_name']
+
+    def get_queryset(self, request):
+        # Built here rather than via super(), which orders before dept_order exists.
+        qs = self.model._default_manager.annotate(dept_key=department_case('user__is_superuser', 'role')).annotate(dept_order=DEPARTMENT_ORDER)
+        return qs.order_by(*self.get_ordering(request))
+
+    def get_ordering(self, request):
+        return ['dept_order', 'user__username']  # annotated in get_queryset, so not allowed in `ordering`
+
+    @admin.display(description='Department', ordering='dept_order')
+    def department(self, obj):
+        return dict(UserProfile.DEPARTMENT_CHOICES)[obj.dept_key]
+
+
+# ── Audit log (read-only: nobody can add, edit or delete entries) ─────────────
+
+@admin.register(AuditLog)
+class AuditLogAdmin(admin.ModelAdmin):
+    list_display = ['timestamp', 'who', 'department', 'action_badge', 'area', 'object_type', 'object_repr', 'ip_address']
+    list_filter = ['department', 'action', 'area', 'role', 'timestamp']
+    search_fields = ['username', 'object_repr', 'object_type', 'object_id', 'ip_address', 'path']
+    date_hierarchy = 'timestamp'
+    list_per_page = 100
+    fields = ['timestamp', 'who', 'role_name', 'department', 'action', 'area', 'object_type', 'object_id',
+              'object_repr', 'changes_table', 'ip_address', 'path']
+    readonly_fields = fields
+
+    ACTION_COLOURS = {'create': '#166534', 'update': '#1e40af', 'delete': '#991b1b',
+                      'login': '#374151', 'logout': '#374151', 'login_failed': '#b45309'}
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description='User', ordering='username')
+    def who(self, obj):
+        return obj.username or 'System'
+
+    @admin.display(description='Role')
+    def role_name(self, obj):
+        return dict(UserProfile.ROLE_CHOICES).get(obj.role, obj.role or '—')
+
+    @admin.display(description='Action', ordering='action')
+    def action_badge(self, obj):
+        return format_html('<strong style="color:{}">{}</strong>',
+                           self.ACTION_COLOURS.get(obj.action, '#374151'), obj.get_action_display())
+
+    @admin.display(description='Changes')
+    def changes_table(self, obj):
+        if not obj.changes:
+            return '—'
+        rows = format_html_join('', '<tr><th>{}</th><td>{}</td><td>{}</td></tr>',
+                                ((field.replace('_', ' '), old or '—', new or '—')
+                                 for field, (old, new) in obj.changes.items()))
+        return format_html('<table><thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead>'
+                           '<tbody>{}</tbody></table>', rows)
 
 @admin.register(Supplier)
 class SupplierAdmin(CSVImportMixin, admin.ModelAdmin):

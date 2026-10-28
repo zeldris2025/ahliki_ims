@@ -168,6 +168,55 @@ body * {
 .status-bar { background: var(--panel); padding: 3px 12px; font-size: 11px; color: var(--muted); display: flex; gap: 14px; flex-shrink: 0; border-bottom: 1px solid var(--border); }
 .status-bar span { display: flex; align-items: center; gap: 4px; }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); display: inline-block; }
+
+/* ── Tablet ── */
+@media (max-width: 1024px) {
+  .pos-right { width: 260px; }
+  .pos-header .meta { gap: 12px; }
+  .pos-header .meta > span:first-child { display: none; }
+  .cart-total-cell .value { font-size: calc(17px * var(--font-scale)); }
+  .cart-total-cell.big .value { font-size: calc(23px * var(--font-scale)); }
+}
+@media (max-width: 1024px) and (pointer: coarse) {
+  .pay-btn { min-height: 44px; }
+  .qty-btn { width: 34px; height: 34px; }
+  .remove-btn { width: 34px; height: 34px; }
+}
+
+/* ── Mobile: stack cart above the controls, page scrolls ── */
+@media (max-width: 768px) {
+  body { height: auto; min-height: 100vh; overflow: auto; }
+  .pos-header { height: auto; min-height: var(--header-h); flex-wrap: wrap; padding: 6px 10px; row-gap: 6px; }
+  .pos-header .brand { font-size: 14px; }
+  .pos-header .meta { margin-left: auto; }
+  .pos-header .clock { display: none; }
+  .theme-toggle #themeLabel { display: none; }
+  .status-bar { flex-wrap: wrap; row-gap: 2px; }
+  .pos-body { flex-direction: column; overflow: visible; }
+  .pos-left { border-right: none; border-bottom: 1px solid var(--border); overflow: visible; }
+  .customer-bar input, #accountNumber { flex: 1 1 100%; max-width: none !important; }
+  .customer-bar input, .scan-input, .modal input, .modal select, .product-search-input, .disc-input { font-size: 16px; }
+  .cart-wrap { min-height: 180px; max-height: 50vh; overflow: auto; -webkit-overflow-scrolling: touch; }
+  .cart-table { min-width: 560px; }
+  .cart-total-cell { padding: 8px 10px; }
+  .cart-total-cell .value { font-size: 15px; }
+  .cart-total-cell.big .value { font-size: 20px; }
+  .pos-right { width: 100%; overflow: visible; }
+  .pay-btn { min-height: 46px; font-size: 13px; }
+  .quick-section { flex: none; overflow: visible; }
+  .quick-grid { grid-template-columns: repeat(3, 1fr); }
+  .quick-item { min-height: 48px; }
+  .pos-footer { height: auto; position: sticky; bottom: 0; z-index: 10; }
+  .footer-tabs { overflow-x: auto; }
+  .footer-tab { flex: 0 0 auto; padding: 12px 14px; white-space: nowrap; }
+  .modal { padding: 18px; max-height: 92vh; overflow-y: auto; }
+  .modal-footer { flex-wrap: wrap; }
+  .modal-btn { flex: 1; min-height: 44px; }
+}
+@media (max-width: 420px) {
+  .quick-grid { grid-template-columns: 1fr 1fr; }
+  .font-btn { padding: 6px 8px; }
+}
 </style>
 </head>
 <body class="dark-mode">

@@ -5,5 +5,6 @@ class InventoryConfig(AppConfig):
     name = 'inventory'
 
     def ready(self):
-        from . import auto_refresh
+        from . import audit, auto_refresh
+        audit.connect()
         auto_refresh.start()

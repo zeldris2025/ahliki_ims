@@ -322,7 +322,7 @@
   <div class="main">
     <div class="topbar">
       <div class="topbar-title">
-        <button class="hamburger-btn" onclick="toggleSidebar()" aria-label="Open menu">☰</button>
+        <button class="hamburger-btn" id="hamburgerBtn" onclick="toggleSidebar()" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">☰</button>
         {% block topbar_title %}{% endblock %}
       </div>
       <div class="topbar-right">
@@ -331,12 +331,12 @@
           🔔{% if open_alerts_count %}<span class="badge badge-red" style="position:absolute;top:-6px;right:-8px;padding:1px 5px">{{ open_alerts_count }}</span>{% endif %}
         </a>
         {% endif %}
-        <a href="{% url 'profile' %}" style="font-size:12px;color:var(--gray-500);text-decoration:none">
+        <a href="{% url 'profile' %}" class="topbar-user">
           {{ request.user.get_full_name|default:request.user.username }}
         </a>
         <form method="post" action="{% url 'logout' %}" style="margin:0">
           {% csrf_token %}
-          <button type="submit" style="background:#fee2e2;border:none;color:#dc2626;padding:5px 12px;border-radius:6px;font-size:12px;cursor:pointer;font-family:inherit;font-weight:600">🚪 Log Out</button>
+          <button type="submit" class="topbar-logout" title="Log Out">🚪<span class="lbl"> Log Out</span></button>
         </form>
       </div>
     </div>
@@ -354,23 +354,39 @@
 
 {% block extra_js %}{% endblock %}
 <script>
-/* Sidebar toggle (mobile) */
+/* Sidebar: drawer on mobile, collapsible icon rail on tablet */
+const mobileQuery = window.matchMedia('(max-width: 768px)');
+const tabletQuery = window.matchMedia('(min-width: 769px) and (max-width: 1024px)');
+function isRail() {
+  return tabletQuery.matches && !document.querySelector('.layout').classList.contains('wms-op-layout');
+}
+function setSidebar(open) {
+  document.getElementById('sidebar').classList.toggle('open', open);
+  document.getElementById('sidebarOverlay').classList.toggle('open', open);
+  document.getElementById('hamburgerBtn').setAttribute('aria-expanded', open);
+  document.body.classList.toggle('nav-locked', open && mobileQuery.matches);
+}
 function toggleSidebar() {
-  document.getElementById('sidebar').classList.toggle('open');
-  document.getElementById('sidebarOverlay').classList.toggle('open');
+  setSidebar(!document.getElementById('sidebar').classList.contains('open'));
 }
-function closeSidebar() {
-  document.getElementById('sidebar').classList.remove('open');
-  document.getElementById('sidebarOverlay').classList.remove('open');
-}
+function closeSidebar() { setSidebar(false); }
+/* Leaving tablet/mobile widths resets the drawer state */
+[mobileQuery, tabletQuery].forEach(q => q.addEventListener('change', closeSidebar));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSidebar(); });
+/* Collapsed rail shows icons only — give each link a tooltip, close drawer on navigation */
+document.querySelectorAll('.sidebar-nav a, .sidebar-nav .nav-disabled').forEach(a => {
+  if (!a.title) a.title = a.textContent.replace(/\s+/g, ' ').trim();
+  a.addEventListener('click', () => { if (mobileQuery.matches || isRail()) closeSidebar(); });
+});
 /* User dropdown */
 function toggleUserMenu() {
+  // The collapsed rail is too narrow for the dropdown, so expand it first
+  if (isRail() && !document.getElementById('sidebar').classList.contains('open')) setSidebar(true);
   document.getElementById('userMenu').classList.toggle('open');
 }
 document.addEventListener('click', function(e) {
   const menu = document.getElementById('userMenu');
   if (menu && !menu.contains(e.target)) menu.classList.remove('open');
-  // close sidebar if click is outside (desktop — overlay handles mobile)
 });
 </script>
 </body>

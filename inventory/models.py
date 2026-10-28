@@ -17,11 +17,45 @@ class UserProfile(models.Model):
         ('cashier', 'Sales / Cashier'),
         ('custom_broker', 'Customs Broker'),
     ]
+    # Which side of the business each role works on — used to group staff
+    # and audit entries in the admin.
+    DEPARTMENT_CHOICES = [
+        ('management', 'Management'),
+        ('finance', 'Finance'),
+        ('warehouse', 'Warehouse & WMS'),
+        ('containers', 'Containers (CMS)'),
+        ('sales', 'Sales'),
+    ]
+    ROLE_DEPARTMENTS = {
+        'admin': 'management',
+        'manager': 'management',
+        'finance': 'finance',
+        'warehouse': 'warehouse',
+        'wms_operator': 'warehouse',
+        'wms_dispatcher': 'warehouse',
+        'custom_broker': 'containers',
+        'cashier': 'sales',
+    }
+
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='cashier')
 
     def __str__(self):
         return f"{self.user.username} ({self.get_role_display()})"
+
+    @property
+    def department(self):
+        # Superusers can do everything, whatever role their profile was left on.
+        if self.user.is_superuser:
+            return 'management'
+        return self.ROLE_DEPARTMENTS.get(self.role, 'management')
+
+    def get_department_display(self):
+        return dict(self.DEPARTMENT_CHOICES)[self.department]
+
+    @classmethod
+    def roles_in_department(cls, department):
+        return [role for role, dept in cls.ROLE_DEPARTMENTS.items() if dept == department]
 
 
 @receiver(post_save, sender=User)
@@ -825,3 +859,53 @@ class ContainerTransfer(models.Model):
 
     def __str__(self):
         return f"{self.container.code}: {self.from_yard} → {self.to_yard}"
+
+
+class AuditLog(models.Model):
+    """Who did what, and when. Written automatically (see inventory/audit.py)
+    for every record created, changed or deleted, and for every sign-in.
+    The user's name, role and department are copied in so the entry still
+    reads correctly after the account is changed or removed."""
+    ACTION_CHOICES = [
+        ('create', 'Created'),
+        ('update', 'Updated'),
+        ('delete', 'Deleted'),
+        ('login', 'Logged in'),
+        ('logout', 'Logged out'),
+        ('login_failed', 'Failed login'),
+    ]
+    AREA_CHOICES = [
+        ('products', 'Products & Suppliers'),
+        ('warehouse', 'Warehouse'),
+        ('wms', 'WMS'),
+        ('containers', 'Containers (CMS)'),
+        ('sales', 'Sales & Invoices'),
+        ('users', 'Users & Access'),
+        ('other', 'Other'),
+    ]
+    DEPARTMENT_CHOICES = UserProfile.DEPARTMENT_CHOICES + [('system', 'System / Unknown')]
+
+    timestamp = models.DateTimeField(default=timezone.now, db_index=True)
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
+                             related_name='audit_logs')
+    username = models.CharField(max_length=150, blank=True)
+    role = models.CharField(max_length=20, blank=True)
+    department = models.CharField(max_length=20, choices=DEPARTMENT_CHOICES, default='system', db_index=True)
+    action = models.CharField(max_length=20, choices=ACTION_CHOICES, db_index=True)
+    area = models.CharField(max_length=20, choices=AREA_CHOICES, default='other', db_index=True)
+    object_type = models.CharField('record type', max_length=100, blank=True)
+    object_id = models.CharField('record ID', max_length=64, blank=True)
+    object_repr = models.CharField('record', max_length=255, blank=True)
+    changes = models.JSONField(default=dict, blank=True)
+    ip_address = models.CharField('IP address', max_length=64, blank=True)
+    path = models.CharField('page', max_length=255, blank=True)
+
+    class Meta:
+        ordering = ['-timestamp', '-id']
+        verbose_name = 'Audit log entry'
+        verbose_name_plural = 'Audit log'
+
+    def __str__(self):
+        who = self.username or 'System'
+        what = f" {self.object_type} {self.object_repr}".rstrip() if self.object_type else ''
+        return f"{who} {self.get_action_display().lower()}{what}"
