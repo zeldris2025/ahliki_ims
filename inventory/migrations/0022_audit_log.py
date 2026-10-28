@@ -9,7 +9,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('inventory', '0018_cms_transfers'),
+        ('inventory', '0021_scheduled_run'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
