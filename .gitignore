@@ -2,3 +2,7 @@ ahliki_ims/local_settings.py
 .env
 docker-data/
 staticfiles/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
