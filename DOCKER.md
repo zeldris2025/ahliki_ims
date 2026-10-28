@@ -29,6 +29,24 @@ the `db.sqlite3` in the project folder is no longer used.
 | Create an admin user | `docker compose exec web python manage.py createsuperuser` |
 | Django shell | `docker compose exec web python manage.py shell` |
 
+## Live-reload mode (no rebuild after code changes)
+
+Start the app with the dev file added:
+
+```
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+```
+
+The container then runs straight from this folder instead of the copy baked into the image:
+
+- **Python files and templates:** gunicorn restarts its workers within about a second of a save. Refresh the browser.
+- **CSS / JS in `static/`:** served as they are on disk. Refresh the browser.
+- **New migrations:** run `docker compose exec web python manage.py migrate`, or restart the container.
+- **`requirements.txt` or `Dockerfile` changes:** still need `--build`. Add it to the command above.
+
+Every save goes live immediately for everyone using the app, so avoid leaving a file half-edited. To go back to
+the normal baked-in mode, run `docker compose up -d --build` without the dev file.
+
 The container restarts on its own after a reboot as long as Docker Desktop is running
 (enable *Start Docker Desktop when you sign in* in Docker Desktop settings).
 

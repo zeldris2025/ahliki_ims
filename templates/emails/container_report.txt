@@ -1,0 +1,23 @@
+{% autoescape off %}Ah Liki IMS: daily container report, {{ today|date:"l j F Y" }} (as at {{ now|time:"H:i" }} Apia time)
+
+In yards: {{ stats.active }} (full {{ stats.full }}, storage {{ stats.storage }}, empty {{ stats.empty }}), at wharf: {{ stats.wharf }}
+Overdue returns: {{ stats.overdue }}   Due in {{ due_soon_days }} days: {{ stats.due_soon }}   Warehouse not closed: {{ stats.warehouse_open }}
+
+OVERDUE RETURNS
+{% for c in overdue|slice:max_rows %}  {{ c.code }}  {{ c.owner.name }}  {{ c.yard.code }}  due {{ c.return_due|date:"d M" }}  {{ c.days_overdue }} day{{ c.days_overdue|pluralize }} late
+{% empty %}  Nothing overdue.
+{% endfor %}{% if overdue_more %}  ...and {{ overdue_more }} more (see the CSV).
+{% endif %}
+DUE IN THE NEXT {{ due_soon_days }} DAYS
+{% for c in due_soon|slice:max_rows %}  {{ c.code }}  {{ c.owner.name }}  {{ c.yard.code }}  due {{ c.return_due|date:"D d M" }}
+{% empty %}  None.
+{% endfor %}{% if due_soon_more %}  ...and {{ due_soon_more }} more (see the CSV).
+{% endif %}
+WAREHOUSE CONTAINERS NOT YET CLOSED
+{% for c in warehouse %}  {{ c.container_number }}  {{ c.get_status_display }}{% if c.qty %}  {{ c.done }}/{{ c.qty }} palletized{% endif %}
+{% empty %}  None.
+{% endfor %}{% if links.cms %}
+CMS dashboard: {{ links.cms }}
+{% endif %}
+The full list of containers in yards is attached (CSV).
+{% endautoescape %}

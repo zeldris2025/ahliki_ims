@@ -12,7 +12,7 @@
 <div class="stats-grid" style="margin-bottom:20px">
   <div class="stat-card success"><div class="stat-label">Total Sales Revenue</div><div class="stat-value">SAT${{ total_sales|floatformat:0 }}</div><div class="stat-sub">{{ total_sales_count }} transactions</div></div>
   <div class="stat-card"><div class="stat-label">Total Stock Value</div><div class="stat-value">SAT${{ total_stock_value|floatformat:0 }}</div><div class="stat-sub">At cost price</div></div>
-  <div class="stat-card {% if low_stock %}danger{% endif %}"><div class="stat-label">Low Stock Items</div><div class="stat-value">{{ low_stock|length }}</div><div class="stat-sub">Below reorder level</div></div>
+  <div class="stat-card {% if low_stock.paginator.count %}danger{% endif %}"><div class="stat-label">Low Stock Items</div><div class="stat-value">{{ low_stock.paginator.count }}</div><div class="stat-sub">Below reorder level</div></div>
   <div class="stat-card warning"><div class="stat-label">Expiring Soon</div><div class="stat-value">{{ expiring_soon|length }}</div><div class="stat-sub">Within 30 days</div></div>
 </div>
 <div class="charts-grid">
@@ -35,7 +35,7 @@
   </div>
 </div>
 <div class="grid-2" style="gap:16px;margin-top:16px">
-  <div class="card">
+  <div class="card" id="low-stock">
     <div class="card-header"><h2>⚠️ Low Stock</h2></div>
     <div class="table-wrap">
       <table>
@@ -45,6 +45,16 @@
         </tbody>
       </table>
     </div>
+    {% if low_stock.has_other_pages %}
+    <div class="card-body" style="display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:13px;color:var(--gray-500)">
+      <span>{{ low_stock.start_index }}–{{ low_stock.end_index }} of {{ low_stock.paginator.count }}</span>
+      <div style="display:flex;align-items:center;gap:6px">
+        {% if low_stock.has_previous %}<a href="?low_page={{ low_stock.previous_page_number }}#low-stock" class="btn btn-sm btn-secondary">← Prev</a>{% endif %}
+        <span>Page {{ low_stock.number }} / {{ low_stock.paginator.num_pages }}</span>
+        {% if low_stock.has_next %}<a href="?low_page={{ low_stock.next_page_number }}#low-stock" class="btn btn-sm btn-secondary">Next →</a>{% endif %}
+      </div>
+    </div>
+    {% endif %}
   </div>
   <div class="card">
     <div class="card-header"><h2>📅 Expiring Within 30 Days</h2></div>

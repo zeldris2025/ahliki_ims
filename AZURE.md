@@ -194,6 +194,47 @@ Migrations run on their own when the app starts.
      DJANGO_CSRF_TRUSTED_ORIGINS="https://ims.example.com"
    ```
 
+## Email (Office 365)
+
+The app sends email through Microsoft Graph with OAuth (no mailbox password, no SMTP). Until the three
+`MS_GRAPH_*` IDs are set, emails are only written to the log.
+
+1. **Register the app:** Portal → **Microsoft Entra ID** → **App registrations** → **New registration**.
+   Name it `Ah Liki IMS Mail`, single tenant, no redirect URI. Copy the **Application (client) ID** and
+   **Directory (tenant) ID** from the overview page.
+2. **Secret:** **Certificates & secrets** → **New client secret**. Copy the **Value** straight away (it is
+   shown once). Note the expiry date and renew it before then, or email stops.
+3. **Permission:** **API permissions** → **Add a permission** → **Microsoft Graph** → **Application
+   permissions** → `Mail.Send` → **Add**, then **Grant admin consent**.
+4. **Limit it to one mailbox (recommended):** `Mail.Send` on its own lets the app send as *any* mailbox in the
+   tenant. In Exchange Online PowerShell, restrict it to the sending mailbox:
+   ```powershell
+   Connect-ExchangeOnline
+   New-DistributionGroup -Name "IMS Mail Senders" -Type Security -Members ims@yourdomain
+   New-ApplicationAccessPolicy -AppId <client-id> -PolicyScopeGroupId "IMS Mail Senders" `
+       -AccessRight RestrictAccess -Description "Ah Liki IMS may only send as ims@"
+   Test-ApplicationAccessPolicy -AppId <client-id> -Identity ims@yourdomain   # should say Granted
+   ```
+5. **App settings:** add `MS_GRAPH_TENANT_ID`, `MS_GRAPH_CLIENT_ID`, `MS_GRAPH_CLIENT_SECRET` and
+   `MS_GRAPH_SENDER` to the web app (or `.env` for Docker), and restart.
+6. **Test:** in the web app's SSH console (or `docker compose exec web`):
+   `python manage.py send_test_email you@yourdomain`
+
+## Daily container report
+
+Once email works, the app emails a container report every morning: overdue and soon-due returns,
+the last 24 hours of arrivals, returns, transfers and damage reports, warehouse containers still being
+unloaded, counts per yard, and a CSV of every container in the yards.
+
+1. Add `CONTAINER_REPORT_RECIPIENTS` (comma separated addresses) and, if 07:00 Apia time doesn't suit,
+   `CONTAINER_REPORT_TIME` (24-hour, e.g. `06:30`).
+2. Turn on **Always On**: Portal → the web app → **Configuration** → **General settings** → **Always On**.
+   The report is sent by a timer inside the app, and without Always On Azure puts an idle app to sleep
+   (Always On needs the Basic plan or higher). If the app was asleep or restarting at report time, the report
+   goes out as soon as it is back the same day. It is only ever sent once a day, however many instances run.
+3. Try it now from the SSH console: `python manage.py send_container_report --to you@yourdomain`
+   (`--preview report.html` writes the email to a file instead of sending it).
+
 ## App settings reference
 
 | Setting | Needed | What it does |
@@ -208,6 +249,14 @@ Migrations run on their own when the app starts.
 | `TRACKING_AUTO_REFRESH_HOURS` | no | `0` turns off the old Terminal49 refresher. |
 | `WEB_CONCURRENCY` | no | gunicorn workers (default 3). |
 | `DJANGO_DEBUG` | no | Leave unset (off). Never turn it on in production. |
+| `MS_GRAPH_TENANT_ID` | for email | Directory (tenant) ID of the Office 365 tenant. |
+| `MS_GRAPH_CLIENT_ID` | for email | Application (client) ID of the app registration. |
+| `MS_GRAPH_CLIENT_SECRET` | for email | Client secret value of the app registration. Keep it private. |
+| `MS_GRAPH_SENDER` | for email | Mailbox that sends, e.g. `ims@yourdomain`. |
+| `DEFAULT_FROM_EMAIL` | no | From address (defaults to `MS_GRAPH_SENDER`), e.g. `Ah Liki IMS <ims@yourdomain>`. |
+| `CONTAINER_REPORT_RECIPIENTS` | for the report | Who gets the daily container report, comma separated. |
+| `CONTAINER_REPORT_TIME` | no | When it is sent, Apia time (default `07:00`). Blank turns it off. |
+| `SITE_URL` | no | Address used for links in emails (defaults to `QR_BASE_URL` / the Azure address). |
 | `DJANGO_HSTS_SECONDS` | no | HSTS length (default 3600). Raise it once the final domain is settled. |
 
 ## Without PostgreSQL (smaller and cheaper, but less safe)

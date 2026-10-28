@@ -39,5 +39,15 @@
       </tbody>
     </table>
   </div>
+  {% if page.has_other_pages %}
+  <div class="card-body" style="display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:13px;color:var(--gray-500)">
+    <span>{{ page.start_index }}–{{ page.end_index }} of {{ page.paginator.count }} products</span>
+    <div style="display:flex;align-items:center;gap:6px">
+      {% if page.has_previous %}<a href="?{{ query }}&page={{ page.previous_page_number }}" class="btn btn-sm btn-secondary">← Prev</a>{% endif %}
+      <span>Page {{ page.number }} / {{ page.paginator.num_pages }}</span>
+      {% if page.has_next %}<a href="?{{ query }}&page={{ page.next_page_number }}" class="btn btn-sm btn-secondary">Next →</a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

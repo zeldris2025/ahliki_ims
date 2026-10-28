@@ -1,0 +1,133 @@
+{% comment %}Email clients ignore <style> blocks and modern CSS, so everything is inline and table-based.{% endcomment %}<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Container report</title></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Segoe UI,Arial,sans-serif;color:#111827;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;"><tr><td align="center" style="padding:20px 10px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:720px;background:#ffffff;border-radius:8px;">
+
+<tr><td style="padding:20px 24px;background:#1e3a5f;border-radius:8px 8px 0 0;color:#ffffff;">
+  <div style="font-size:12px;letter-spacing:1px;text-transform:uppercase;opacity:.8;">Ah Liki IMS</div>
+  <div style="font-size:22px;font-weight:600;margin-top:4px;">Daily container report</div>
+  <div style="font-size:13px;opacity:.85;margin-top:4px;">{{ today|date:"l j F Y" }} · as at {{ now|time:"H:i" }} Apia time</div>
+</td></tr>
+
+{# ── Summary tiles ── #}
+<tr><td style="padding:20px 24px 4px;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+    {% with s=stats %}
+    <td width="25%" style="padding:4px;"><div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:10px;text-align:center;">
+      <div style="font-size:24px;font-weight:700;">{{ s.active }}</div><div style="font-size:12px;color:#6b7280;">In yards</div></div></td>
+    <td width="25%" style="padding:4px;"><div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:10px;text-align:center;">
+      <div style="font-size:24px;font-weight:700;">{{ s.wharf }}</div><div style="font-size:12px;color:#6b7280;">At wharf</div></div></td>
+    <td width="25%" style="padding:4px;"><div style="background:{% if s.overdue %}#fef2f2{% else %}#f9fafb{% endif %};border:1px solid {% if s.overdue %}#fecaca{% else %}#e5e7eb{% endif %};border-radius:6px;padding:10px;text-align:center;">
+      <div style="font-size:24px;font-weight:700;color:{% if s.overdue %}#b91c1c{% else %}#111827{% endif %};">{{ s.overdue }}</div><div style="font-size:12px;color:#6b7280;">Overdue returns</div></div></td>
+    <td width="25%" style="padding:4px;"><div style="background:{% if s.due_soon %}#fffbeb{% else %}#f9fafb{% endif %};border:1px solid {% if s.due_soon %}#fde68a{% else %}#e5e7eb{% endif %};border-radius:6px;padding:10px;text-align:center;">
+      <div style="font-size:24px;font-weight:700;color:{% if s.due_soon %}#b45309{% else %}#111827{% endif %};">{{ s.due_soon }}</div><div style="font-size:12px;color:#6b7280;">Due in {{ due_soon_days }} days</div></div></td>
+    {% endwith %}
+  </tr></table>
+  <div style="font-size:12px;color:#6b7280;padding:6px 4px 0;">
+    Full {{ stats.full }} · Storage {{ stats.storage }} · Empty {{ stats.empty }} · Warehouse containers being unloaded {{ stats.warehouse_open }}
+  </div>
+</td></tr>
+
+{# ── Overdue ── #}
+<tr><td style="padding:16px 24px 0;">
+  <div style="font-size:16px;font-weight:600;color:#b91c1c;margin-bottom:6px;">Overdue returns ({{ overdue|length }})</div>
+  {% if overdue %}
+  <table role="presentation" width="100%" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:13px;">
+    <tr style="background:#f9fafb;color:#6b7280;text-align:left;"><th>Container</th><th>Owner</th><th>Yard</th><th>Status</th><th>Due</th><th align="right">Late</th></tr>
+    {% for c in overdue|slice:max_rows %}
+    <tr style="border-top:1px solid #e5e7eb;"><td><b>{{ c.code }}</b></td><td>{{ c.owner.name }}</td><td>{{ c.yard.code }}</td>
+      <td>{{ c.get_status_display }}</td><td>{{ c.return_due|date:"d M" }}</td>
+      <td align="right" style="color:#b91c1c;font-weight:600;">{{ c.days_overdue }} day{{ c.days_overdue|pluralize }}</td></tr>
+    {% endfor %}
+    {% if overdue_more %}<tr style="border-top:1px solid #e5e7eb;"><td colspan="6" style="color:#6b7280;">…and {{ overdue_more }} more. All are in the attached CSV.</td></tr>{% endif %}
+  </table>
+  {% else %}<div style="font-size:13px;color:#15803d;">Nothing overdue.</div>{% endif %}
+</td></tr>
+
+{# ── Due soon ── #}
+<tr><td style="padding:16px 24px 0;">
+  <div style="font-size:16px;font-weight:600;color:#b45309;margin-bottom:6px;">Due back in the next {{ due_soon_days }} days ({{ due_soon|length }})</div>
+  {% if due_soon %}
+  <table role="presentation" width="100%" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:13px;">
+    <tr style="background:#f9fafb;color:#6b7280;text-align:left;"><th>Container</th><th>Owner</th><th>Yard</th><th>Status</th><th>Due</th><th align="right">Left</th></tr>
+    {% for c in due_soon|slice:max_rows %}
+    <tr style="border-top:1px solid #e5e7eb;"><td><b>{{ c.code }}</b></td><td>{{ c.owner.name }}</td><td>{{ c.yard.code }}</td>
+      <td>{{ c.get_status_display }}</td><td>{{ c.return_due|date:"D d M" }}</td>
+      <td align="right">{% if c.days_left == 0 %}<b>today</b>{% else %}{{ c.days_left }} day{{ c.days_left|pluralize }}{% endif %}</td></tr>
+    {% endfor %}
+    {% if due_soon_more %}<tr style="border-top:1px solid #e5e7eb;"><td colspan="6" style="color:#6b7280;">…and {{ due_soon_more }} more. All are in the attached CSV.</td></tr>{% endif %}
+  </table>
+  {% else %}<div style="font-size:13px;color:#6b7280;">None.</div>{% endif %}
+</td></tr>
+
+{# ── Last 24 hours ── #}
+<tr><td style="padding:16px 24px 0;">
+  <div style="font-size:16px;font-weight:600;margin-bottom:6px;">Last 24 hours</div>
+  {% if not activity.any %}<div style="font-size:13px;color:#6b7280;">No container activity.</div>{% endif %}
+  {% if activity.added %}
+  <div style="font-size:13px;margin-bottom:6px;"><b>Added to CMS ({{ activity.added|length }}):</b>
+    {% for c in activity.added %}{{ c.code }} ({{ c.owner.name }}, {{ c.yard.code }}){% if not forloop.last %}, {% endif %}{% endfor %}</div>
+  {% endif %}
+  {% if activity.returned %}
+  <div style="font-size:13px;margin-bottom:6px;"><b>Returned to wharf ({{ activity.returned|length }}):</b>
+    {% for r in activity.returned %}{{ r.container.code }}{% if r.yard %} from {{ r.yard.code }}{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}</div>
+  {% endif %}
+  {% if activity.transfers %}
+  <div style="font-size:13px;margin-bottom:6px;"><b>Moved between yards ({{ activity.transfers|length }}):</b>
+    {% for t in activity.transfers %}{{ t.container.code }} {{ t.from_yard.code|default:"?" }} → {{ t.to_yard.code|default:"?" }}{% if not forloop.last %}, {% endif %}{% endfor %}</div>
+  {% endif %}
+  {% if activity.warehouse %}
+  <div style="font-size:13px;margin-bottom:6px;"><b>Warehouse:</b>
+    {% for m in activity.warehouse %}{{ m.container }} {{ m.what|lower }} {{ m.when|time:"H:i" }}{% if not forloop.last %}, {% endif %}{% endfor %}</div>
+  {% endif %}
+  {% if activity.damage %}
+  <div style="font-size:13px;margin-bottom:6px;color:#b91c1c;"><b>Damage reported ({{ activity.damage|length }}):</b></div>
+  {% for d in activity.damage %}
+  <div style="font-size:13px;margin:0 0 6px 12px;"><b>{{ d.container.container_number }}</b>: {{ d.body|truncatechars:200 }}{% if d.author %} <span style="color:#6b7280;">({{ d.author.get_full_name|default:d.author.username }})</span>{% endif %}</div>
+  {% endfor %}
+  {% endif %}
+</td></tr>
+
+{# ── Warehouse in progress ── #}
+<tr><td style="padding:16px 24px 0;">
+  <div style="font-size:16px;font-weight:600;margin-bottom:6px;">Warehouse containers not yet closed ({{ warehouse|length }})</div>
+  {% if warehouse %}
+  <table role="presentation" width="100%" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:13px;">
+    <tr style="background:#f9fafb;color:#6b7280;text-align:left;"><th>Container</th><th>Supplier</th><th>Status</th><th>Arrived</th><th align="right">Palletized</th></tr>
+    {% for c in warehouse %}
+    <tr style="border-top:1px solid #e5e7eb;"><td><b>{{ c.container_number }}</b></td><td>{{ c.supplier.name|default:"—" }}</td>
+      <td>{{ c.get_status_display }}</td>
+      <td>{% if c.arrival_date %}{{ c.arrival_date|date:"d M" }}{% if c.days_waiting %} <span style="color:#6b7280;">({{ c.days_waiting }}d)</span>{% endif %}{% else %}—{% endif %}</td>
+      <td align="right">{% if c.qty %}{{ c.done }}/{{ c.qty }} ({{ c.percent }}%){% else %}—{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}<div style="font-size:13px;color:#6b7280;">None.</div>{% endif %}
+</td></tr>
+
+{# ── Yards ── #}
+<tr><td style="padding:16px 24px 0;">
+  <div style="font-size:16px;font-weight:600;margin-bottom:6px;">By yard</div>
+  <table role="presentation" width="100%" cellpadding="6" cellspacing="0" style="border-collapse:collapse;font-size:13px;">
+    <tr style="background:#f9fafb;color:#6b7280;text-align:left;"><th>Yard</th><th align="right">Full</th><th align="right">Storage</th><th align="right">Empty</th><th align="right">Overdue</th><th align="right">Total</th></tr>
+    {% for y in yards %}
+    <tr style="border-top:1px solid #e5e7eb;"><td>{{ y.yard }}</td><td align="right">{{ y.full }}</td><td align="right">{{ y.storage }}</td>
+      <td align="right">{{ y.empty }}</td><td align="right" style="{% if y.overdue %}color:#b91c1c;font-weight:600;{% endif %}">{{ y.overdue }}</td><td align="right"><b>{{ y.total }}</b></td></tr>
+    {% empty %}
+    <tr><td colspan="6" style="color:#6b7280;">No containers in yards.</td></tr>
+    {% endfor %}
+  </table>
+</td></tr>
+
+<tr><td style="padding:20px 24px;">
+  {% if links.cms %}
+  <a href="{{ links.cms }}" style="display:inline-block;background:#1e3a5f;color:#ffffff;text-decoration:none;padding:9px 14px;border-radius:6px;font-size:13px;margin:0 6px 6px 0;">CMS dashboard</a>
+  {% if stats.overdue %}<a href="{{ links.overdue }}" style="display:inline-block;background:#b91c1c;color:#ffffff;text-decoration:none;padding:9px 14px;border-radius:6px;font-size:13px;margin:0 6px 6px 0;">Overdue list</a>{% endif %}
+  <a href="{{ links.warehouse }}" style="display:inline-block;background:#ffffff;color:#1e3a5f;border:1px solid #1e3a5f;text-decoration:none;padding:8px 14px;border-radius:6px;font-size:13px;margin:0 6px 6px 0;">Warehouse containers</a>
+  {% endif %}
+  <div style="font-size:12px;color:#6b7280;margin-top:8px;">The full list of containers in yards is attached as a spreadsheet (CSV).</div>
+</td></tr>
+
+</table>
+</td></tr></table>
+</body></html>

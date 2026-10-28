@@ -26,10 +26,12 @@ def refresh_hours():
 
 
 def should_start():
+    return refresh_hours() > 0 and is_serving_process()
+
+
+def is_serving_process():
     """Only in a serving process — not for migrate, test, shell, etc. Under
     runserver's autoreloader, only in the child process that serves requests."""
-    if refresh_hours() <= 0:
-        return False
     argv = [os.path.basename(a) for a in sys.argv[:2]]
     if argv and argv[0] in ('manage.py', 'django-admin', 'django-admin.py'):
         if len(argv) < 2 or argv[1] != 'runserver':

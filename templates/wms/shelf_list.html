@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load custom_tags %}
 {% block title %}Shelf Locations — Ahliki WMS{% endblock %}
 {% block topbar_title %}🗄️ Shelf Locations{% endblock %}
 
@@ -24,7 +25,7 @@
 <div class="page-header">
   <div>
     <h1>Shelf Locations</h1>
-    <p>A–Z rows, 3 stories each (A1, A2, A3 … Z1, Z2, Z3)</p>
+    <p>Rows of shelves, each with numbered levels (A1, A2, A3 …). Scan a shelf's QR code to check pallets in to it.</p>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     <a href="{% url 'shelf_qr_print' %}" class="btn btn-secondary">🖨 Print QR Codes</a>
@@ -32,16 +33,43 @@
   </div>
 </div>
 
-{% for letter, rows in shelf_by_letter.items %}
+{% if is_admin %}
 <div class="card" style="margin-bottom:14px">
-  <div class="card-header">
+  <div class="card-header"><h2>➕ Add Shelves</h2></div>
+  <div class="card-body">
+    <form method="post" action="{% url 'shelf_add' %}" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+      {% csrf_token %}
+      <div class="form-group" style="margin:0">
+        <label for="id_row">{{ add_form.row.label }}</label>
+        {{ add_form.row }}
+      </div>
+      <div class="form-group" style="margin:0;width:110px">
+        <label for="id_levels">{{ add_form.levels.label }}</label>
+        {{ add_form.levels }}
+      </div>
+      <button type="submit" class="btn btn-primary">➕ Add</button>
+    </form>
+    <p style="font-size:12px;color:var(--gray-500);margin-top:8px">
+      A new row (e.g. <strong>AA</strong> with 3 levels) creates AA1, AA2, AA3. An existing row with more levels
+      (e.g. <strong>A</strong> with 4) adds just the missing A4. QR codes are made automatically — print them from the row.
+    </p>
+  </div>
+</div>
+{% endif %}
+
+{% for letter, rows in shelf_by_letter.items %}
+<div class="card" style="margin-bottom:14px" id="row-{{ letter }}">
+  <div class="card-header" style="display:flex;justify-content:space-between;align-items:center">
     <h2 style="font-size:18px;font-weight:800;color:var(--green-dark)">Row {{ letter }}</h2>
+    <a href="{% url 'shelf_qr_print' %}?row={{ letter }}" class="btn btn-sm btn-secondary">🖨 Print QR</a>
   </div>
   <div class="shelf-row-grid">
     {% for row in rows %}
     <div class="shelf-cell">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <span style="font-size:20px;font-weight:800;color:var(--green-dark)">{{ row.shelf.code }}</span>
+        <span style="font-size:20px;font-weight:800;color:var(--green-dark)">{{ row.shelf.code }}
+          {% if is_admin %}<a href="{% url 'shelf_edit' row.shelf.code %}" title="Edit {{ row.shelf.code }}"
+             style="font-size:13px;font-weight:600;text-decoration:none;margin-left:4px">✏️</a>{% endif %}</span>
         <span class="badge {% if row.count %}badge-blue{% else %}badge-gray{% endif %}">
           {{ row.count }} pallet{{ row.count|pluralize }}
         </span>

@@ -1,37 +1,296 @@
-
 <!DOCTYPE html>
+{% load static %}
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Login — Ah Liki IMS</title>
-{% load static %}<link rel="stylesheet" href="{% static 'css/main.css' %}">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in — Ah Liki IMS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --green-950: #0f241a;
+    --green-dark: #1a3a2a;
+    --green-mid: #2d5c42;
+    --green-accent: #3f8a5f;
+    --green-light: #e8f2ec;
+    --red: #dc2626;
+    --gray-50: #f9fafb;
+    --gray-200: #e5e7eb;
+    --gray-300: #d1d5db;
+    --gray-400: #9ca3af;
+    --gray-500: #6b7280;
+    --gray-700: #374151;
+    --gray-900: #111827;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14px;
+    color: var(--gray-900);
+    background: #fff;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .auth { display: grid; grid-template-columns: 1.1fr 1fr; min-height: 100vh; }
+
+  /* ---------- Brand panel ---------- */
+  .brand {
+    position: relative;
+    overflow: hidden;
+    color: #fff;
+    padding: 48px 56px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    background:
+      radial-gradient(1200px 600px at -10% -10%, rgba(63,138,95,.45), transparent 60%),
+      radial-gradient(900px 500px at 110% 110%, rgba(45,92,66,.6), transparent 60%),
+      linear-gradient(160deg, var(--green-dark) 0%, var(--green-950) 100%);
+  }
+  .brand::before {
+    content: "";
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(ellipse at 30% 40%, #000 20%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse at 30% 40%, #000 20%, transparent 75%);
+    pointer-events: none;
+  }
+  .brand > * { position: relative; }
+  .brand-top { display: flex; align-items: center; gap: 12px; }
+  .brand-top img {
+    width: 44px; height: 44px; object-fit: contain;
+    background: #fff; border-radius: 10px; padding: 4px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.25);
+  }
+  .brand-top .name { font-weight: 600; font-size: 15px; line-height: 1.2; }
+  .brand-top .name small { display: block; font-weight: 400; font-size: 12px; opacity: .65; }
+
+  .brand-hero { max-width: 440px; }
+  .brand-hero .eyebrow {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 12px; font-weight: 500; letter-spacing: .04em;
+    padding: 6px 12px; border-radius: 999px;
+    background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14);
+    margin-bottom: 20px;
+  }
+  .brand-hero .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; background: #6ee7a8; box-shadow: 0 0 0 3px rgba(110,231,168,.2); }
+  .brand-hero h2 { font-size: 36px; line-height: 1.15; font-weight: 700; letter-spacing: -.02em; margin-bottom: 14px; }
+  .brand-hero p { font-size: 15px; line-height: 1.6; color: rgba(255,255,255,.72); }
+
+  .features { list-style: none; margin-top: 32px; display: grid; gap: 14px; }
+  .features li { display: flex; align-items: center; gap: 12px; font-size: 14px; color: rgba(255,255,255,.85); }
+  .features .ico {
+    flex: none; width: 32px; height: 32px; border-radius: 8px;
+    display: grid; place-items: center;
+    background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12);
+  }
+  .features svg { width: 16px; height: 16px; stroke: #b7e4c7; }
+
+  .brand-foot { font-size: 12px; color: rgba(255,255,255,.5); }
+
+  /* ---------- Form panel ---------- */
+  .panel {
+    display: flex; align-items: center; justify-content: center;
+    padding: 48px 24px;
+    background: var(--gray-50);
+  }
+  .card { width: 100%; max-width: 400px; }
+  .card-logo { display: none; text-align: center; margin-bottom: 24px; }
+  .card-logo img { width: 72px; height: 72px; object-fit: contain; }
+
+  .card h1 { font-size: 26px; font-weight: 700; letter-spacing: -.02em; margin-bottom: 6px; }
+  .card .sub { color: var(--gray-500); font-size: 14px; margin-bottom: 28px; }
+
+  .alert {
+    display: flex; gap: 10px; align-items: flex-start;
+    padding: 12px 14px; margin-bottom: 20px;
+    border-radius: 10px; font-size: 13px;
+    background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;
+  }
+  .alert svg { flex: none; width: 16px; height: 16px; margin-top: 1px; stroke: currentColor; }
+
+  .field { margin-bottom: 18px; }
+  .field label { display: block; font-size: 13px; font-weight: 500; color: var(--gray-700); margin-bottom: 6px; }
+  .input-wrap { position: relative; }
+  .input-wrap .lead {
+    position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+    width: 18px; height: 18px; stroke: var(--gray-400); pointer-events: none;
+    transition: stroke .15s;
+  }
+  .input-wrap input {
+    width: 100%; height: 46px;
+    padding: 0 44px 0 42px;
+    font: inherit; font-size: 14px; color: var(--gray-900);
+    background: #fff;
+    border: 1px solid var(--gray-300); border-radius: 10px;
+    outline: none;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .input-wrap input::placeholder { color: var(--gray-400); }
+  .input-wrap input:hover { border-color: var(--gray-400); }
+  .input-wrap input:focus { border-color: var(--green-mid); box-shadow: 0 0 0 4px rgba(45,92,66,.12); }
+  .input-wrap:focus-within .lead { stroke: var(--green-mid); }
+  .has-error .input-wrap input { border-color: #fca5a5; }
+
+  .toggle-pw {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    width: 34px; height: 34px; border: 0; border-radius: 8px;
+    background: transparent; cursor: pointer;
+    display: grid; place-items: center;
+  }
+  .toggle-pw:hover { background: var(--gray-50); }
+  .toggle-pw:focus-visible { outline: 2px solid var(--green-mid); outline-offset: 1px; }
+  .toggle-pw svg { width: 18px; height: 18px; stroke: var(--gray-500); }
+
+  .btn {
+    width: 100%; height: 46px; margin-top: 8px;
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    font: inherit; font-size: 14px; font-weight: 600; color: #fff;
+    background: linear-gradient(180deg, var(--green-mid), var(--green-dark));
+    border: 0; border-radius: 10px; cursor: pointer;
+    box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 6px 16px rgba(26,58,42,.25);
+    transition: transform .1s, box-shadow .15s, filter .15s;
+  }
+  .btn:hover { filter: brightness(1.08); box-shadow: 0 1px 2px rgba(0,0,0,.08), 0 10px 22px rgba(26,58,42,.3); }
+  .btn:active { transform: translateY(1px); }
+  .btn:focus-visible { outline: 3px solid rgba(45,92,66,.35); outline-offset: 2px; }
+  .btn svg { width: 16px; height: 16px; stroke: #fff; transition: transform .15s; }
+  .btn:hover svg { transform: translateX(2px); }
+  .btn[disabled] { opacity: .75; cursor: progress; }
+
+  .secure {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    margin-top: 24px; font-size: 12px; color: var(--gray-500);
+  }
+  .secure svg { width: 14px; height: 14px; stroke: var(--gray-400); }
+  .card-foot { text-align: center; margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--gray-200); font-size: 12px; color: var(--gray-400); }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 900px) {
+    .auth { grid-template-columns: 1fr; }
+    .brand { display: none; }
+    .panel { min-height: 100vh; background: #fff; }
+    .card-logo { display: block; }
+    .card h1, .card .sub { text-align: center; }
+    .input-wrap input { font-size: 16px; } /* stops iOS zooming on focus */
+  }
+</style>
 </head>
 <body>
-<div class="login-wrap">
-  <div class="login-card">
-    <div class="login-logo">
-      <img src="{% static 'image/ahliki_logo.png' %}" alt="Ah Liki Logo" class="logo-image" width="120" height="120">
-      <h1>Ah Liki Wholesale</h1>
-      <p>Inventory Management System</p>
+<div class="auth">
+
+  <aside class="brand">
+    <div class="brand-top">
+      <img src="{% static 'image/ahliki_logo.png' %}" alt="Ah Liki logo">
+      <div class="name">Ah Liki Investment Corp<small>Information Management System</small></div>
     </div>
-    {% if form.errors %}
-    <div class="alert alert-error">Invalid username or password.</div>
-    {% endif %}
-    <form method="post">
-      {% csrf_token %}
-      <div class="form-group">
-        <label>Username</label>
-        <input type="text" name="username" autofocus placeholder="Enter username">
+
+    <div class="brand-hero">
+      <span class="eyebrow"><span class="dot"></span>Operations portal</span>
+      <h2>Your inventory, warehouse and containers in one place.</h2>
+      <p>Track stock levels, manage shelves and follow every container from arrival to dispatch.</p>
+      <ul class="features">
+        <li>
+          <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg></span>
+          Real-time stock and product tracking
+        </li>
+        <li>
+          <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/></svg></span>
+          Warehouse shelves with QR labelling
+        </li>
+        <li>
+          <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 17h15V5H1z"/><path d="M16 9h4l3 4v4h-7"/><circle cx="5.5" cy="18.5" r="2"/><circle cx="18.5" cy="18.5" r="2"/></svg></span>
+          Container shipments and arrivals
+        </li>
+      </ul>
+    </div>
+
+    <div class="brand-foot">&copy; {% now "Y" %} Ah Liki Samoa &mdash; Apia, Samoa</div>
+  </aside>
+
+  <main class="panel">
+    <div class="card">
+      <div class="card-logo">
+        <img src="{% static 'image/ahliki_logo.png' %}" alt="Ah Liki logo">
       </div>
-      <div class="form-group">
-        <label>Password</label>
-        <input type="password" name="password" placeholder="Enter password">
+
+      <h1>Welcome back</h1>
+      <p class="sub">Sign in to your account to continue.</p>
+
+      {% if form.errors %}
+      <div class="alert" role="alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+        <span>The username or password you entered is incorrect. Please try again.</span>
       </div>
-      <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:8px">Sign in</button>
-    </form>
-    <p style="text-align:center;margin-top:20px;font-size:12px;color:var(--gray-500)">Ah Liki Samoa &mdash; Apia, Samoa</p>
-  </div>
+      {% endif %}
+
+      <form method="post" id="login-form" novalidate>
+        {% csrf_token %}
+        {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+
+        <div class="field{% if form.errors %} has-error{% endif %}">
+          <label for="id_username">Username</label>
+          <div class="input-wrap">
+            <svg class="lead" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+            <input type="text" id="id_username" name="username" value="{{ form.username.value|default_if_none:'' }}" autocomplete="username" autocapitalize="none" autofocus required placeholder="Enter your username">
+          </div>
+        </div>
+
+        <div class="field{% if form.errors %} has-error{% endif %}">
+          <label for="id_password">Password</label>
+          <div class="input-wrap">
+            <svg class="lead" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+            <input type="password" id="id_password" name="password" autocomplete="current-password" required placeholder="Enter your password">
+            <button type="button" class="toggle-pw" id="toggle-pw" aria-label="Show password" aria-pressed="false">
+              <svg id="eye" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <button type="submit" class="btn" id="submit-btn">
+          <span>Sign in</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </form>
+
+      <div class="secure">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        Authorised staff only. Activity is logged.
+      </div>
+
+      <div class="card-foot">Ah Liki Samoa &mdash; Apia, Samoa</div>
+    </div>
+  </main>
+
 </div>
+
+<script>
+  (function () {
+    var pw = document.getElementById('id_password');
+    var toggle = document.getElementById('toggle-pw');
+    var eye = document.getElementById('eye');
+    var open = '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/>';
+    var shut = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 19c-7 0-11-7-11-7a18.5 18.5 0 0 1 5.06-5.94M9.9 4.24A9.1 9.1 0 0 1 12 4c7 0 11 7 11 7a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="M1 1l22 22"/>';
+    toggle.addEventListener('click', function () {
+      var show = pw.type === 'password';
+      pw.type = show ? 'text' : 'password';
+      eye.innerHTML = show ? shut : open;
+      toggle.setAttribute('aria-pressed', show);
+      toggle.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    });
+
+    document.getElementById('login-form').addEventListener('submit', function () {
+      var btn = document.getElementById('submit-btn');
+      btn.disabled = true;
+      btn.querySelector('span').textContent = 'Signing in…';
+    });
+  })();
+</script>
 </body>
 </html>
