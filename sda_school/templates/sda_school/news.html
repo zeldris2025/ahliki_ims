@@ -1,0 +1,32 @@
+{% extends 'sda_school/base.html' %}
+{% block hero_lead %}Stories, achievements and upcoming events from across our school community.{% endblock %}
+
+{% block content %}
+<section class="section">
+  <div class="container news-layout">
+    <div class="news-list">
+      {% for n in news %}
+      <article class="news-card news-card-lg reveal">
+        <div class="news-thumb news-thumb-{{ forloop.counter }}" aria-hidden="true">{% include 'sda_school/_icon.html' with name='book' %}</div>
+        <div>
+          <div class="meta"><span class="chip chip-soft">{{ n.category }}</span><time datetime="{{ n.date|date:'Y-m-d' }}">{{ n.date|date:"j F Y" }}</time></div>
+          <h2>{{ n.title }}</h2>
+          <p>{{ n.text }}</p>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    <aside class="events-panel reveal" id="events">
+      <h3>{% include 'sda_school/_icon.html' with name='calendar' %}Upcoming Events</h3>
+      {% for e in events %}
+      <div class="event-row">
+        <div class="event-date"><strong>{{ e.date|date:"j" }}</strong><span>{{ e.date|date:"M" }}</span></div>
+        <div><b>{{ e.title }}</b><small>{{ e.date|date:"l" }} · {{ e.time }} · {{ e.place }}</small></div>
+      </div>
+      {% empty %}
+      <p class="muted">No upcoming events right now — check back soon.</p>
+      {% endfor %}
+    </aside>
+  </div>
+</section>
+{% endblock %}

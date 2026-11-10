@@ -1,0 +1,38 @@
+{% extends 'sda_school/base.html' %}
+{% block hero_lead %}Strong academic foundations, taught by caring Christian teachers — from a child’s first day of Early Childhood to university entrance.{% endblock %}
+
+{% block content %}
+<section class="section">
+  <div class="container program-detail-list">
+    {% for p in programs %}
+    <article class="program-detail reveal" id="{{ p.slug }}">
+      <div class="program-detail-side program-{{ forloop.counter }}">
+        <div class="icon-badge icon-badge-light icon-badge-lg">{% include 'sda_school/_icon.html' with name=p.icon %}</div>
+        <span class="chip">{{ p.ages }}</span>
+      </div>
+      <div class="program-detail-body">
+        <h2>{{ p.title }}</h2>
+        <p class="lead-dark">{{ p.summary }}</p>
+        <ul class="ticks ticks-2">{% for pt in p.points %}<li>{% include 'sda_school/_icon.html' with name='check' %}{{ pt }}</li>{% endfor %}</ul>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section section-tint">
+  <div class="container">
+    <div class="section-head reveal"><span class="eyebrow">Curriculum</span><h2>Subjects we offer</h2>
+      <p>Following the Samoa national curriculum, enriched with Religious Studies and a biblical worldview across every subject.</p></div>
+    <div class="subject-cloud reveal">{% for s in subjects %}<span>{{ s }}</span>{% endfor %}</div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container card-grid card-grid-3">
+    <article class="feature-card reveal"><div class="icon-badge">{% include 'sda_school/_icon.html' with name='user' %}</div><h3>Small classes</h3><p>Teachers get to know every learner and can tailor support to their needs.</p></article>
+    <article class="feature-card reveal"><div class="icon-badge">{% include 'sda_school/_icon.html' with name='globe' %}</div><h3>Modern learning</h3><p>Science and computer labs prepare students for further study and the digital world.</p></article>
+    <article class="feature-card reveal"><div class="icon-badge">{% include 'sda_school/_icon.html' with name='star' %}</div><h3>Beyond the classroom</h3><p>Sport, music, debating and agriculture help every student discover their gifts.</p></article>
+  </div>
+</section>
+{% endblock %}

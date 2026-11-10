@@ -1,0 +1,41 @@
+{% extends 'sda_school/base.html' %}
+{% block hero_lead %}We believe every student is a child of God with a purpose. Our spiritual programme invites young people to know Jesus and to live out His love.{% endblock %}
+
+{% block content %}
+<section class="section">
+  <div class="container">
+    <div class="card-grid card-grid-3">
+      {% for s in spiritual %}
+      <article class="feature-card reveal"><div class="icon-badge">{% include 'sda_school/_icon.html' with name=s.icon %}</div><h3>{{ s.title }}</h3><p>{{ s.text }}</p></article>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="section section-navy">
+  <div class="container split">
+    <div class="reveal">
+      <span class="eyebrow eyebrow-light">The Sabbath</span>
+      <h2>A weekly gift of rest</h2>
+      <p>{{ sabbath_note }}</p>
+      <p>Students and families are warmly invited to worship with the local Adventist church community on Sabbath.</p>
+    </div>
+    <div class="verse-card reveal">
+      <p>“Remember the Sabbath day, to keep it holy.”</p>
+      <span>Exodus 20:8</span>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-head reveal"><span class="eyebrow">Beliefs</span><h2>The foundations of our faith</h2></div>
+    <div class="card-grid card-grid-3">
+      {% for b in beliefs %}
+      <article class="belief-card reveal"><span class="belief-num">{{ forloop.counter|stringformat:"02d" }}</span><h3>{{ b.title }}</h3><p>{{ b.text }}</p></article>
+      {% endfor %}
+    </div>
+    <p class="center reveal"><a class="btn btn-outline" href="https://www.adventist.org/" target="_blank" rel="noopener">Learn more at adventist.org {% include 'sda_school/_icon.html' with name='external' %}</a></p>
+  </div>
+</section>
+{% endblock %}

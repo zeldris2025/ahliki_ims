@@ -1,0 +1,135 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% if title %}{{ title }} · {% endif %}{{ school.name }} — {{ school.full_title }}</title>
+<meta name="description" content="{% block description %}{{ school.name }} is a Seventh-day Adventist school in {{ school.location }} offering Christ-centred education from Early Childhood to Year 13.{% endblock %}">
+<meta name="theme-color" content="#0d2b45">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230d2b45'/%3E%3Cpath d='M14 20h14a6 6 0 0 1 4 2 6 6 0 0 1 4-2h14v26H36a6 6 0 0 0-4 2 6 6 0 0 0-4-2H14z' fill='none' stroke='%23e8b04b' stroke-width='3.5' stroke-linejoin='round'/%3E%3Cpath d='M32 22v26' stroke='%23e8b04b' stroke-width='3.5'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{% static 'sda_school/css/school.css' %}">
+</head>
+<body class="page-{{ page }}">
+<a class="skip-link" href="#main">Skip to content</a>
+
+<div class="topbar">
+  <div class="container topbar-inner">
+    <div class="topbar-info">
+      <a href="tel:{{ school.phone|cut:' '|cut:'('|cut:')' }}">{% include 'sda_school/_icon.html' with name='phone' %}{{ school.phone }}</a>
+      <a href="mailto:{{ school.email }}">{% include 'sda_school/_icon.html' with name='mail' %}{{ school.email }}</a>
+    </div>
+    <div class="topbar-links">
+      {% for link in adventist_links|slice:":1" %}<a href="{{ link.url }}" target="_blank" rel="noopener">{{ link.label }} {% include 'sda_school/_icon.html' with name='external' %}</a>{% endfor %}
+    </div>
+  </div>
+</div>
+
+<header class="site-header" id="top">
+  <div class="container header-inner">
+    <a class="brand" href="{% url 'sda_school:home' %}" aria-label="{{ school.name }} home">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 48 48"><path d="M8 14h11a5 5 0 0 1 5 3 5 5 0 0 1 5-3h11v22H29a5 5 0 0 0-5 3 5 5 0 0 0-5-3H8z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/><path d="M24 17v22" stroke="currentColor" stroke-width="2.6"/><path d="M24 4v7M20.5 7.5h7" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
+      </span>
+      <span class="brand-text">
+        <strong>{{ school.name }}</strong>
+        <small>{{ school.full_title }}</small>
+      </span>
+    </a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav" aria-label="Open menu">
+      <span class="when-closed">{% include 'sda_school/_icon.html' with name='menu' %}</span>
+      <span class="when-open">{% include 'sda_school/_icon.html' with name='close' %}</span>
+    </button>
+    <nav class="site-nav" id="site-nav" aria-label="Main">
+      <ul>
+        {% for url_name, label in nav %}
+          {% url url_name as nav_url %}
+          <li><a href="{{ nav_url }}"{% if request.path == nav_url %} aria-current="page"{% endif %}>{{ label }}</a></li>
+        {% endfor %}
+      </ul>
+      <a class="btn btn-gold nav-cta" href="{% url 'sda_school:admissions' %}#enquire">Enrol Now</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  {% if messages %}
+    <div class="container flash-wrap">
+      {% for message in messages %}<div class="flash flash-{{ message.tags }}" role="status">{% include 'sda_school/_icon.html' with name='check' %}{{ message }}</div>{% endfor %}
+    </div>
+  {% endif %}
+
+  {% block hero %}
+  <section class="page-hero">
+    <div class="container">
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="{% url 'sda_school:home' %}">Home</a><span>/</span>{{ title }}</nav>
+      <h1>{% block hero_title %}{{ title }}{% endblock %}</h1>
+      <p class="lead">{% block hero_lead %}{% endblock %}</p>
+    </div>
+  </section>
+  {% endblock %}
+
+  {% block content %}{% endblock %}
+
+  {% block cta %}
+  <section class="cta-band">
+    <div class="container cta-inner">
+      <div>
+        <h2>Begin your child’s journey with us</h2>
+        <p>Enrolments are open for {{ year|add:1 }}. Book a campus visit and see Christ-centred learning in action.</p>
+      </div>
+      <div class="cta-actions">
+        <a class="btn btn-gold btn-lg" href="{% url 'sda_school:admissions' %}#enquire">Start Enrolment</a>
+        <a class="btn btn-ghost-light btn-lg" href="{% url 'sda_school:contact' %}?topic=visit#enquire">Book a Visit</a>
+      </div>
+    </div>
+  </section>
+  {% endblock %}
+</main>
+
+<footer class="site-footer">
+  <div class="container footer-grid">
+    <div class="footer-about">
+      <a class="brand brand-light" href="{% url 'sda_school:home' %}">
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M8 14h11a5 5 0 0 1 5 3 5 5 0 0 1 5-3h11v22H29a5 5 0 0 0-5 3 5 5 0 0 0-5-3H8z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/><path d="M24 17v22" stroke="currentColor" stroke-width="2.6"/><path d="M24 4v7M20.5 7.5h7" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg></span>
+        <span class="brand-text"><strong>{{ school.name }}</strong><small>{{ school.motto }}</small></span>
+      </a>
+      <p>A Seventh-day Adventist school in {{ school.location }}, nurturing students in faith, learning and service since {{ school.founded }}.</p>
+      <div class="socials">
+        {% if school.facebook %}<a href="{{ school.facebook }}" aria-label="Facebook" target="_blank" rel="noopener">{% include 'sda_school/_icon.html' with name='facebook' %}</a>{% endif %}
+        {% if school.instagram %}<a href="{{ school.instagram }}" aria-label="Instagram" target="_blank" rel="noopener">{% include 'sda_school/_icon.html' with name='instagram' %}</a>{% endif %}
+        {% if school.youtube %}<a href="{{ school.youtube }}" aria-label="YouTube" target="_blank" rel="noopener">{% include 'sda_school/_icon.html' with name='youtube' %}</a>{% endif %}
+      </div>
+    </div>
+    <div>
+      <h3>Explore</h3>
+      <ul>{% for url_name, label in nav %}<li><a href="{% url url_name %}">{{ label }}</a></li>{% endfor %}</ul>
+    </div>
+    <div>
+      <h3>Adventist Resources</h3>
+      <ul>{% for link in adventist_links %}<li><a href="{{ link.url }}" target="_blank" rel="noopener">{{ link.label }}</a></li>{% endfor %}</ul>
+    </div>
+    <div>
+      <h3>Visit Us</h3>
+      <ul class="footer-contact">
+        <li>{% include 'sda_school/_icon.html' with name='pin' %}<span>{{ school.address }}</span></li>
+        <li>{% include 'sda_school/_icon.html' with name='phone' %}<a href="tel:{{ school.phone|cut:' '|cut:'('|cut:')' }}">{{ school.phone }}</a></li>
+        <li>{% include 'sda_school/_icon.html' with name='mail' %}<a href="mailto:{{ school.email }}">{{ school.email }}</a></li>
+        <li>{% include 'sda_school/_icon.html' with name='clock' %}<span>{{ school.office_hours }}</span></li>
+      </ul>
+    </div>
+  </div>
+  <div class="container footer-sabbath">{% include 'sda_school/_icon.html' with name='sun' %}<p>{{ sabbath_note }}</p></div>
+  <div class="footer-bottom">
+    <div class="container footer-bottom-inner">
+      <span>© {{ year }} {{ school.name }}. All rights reserved.</span>
+      <a href="#top">Back to top ↑</a>
+    </div>
+  </div>
+</footer>
+
+<script src="{% static 'sda_school/js/school.js' %}" defer></script>
+</body>
+</html>

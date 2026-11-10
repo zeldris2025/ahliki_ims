@@ -1,0 +1,17 @@
+<form class="enquiry-form" method="post" action="{{ request.path }}#enquire" novalidate>
+  {% csrf_token %}
+  {% if form.non_field_errors %}<div class="form-error">{{ form.non_field_errors|join:" " }}</div>{% endif %}
+  <div class="form-row">
+    <label class="field">Full name *{{ form.name }}{% for e in form.name.errors %}<span class="field-error">{{ e }}</span>{% endfor %}</label>
+    <label class="field">Email *{{ form.email }}{% for e in form.email.errors %}<span class="field-error">{{ e }}</span>{% endfor %}</label>
+  </div>
+  <div class="form-row">
+    <label class="field">Phone{{ form.phone }}</label>
+    <label class="field">I’m enquiring about{{ form.topic }}</label>
+  </div>
+  <label class="field">Year level of interest{{ form.level }}</label>
+  <label class="field">Message *{{ form.message }}{% for e in form.message.errors %}<span class="field-error">{{ e }}</span>{% endfor %}</label>
+  <label class="hp" aria-hidden="true">Leave this empty{{ form.website }}</label>
+  <button class="btn btn-gold btn-lg btn-block" type="submit">Send Enquiry {% include 'sda_school/_icon.html' with name='arrow' %}</button>
+  <p class="form-note">We reply within two working days. Your details are used only to answer your enquiry.</p>
+</form>

@@ -1,0 +1,32 @@
+{% extends 'sda_school/base.html' %}
+{% block hero_lead %}We welcome families of every faith who are looking for an excellent, values-based education. Here is how to join our school family.{% endblock %}
+
+{% block content %}
+<section class="section">
+  <div class="container">
+    <div class="section-head reveal"><span class="eyebrow">How to Enrol</span><h2>Five simple steps</h2></div>
+    <ol class="steps">
+      {% for s in steps %}<li class="step reveal"><span class="step-num">{{ forloop.counter }}</span><h3>{{ s.title }}</h3><p>{{ s.text }}</p></li>{% endfor %}
+    </ol>
+  </div>
+</section>
+
+<section class="section section-tint">
+  <div class="container split split-top">
+    <div class="reveal">
+      <span class="eyebrow">What to Bring</span>
+      <h2>Enrolment documents</h2>
+      <ul class="ticks doc-list">{% for d in documents %}<li>{% include 'sda_school/_icon.html' with name='check' %}{{ d }}</li>{% endfor %}</ul>
+      <h2 class="mt">Frequently asked questions</h2>
+      <div class="faq">
+        {% for f in faqs %}<details{% if forloop.first %} open{% endif %}><summary>{{ f.q }}</summary><p>{{ f.a }}</p></details>{% endfor %}
+      </div>
+    </div>
+    <div class="form-card reveal" id="enquire">
+      <h2>Enrolment enquiry</h2>
+      <p class="muted">Tell us about your child and we will send you the enrolment pack.</p>
+      {% include 'sda_school/_enquiry_form.html' %}
+    </div>
+  </div>
+</section>
+{% endblock %}

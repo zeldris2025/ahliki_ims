@@ -1,0 +1,66 @@
+{% extends 'sda_school/base.html' %}
+{% block hero_lead %}Founded in {{ school.founded }}, {{ school.name }} is part of the Seventh-day Adventist Church’s worldwide network of schools — one of the largest Christian education systems in the world.{% endblock %}
+
+{% block content %}
+<section class="section">
+  <div class="container split">
+    <div class="reveal">
+      <span class="eyebrow">Our Story</span>
+      <h2>Rooted in faith, growing in excellence</h2>
+      <p>{{ school.name }} began with a small group of church members who dreamed of a school where children could
+        receive an excellent education in a Christian environment. What began in a single classroom has grown into
+        a thriving campus serving families from across {{ school.location }}.</p>
+      <p>Today we offer Early Childhood, Primary and Secondary education, guided by the same conviction that
+        inspired our founders: that true education restores the image of God in every student.</p>
+    </div>
+    <div class="mv-cards">
+      <article class="mv-card reveal"><span class="eyebrow">Mission</span><p>{{ mission }}</p></article>
+      <article class="mv-card mv-card-navy reveal"><span class="eyebrow eyebrow-light">Vision</span><p>{{ vision }}</p></article>
+      <article class="mv-card mv-card-gold reveal"><span class="eyebrow">Motto</span><p class="mv-motto">“{{ school.motto }}”</p></article>
+    </div>
+  </div>
+</section>
+
+<section class="section section-tint">
+  <div class="container">
+    <div class="section-head reveal"><span class="eyebrow">Core Values</span><h2>What we stand for</h2></div>
+    <div class="card-grid card-grid-4">
+      {% for v in values %}
+      <article class="value-card reveal"><div class="icon-badge">{% include 'sda_school/_icon.html' with name=v.icon %}</div><h3>{{ v.title }}</h3><p>{{ v.text }}</p></article>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="eyebrow">Our Beliefs</span>
+      <h2>What Seventh-day Adventists believe</h2>
+      <p>Our school is operated by the Seventh-day Adventist Church. These beliefs shape our teaching and our care for students.</p>
+    </div>
+    <div class="card-grid card-grid-3">
+      {% for b in beliefs %}
+      <article class="belief-card reveal"><span class="belief-num">{{ forloop.counter|stringformat:"02d" }}</span><h3>{{ b.title }}</h3><p>{{ b.text }}</p></article>
+      {% endfor %}
+    </div>
+    <p class="center reveal"><a class="btn btn-outline" href="https://www.adventist.org/beliefs/" target="_blank" rel="noopener">Read all 28 Fundamental Beliefs {% include 'sda_school/_icon.html' with name='external' %}</a></p>
+  </div>
+</section>
+
+<section class="section section-tint">
+  <div class="container">
+    <div class="section-head reveal"><span class="eyebrow">Leadership</span><h2>Serving our school family</h2></div>
+    <div class="card-grid card-grid-4">
+      {% for l in leadership %}
+      <article class="leader-card reveal">
+        <div class="leader-photo">{% include 'sda_school/_icon.html' with name='user' %}</div>
+        <h3>{% if l.name %}{{ l.name }}{% else %}{{ l.role }}{% endif %}</h3>
+        {% if l.name %}<span class="leader-role">{{ l.role }}</span>{% endif %}
+        <p>{{ l.text }}</p>
+      </article>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endblock %}

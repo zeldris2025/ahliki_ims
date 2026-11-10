@@ -1,0 +1,194 @@
+{% extends 'sda_school/base.html' %}
+
+{% block hero %}
+<section class="hero">
+  <div class="hero-bg" aria-hidden="true"><span class="orb orb-1"></span><span class="orb orb-2"></span><span class="hero-grid"></span></div>
+  <div class="container hero-inner">
+    <div class="hero-copy reveal">
+      <span class="eyebrow eyebrow-light">{{ school.full_title }} · {{ school.location }}</span>
+      <h1>Educating the whole child — <em>for this life and for eternity.</em></h1>
+      <p class="lead">At {{ school.name }}, faith and learning grow together. From Early Childhood to Year 13, we develop
+        minds, build character and inspire every student to serve.</p>
+      <div class="hero-actions">
+        <a class="btn btn-gold btn-lg" href="{% url 'sda_school:admissions' %}#enquire">Enrol Now {% include 'sda_school/_icon.html' with name='arrow' %}</a>
+        <a class="btn btn-ghost-light btn-lg" href="{% url 'sda_school:about' %}">Discover Our School</a>
+      </div>
+      <ul class="hero-badges">
+        <li>{% include 'sda_school/_icon.html' with name='check' %}Christ-centred</li>
+        <li>{% include 'sda_school/_icon.html' with name='check' %}Small classes</li>
+        <li>{% include 'sda_school/_icon.html' with name='check' %}ECE – Year 13</li>
+      </ul>
+    </div>
+    <div class="hero-visual reveal" aria-hidden="true">
+      <div class="hv-card hv-main">
+        <div class="hv-icon">{% include 'sda_school/_icon.html' with name='book' %}</div>
+        <p class="hv-verse">“Train up a child in the way he should go: and when he is old, he will not depart from it.”</p>
+        <span class="hv-ref">Proverbs 22:6</span>
+      </div>
+      {% if events %}
+      <div class="hv-card hv-event">
+        <div class="hv-date"><strong>{{ events.0.date|date:"j" }}</strong><span>{{ events.0.date|date:"M" }}</span></div>
+        <div><small>Coming up</small><b>{{ events.0.title }}</b></div>
+      </div>
+      {% endif %}
+      <div class="hv-card hv-stat">
+        <strong>{{ stats.0.value }}</strong><span>{{ stats.0.label }}</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="stats-strip">
+  <div class="container stats-grid">
+    {% for s in stats %}<div class="stat reveal"><strong>{{ s.value }}</strong><span>{{ s.label }}</span></div>{% endfor %}
+  </div>
+</section>
+{% endblock %}
+
+{% block content %}
+<section class="section">
+  <div class="container split">
+    <div class="split-media reveal" aria-hidden="true">
+      <div class="media-panel media-panel-teal">
+        <span class="media-motto">{{ school.tagline }}</span>
+        <div class="media-rings"><span></span><span></span><span></span></div>
+      </div>
+      <div class="media-float">
+        <strong>Since {{ school.founded }}</strong>
+        <span>Part of the worldwide Adventist education network</span>
+      </div>
+    </div>
+    <div class="reveal">
+      <span class="eyebrow">Welcome</span>
+      <h2>A place where every child is known, loved and inspired</h2>
+      <p>Adventist education is about more than passing exams. It is the harmonious development of the
+        mental, physical, social and spiritual powers — preparing students for joyful service in this world
+        and for the life to come.</p>
+      <p>Our dedicated teachers partner with families to nurture curious learners, confident leaders and
+        compassionate servants of their communities.</p>
+      <blockquote class="pull">
+        “Our prayer is that every student who walks through our gates will leave knowing they are deeply loved by God.”
+        <cite>— The Principal</cite>
+      </blockquote>
+      <a class="link-arrow" href="{% url 'sda_school:about' %}">Read our story {% include 'sda_school/_icon.html' with name='arrow' %}</a>
+    </div>
+  </div>
+</section>
+
+<section class="section section-tint">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="eyebrow">Our Values</span>
+      <h2>Head, heart and hands</h2>
+      <p>Four values shape everything we do — in the classroom, on the field and in the community.</p>
+    </div>
+    <div class="card-grid card-grid-4">
+      {% for v in values %}
+      <article class="value-card reveal">
+        <div class="icon-badge">{% include 'sda_school/_icon.html' with name=v.icon %}</div>
+        <h3>{{ v.title }}</h3>
+        <p>{{ v.text }}</p>
+      </article>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-head section-head-row reveal">
+      <div>
+        <span class="eyebrow">Academics</span>
+        <h2>A pathway for every stage</h2>
+      </div>
+      <a class="btn btn-outline" href="{% url 'sda_school:academics' %}">Explore Academics</a>
+    </div>
+    <div class="card-grid card-grid-3">
+      {% for p in programs %}
+      <article class="program-card reveal">
+        <div class="program-top program-{{ forloop.counter }}">
+          <div class="icon-badge icon-badge-light">{% include 'sda_school/_icon.html' with name=p.icon %}</div>
+          <span class="chip">{{ p.ages }}</span>
+        </div>
+        <div class="program-body">
+          <h3>{{ p.title }}</h3>
+          <p>{{ p.summary }}</p>
+          <ul class="ticks">{% for pt in p.points|slice:":3" %}<li>{% include 'sda_school/_icon.html' with name='check' %}{{ pt }}</li>{% endfor %}</ul>
+          <a class="link-arrow" href="{% url 'sda_school:academics' %}#{{ p.slug }}">Learn more {% include 'sda_school/_icon.html' with name='arrow' %}</a>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="section section-navy">
+  <div class="container split split-reverse">
+    <div class="reveal">
+      <span class="eyebrow eyebrow-light">Spiritual Life</span>
+      <h2>Faith woven through every school day</h2>
+      <p>From morning worship to mission service, students are invited to know Jesus personally and to live out
+        His love. Families of every faith background are warmly welcomed.</p>
+      <a class="btn btn-gold" href="{% url 'sda_school:spiritual_life' %}">Spiritual Life at {{ school.short_name }}</a>
+    </div>
+    <div class="stack-list">
+      {% for s in spiritual %}
+      <div class="stack-item reveal">
+        <div class="icon-badge icon-badge-gold">{% include 'sda_school/_icon.html' with name=s.icon %}</div>
+        <div><h3>{{ s.title }}</h3><p>{{ s.text }}</p></div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container news-layout">
+    <div>
+      <div class="section-head section-head-row reveal">
+        <div><span class="eyebrow">Latest News</span><h2>What’s happening</h2></div>
+        <a class="link-arrow" href="{% url 'sda_school:news' %}">All news {% include 'sda_school/_icon.html' with name='arrow' %}</a>
+      </div>
+      <div class="news-list">
+        {% for n in news %}
+        <article class="news-card reveal">
+          <div class="news-thumb news-thumb-{{ forloop.counter }}" aria-hidden="true">{% include 'sda_school/_icon.html' with name='book' %}</div>
+          <div>
+            <div class="meta"><span class="chip chip-soft">{{ n.category }}</span><time datetime="{{ n.date|date:'Y-m-d' }}">{{ n.date|date:"j F Y" }}</time></div>
+            <h3>{{ n.title }}</h3>
+            <p>{{ n.text }}</p>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    </div>
+    <aside class="events-panel reveal">
+      <h3>{% include 'sda_school/_icon.html' with name='calendar' %}Upcoming Events</h3>
+      {% for e in events %}
+      <div class="event-row">
+        <div class="event-date"><strong>{{ e.date|date:"j" }}</strong><span>{{ e.date|date:"M" }}</span></div>
+        <div><b>{{ e.title }}</b><small>{{ e.time }} · {{ e.place }}</small></div>
+      </div>
+      {% empty %}
+      <p class="muted">No upcoming events right now — check back soon.</p>
+      {% endfor %}
+      <a class="btn btn-outline btn-block" href="{% url 'sda_school:news' %}#events">Full calendar</a>
+    </aside>
+  </div>
+</section>
+
+<section class="section section-tint">
+  <div class="container">
+    <div class="section-head reveal"><span class="eyebrow">Our Community</span><h2>Voices from our school family</h2></div>
+    <div class="card-grid card-grid-3">
+      {% for t in testimonials %}
+      <figure class="quote-card reveal">
+        <span class="quote-mark">{% include 'sda_school/_icon.html' with name='quote' %}</span>
+        <blockquote>{{ t.quote }}</blockquote>
+        <figcaption><span class="avatar">{% include 'sda_school/_icon.html' with name='user' %}</span><span><b>{{ t.who }}</b><small>{{ t.detail }}</small></span></figcaption>
+      </figure>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endblock %}

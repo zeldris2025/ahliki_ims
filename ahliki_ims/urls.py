@@ -47,6 +47,9 @@ urlpatterns = [
     path('login/', auth_views.LoginView.as_view(template_name='login.html'), name='login'),
     path('logout/', auth_views.LogoutView.as_view(), name='logout'),
 
+    # Public school website — no login needed.
+    path('sda_school/', include('sda_school.urls')),
+
     path('', home_redirect, name='home'),
     path('', include('inventory.urls')),
     # Uploaded files (invoices). static() only works with DEBUG on, so serve them explicitly —

@@ -1,0 +1,26 @@
+{% extends 'sda_school/base.html' %}
+{% block hero_lead %}We’d love to hear from you. Send a message, give us a call or come and visit the campus.{% endblock %}
+
+{% block content %}
+<section class="section">
+  <div class="container split split-top">
+    <div class="reveal">
+      <div class="contact-cards">
+        <div class="contact-card"><div class="icon-badge">{% include 'sda_school/_icon.html' with name='pin' %}</div><div><h3>Address</h3><p>{{ school.address }}</p></div></div>
+        <div class="contact-card"><div class="icon-badge">{% include 'sda_school/_icon.html' with name='phone' %}</div><div><h3>Phone</h3><p><a href="tel:{{ school.phone|cut:' '|cut:'('|cut:')' }}">{{ school.phone }}</a></p></div></div>
+        <div class="contact-card"><div class="icon-badge">{% include 'sda_school/_icon.html' with name='mail' %}</div><div><h3>Email</h3><p><a href="mailto:{{ school.email }}">{{ school.email }}</a></p></div></div>
+        <div class="contact-card"><div class="icon-badge">{% include 'sda_school/_icon.html' with name='clock' %}</div><div><h3>Office hours</h3><p>{{ school.office_hours }}</p></div></div>
+      </div>
+      <div class="map-wrap">
+        <iframe title="Map showing {{ school.name }}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"
+          src="https://maps.google.com/maps?q={{ school.map_query|urlencode }}&amp;z=13&amp;output=embed"></iframe>
+      </div>
+    </div>
+    <div class="form-card reveal" id="enquire">
+      <h2>Send us a message</h2>
+      <p class="muted">Questions about enrolment, fees or a campus visit — we’re here to help.</p>
+      {% include 'sda_school/_enquiry_form.html' %}
+    </div>
+  </div>
+</section>
+{% endblock %}
