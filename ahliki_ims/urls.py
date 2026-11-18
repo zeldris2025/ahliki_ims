@@ -47,8 +47,8 @@ urlpatterns = [
     path('login/', auth_views.LoginView.as_view(template_name='login.html'), name='login'),
     path('logout/', auth_views.LogoutView.as_view(), name='logout'),
 
-    # Public school website — no login needed.
-    path('sda_school/', include('sda_school.urls')),
+    # Public school website — switched off for now. Uncomment to put it back at /sda_school/.
+    # path('sda_school/', include('sda_school.urls')),
     # LS Central invoice import (settings page + sync button on Warehouse Dispatch).
     path('ls-central/', include('ls_central.urls')),
 

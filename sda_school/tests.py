@@ -1,11 +1,15 @@
-from django.test import TestCase
-from django.urls import reverse
+from django.test import TestCase, override_settings
+from django.urls import include, path, reverse
 
 from .models import Enquiry
 
 PAGES = ['home', 'about', 'academics', 'spiritual_life', 'admissions', 'news', 'contact']
 
+# The site is switched off in ahliki_ims/urls.py; the tests mount it here so it keeps working.
+urlpatterns = [path('sda_school/', include('sda_school.urls'))]
 
+
+@override_settings(ROOT_URLCONF='sda_school.tests')
 class SchoolSiteTests(TestCase):
     def test_pages_are_public(self):
         for name in PAGES:
