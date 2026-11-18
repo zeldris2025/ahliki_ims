@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+{% block title %}LS Central — Ah Liki IMS{% endblock %}
+{% block topbar_title %}LS Central{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h1>LS Central connection</h1>
+    <p>Sales invoices from LS Central are imported into Warehouse Dispatch for the dispatchers to clear.</p>
+  </div>
+  <a href="{% url 'warehouse_dispatch_list' %}" class="btn btn-secondary">📋 Warehouse Dispatch</a>
+</div>
+
+{% if missing %}
+<div class="alert alert-warning" style="margin-bottom:16px">
+  <strong>Not connected yet.</strong> Fill in {{ missing|join:", " }} in
+  <code>ahliki_ims/ls_central_config.py</code> (or as Azure Application settings / in <code>.env</code> for Docker),
+  then restart the website.
+</div>
+{% endif %}
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;align-items:start">
+  <div class="card">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+      <h2>Settings</h2>
+      {% if not missing %}
+      <div style="display:flex;gap:8px">
+        <form method="post" action="{% url 'ls_central:test' %}" style="margin:0">{% csrf_token %}
+          <button class="btn btn-secondary btn-sm" type="submit">Test connection</button></form>
+        <form method="post" action="{% url 'ls_central:sync' %}" style="margin:0">{% csrf_token %}
+          <button class="btn btn-primary btn-sm" type="submit">⟳ Sync now</button></form>
+      </div>
+      {% endif %}
+    </div>
+    <div class="card-body">
+      <table>
+        <tbody>
+        {% for label, value in rows %}
+          <tr><td style="color:var(--gray-500);width:45%">{{ label }}</td>
+              <td>{% if value %}{{ value }}{% else %}<span class="badge badge-red">missing</span>{% endif %}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h2>Recent syncs</h2></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>When</th><th>Result</th><th>By</th></tr></thead>
+        <tbody>
+        {% for s in syncs %}
+          <tr>
+            <td style="font-size:12px;white-space:nowrap">{{ s.started_at|date:"d M H:i" }}</td>
+            <td style="font-size:13px">{% if s.ok %}<span class="badge badge-green">OK</span>{% else %}<span class="badge badge-red">Failed</span>{% endif %}
+              {{ s.message }}</td>
+            <td style="font-size:12px">{% if s.triggered_by %}{{ s.triggered_by.get_full_name|default:s.triggered_by.username }}{% else %}Automatic{% endif %}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="3" style="text-align:center;color:var(--gray-500);padding:24px">No syncs yet.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <div class="card-header"><h2>Imported invoices</h2></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Invoice #</th><th>Customer</th><th>Invoice date</th><th>LS status</th><th>Dispatch</th><th>Unmatched lines</th></tr></thead>
+      <tbody>
+      {% for rec in imported %}
+        <tr>
+          <td><a href="{% url 'warehouse_dispatch_detail' rec.invoice.pk %}"><strong>{{ rec.ls_number }}</strong></a>
+            {% if rec.linked_existing %}<span class="badge badge-gray" title="Already in the system; linked, not imported again">linked</span>{% endif %}</td>
+          <td>{{ rec.invoice.customer_name|default:"—" }}</td>
+          <td style="font-size:12px">{{ rec.invoice_date|date:"d M Y"|default:"—" }}</td>
+          <td>{{ rec.ls_status }}</td>
+          <td>{% if rec.invoice.dispatch_status == 'dispatched' %}<span class="badge badge-green">Dispatched</span>{% else %}<span class="badge badge-amber">Pending</span>{% endif %}</td>
+          <td>{% if rec.unmatched_lines %}<span class="badge badge-red">{{ rec.unmatched_lines|length }}</span>{% else %}—{% endif %}</td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6" style="text-align:center;color:var(--gray-500);padding:24px">Nothing imported yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

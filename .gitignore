@@ -6,3 +6,6 @@ staticfiles/
 # Python bytecode
 __pycache__/
 *.py[cod]
+
+# LS Central keys
+ahliki_ims/ls_central_config.py

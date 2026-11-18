@@ -49,6 +49,8 @@ urlpatterns = [
 
     # Public school website — no login needed.
     path('sda_school/', include('sda_school.urls')),
+    # LS Central invoice import (settings page + sync button on Warehouse Dispatch).
+    path('ls-central/', include('ls_central.urls')),
 
     path('', home_redirect, name='home'),
     path('', include('inventory.urls')),

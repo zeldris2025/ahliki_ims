@@ -13,3 +13,4 @@ ahliki_ims/local_settings.py
 PPT_PROMPT_FOR_AI.md
 .vscode/
 .claude/
+ahliki_ims/ls_central_config.py
