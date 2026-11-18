@@ -164,8 +164,10 @@ def parse(text):
 
 
 @transaction.atomic
-def apply(rows, user):
+def apply(rows, user, request=None, filename=''):
     """Write parsed rows. Returns counts of created / updated / returned / skipped."""
+    from . import cms_audit
+    source = f'CSV import {filename}'.strip()
     counts = {'created': 0, 'updated': 0, 'returned': 0, 'skipped': 0}
     for row in rows:
         values = {
@@ -176,10 +178,15 @@ def apply(rows, user):
         }
         container = CmsContainer.objects.filter(code=row['code'], returned=False).first()
         if container:
+            before = cms_audit.snapshot(container)
             for k, v in values.items():
                 setattr(container, k, v)
             container.save()
             counts['updated'] += 1
+            changes = cms_audit.diff(before, cms_audit.snapshot(container))
+            if changes:
+                cms_audit.record(request, 'container_edited', f'{container.code} updated by CSV import',
+                                 container, container.code, changes, source, user=user)
         elif row['returned'] and CmsContainer.objects.filter(
                 code=row['code'], returned=True, arrival_date=values['arrival_date']).exists():
             counts['skipped'] += 1   # this visit is already in the returned history
@@ -187,19 +194,26 @@ def apply(rows, user):
         else:
             container = CmsContainer.objects.create(code=row['code'], created_by=user, **values)
             counts['created'] += 1
+            cms_audit.record(request, 'container_added', f'{container.code} added to {container.yard} by CSV import',
+                             container, container.code, source=source, user=user)
         if row['returned'] and not container.returned:
-            mark_returned(container, None, 'CSV import', '', user)
+            mark_returned(container, None, 'CSV import', '', user, request=request, source=source)
             counts['returned'] += 1
     return counts
 
 
-def mark_returned(container, returned_date, staff_name, driver, user):
+def mark_returned(container, returned_date, staff_name, driver, user, request=None, source=''):
+    from . import cms_audit
     ContainerReturn.objects.create(
         container=container, description=container.description, yard=container.yard,
         status=container.status, returned_date=returned_date, staff_name=staff_name, driver=driver,
         recorded_by=user)
     container.returned = True
     container.save(update_fields=['returned', 'updated_at'])
+    details = {'Returned date': returned_date.strftime('%d/%m/%Y') if returned_date else '',
+               'Yard': str(container.yard), 'Staff': staff_name, 'Driver': driver}
+    cms_audit.record(request, 'returned', f'{container.code} returned to the wharf from {container.yard}',
+                     container, container.code, {k: ['', v] for k, v in details.items() if v}, source, user=user)
 
 
 def write_containers(response, containers):
@@ -226,11 +240,17 @@ def write_returns(response, returns):
         ])
 
 
-def transfer(container, to_yard, transferred_date, driver, staff_name, note, user):
+def transfer(container, to_yard, transferred_date, driver, staff_name, note, user, request=None, source=''):
     """Move a container to another yard and keep a record of the move."""
+    from . import cms_audit
     from .models import ContainerTransfer
+    from_yard = container.yard
     ContainerTransfer.objects.create(
         container=container, from_yard=container.yard, to_yard=to_yard, transferred_date=transferred_date,
         driver=driver, staff_name=staff_name, note=note, recorded_by=user)
     container.yard = to_yard
     container.save()   # save() so a transfer to the wharf adds the NOT YET RELEASED note
+    changes = {'Yard': [str(from_yard), str(to_yard)], 'Date': ['', transferred_date.strftime('%d/%m/%Y')]}
+    changes.update({k: ['', v] for k, v in (('Driver', driver), ('Staff', staff_name), ('Reason', note)) if v})
+    cms_audit.record(request, 'transferred', f'{container.code} transferred from {from_yard} to {to_yard}',
+                     container, container.code, changes, source, user=user)

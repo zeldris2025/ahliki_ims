@@ -142,6 +142,7 @@ urlpatterns = [
     path('cms/returned/<int:pk>/undo/', cms_views.return_undo, name='cms_return_undo'),
     path('cms/atlas/', cms_views.atlas, name='cms_atlas'),
     path('cms/atlas/yard/<int:pk>/move/', cms_views.yard_move, name='cms_yard_move'),
+    path('cms/audit-log/', cms_views.audit_log, name='cms_audit_log'),
 
     # Containers — Warehouse
     path('warehouse/containers/', views.warehouse_container_list, name='warehouse_container_list'),

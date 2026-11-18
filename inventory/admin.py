@@ -383,3 +383,25 @@ class ContainerTransferAdmin(admin.ModelAdmin):
     list_display = ['container', 'from_yard', 'to_yard', 'transferred_date', 'driver', 'staff_name', 'note']
     list_filter = ['from_yard', 'to_yard']
     search_fields = ['container__code', 'driver', 'staff_name', 'note']
+
+
+from .models import CmsAuditLog  # noqa: E402
+
+
+@admin.register(CmsAuditLog)
+class CmsAuditLogAdmin(admin.ModelAdmin):
+    """View-only, like the Audit Log tab in the CMS: nobody can add, change or delete entries."""
+    list_display = ['created_at', 'username', 'action', 'object_label', 'summary', 'source', 'ip_address']
+    list_filter = ['action', 'created_at']
+    search_fields = ['object_label', 'summary', 'username', 'full_name']
+    readonly_fields = [f.name for f in CmsAuditLog._meta.fields]
+    actions = None
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

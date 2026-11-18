@@ -17,17 +17,18 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_POST, require_safe
 
-from . import cms_csv
+from . import cms_audit, cms_csv
 from .forms import CmsContainerForm, ContainerReturnForm, ContainerTransferForm, ShippingLineForm
-from .models import CmsContainer, ContainerReturn, ShippingLine, Yard
+from .models import CmsAuditLog, CmsContainer, ContainerReturn, ShippingLine, Yard
 from .views import role_required
 
 CMS_ROLES = ('admin', 'manager', 'custom_broker')
 PAGE_SIZE = 50
 OWN_OWNER = 'ALW'   # Ah Liki's own containers
 IMPORT_SESSION_KEY = 'cms_import_csv'
+IMPORT_NAME_KEY = 'cms_import_name'
 
 SORTS = {
     'code': 'code', '-code': '-code',
@@ -233,6 +234,11 @@ def dashboard(request):
 
 # ── Containers ───────────────────────────────────────────────────────────────
 
+def _filters_text(f):
+    """The filters in use, as short text for the audit log."""
+    return ', '.join(f'{k}={v}' for k, v in f.items() if v and k != 'sort') or 'no filters'
+
+
 def _filtered_containers(params):
     qs = CmsContainer.objects.select_related('yard', 'owner')
     f = {k: params.get(k, '').strip() for k in
@@ -275,6 +281,8 @@ def container_list(request):
         response = HttpResponse(content_type='text/csv')
         response['Content-Disposition'] = f'attachment; filename="containers_{timezone.localdate():%Y%m%d}.csv"'
         cms_csv.write_containers(response, qs)
+        cms_audit.record(request, 'exported', f'Exported {qs.count()} container(s) to CSV',
+                         label='Containers list', source=_filters_text(f))
         return response
 
     page = Paginator(qs.annotate(n_transfers=Count('transfers')), PAGE_SIZE).get_page(request.GET.get('page'))
@@ -329,6 +337,9 @@ def container_add(request):
         container = form.save(commit=False)
         container.created_by = request.user
         container.save()
+        cms_audit.record(request, 'container_added', f'{container.code} added to {container.yard}', container,
+                         container.code, {k: ['', v] for k, v in cms_audit.snapshot(container).items()
+                                          if v and k != 'Returned'})
         messages.success(request, f'{container.code} added to {container.yard}.')
         if 'save_another' in request.POST:
             return redirect(f"{reverse('cms_container_add')}?yard={container.yard_id}")
@@ -341,9 +352,14 @@ def container_add(request):
 @role_required(*CMS_ROLES)
 def container_edit(request, pk):
     container = get_object_or_404(CmsContainer.objects.select_related('yard', 'owner'), pk=pk)
+    before = cms_audit.snapshot(container)
     form = CmsContainerForm(request.POST or None, instance=container)
     if request.method == 'POST' and form.is_valid():
         form.save()
+        changes = cms_audit.diff(before, cms_audit.snapshot(container))
+        if changes:
+            cms_audit.record(request, 'container_edited', f'{container.code} edited: {", ".join(changes)}',
+                             container, container.code, changes)
         messages.success(request, f'{container.code} updated.')
         return redirect(_safe_next(request, 'cms_containers'))
     history = CmsContainer.objects.filter(code=container.code).exclude(pk=pk) \
@@ -364,11 +380,18 @@ def container_edit(request, pk):
     })
 
 
+def _log_delete(request, container, source=''):
+    """Keep the deleted container's details in the log; the record itself is gone afterwards."""
+    cms_audit.record(request, 'container_deleted', f'{container.code} deleted from {container.yard}', container,
+                     container.code, {k: [v, ''] for k, v in cms_audit.snapshot(container).items() if v}, source)
+
+
 @login_required
 @role_required(*CMS_ROLES)
 @require_POST
 def container_delete(request, pk):
     container = get_object_or_404(CmsContainer, pk=pk)
+    _log_delete(request, container)
     container.delete()
     messages.success(request, f'{container.code} deleted.')
     return redirect(_safe_next(request, 'cms_containers'))
@@ -391,7 +414,7 @@ def container_transfer(request, pk):
         d = form.cleaned_data
         from_yard = container.yard
         cms_csv.transfer(container, d['to_yard'], d['transferred_date'], d['driver'].strip(),
-                         d['staff_name'].strip(), d['note'].strip(), request.user)
+                         d['staff_name'].strip(), d['note'].strip(), request.user, request=request)
         messages.success(request, f'{container.code} transferred from {from_yard} to {d["to_yard"]}.')
     return redirect(_safe_next(request, 'cms_containers'))
 
@@ -409,7 +432,7 @@ def container_return(request, pk):
     else:
         cms_csv.mark_returned(container, form.cleaned_data['returned_date'],
                               form.cleaned_data['staff_name'].strip(), form.cleaned_data['driver'].strip(),
-                              request.user)
+                              request.user, request=request)
         messages.success(request, f'{container.code} returned to the wharf.')
     return redirect(_safe_next(request, 'cms_containers'))
 
@@ -435,14 +458,19 @@ def container_bulk(request):
             with transaction.atomic():
                 for c in moving:   # logged as transfers, like the Transfer button
                     cms_csv.transfer(c, yard, timezone.localdate(), '', _staff_name(request.user),
-                                     'Bulk move', request.user)
+                                     'Bulk move', request.user, request=request, source='Bulk action')
             messages.success(request, f'Moved {len(moving)} container(s) to {yard}.')
     elif action == 'status':
         status = request.POST.get('status')
         if status not in dict(CmsContainer.STATUS_CHOICES):
             messages.error(request, 'Pick a status.')
         else:
-            n = containers.filter(returned=False).update(status=status, updated_at=timezone.now())
+            label = dict(CmsContainer.STATUS_CHOICES)[status]
+            with transaction.atomic():
+                for c in containers.filter(returned=False).exclude(status=status):
+                    cms_audit.record(request, 'status_changed', f'{c.code} set to {label}', c, c.code,
+                                     {'Status': [c.get_status_display(), label]}, 'Bulk action')
+                n = containers.filter(returned=False).update(status=status, updated_at=timezone.now())
             messages.success(request, f'Set {n} container(s) to {dict(CmsContainer.STATUS_CHOICES)[status]}.')
     elif action == 'return':
         form = ContainerReturnForm(request.POST)
@@ -454,11 +482,16 @@ def container_bulk(request):
                 for c in todo:
                     cms_csv.mark_returned(c, form.cleaned_data['returned_date'],
                                           form.cleaned_data['staff_name'].strip(),
-                                          form.cleaned_data['driver'].strip(), request.user)
+                                          form.cleaned_data['driver'].strip(), request.user,
+                                          request=request, source='Bulk action')
             messages.success(request, f'Returned {len(todo)} container(s) to the wharf.')
     elif action == 'delete':
-        n = containers.count()
-        containers.delete()
+        with transaction.atomic():
+            doomed = list(containers.select_related('yard', 'owner'))
+            for c in doomed:
+                _log_delete(request, c, 'Bulk action')
+            n = len(doomed)
+            containers.delete()
         messages.success(request, f'Deleted {n} container(s).')
     else:
         messages.error(request, 'Unknown action.')
@@ -479,8 +512,14 @@ def container_import(request):
         if not rows:
             messages.error(request, 'Nothing to import.')
             return redirect('cms_container_import')
-        counts = cms_csv.apply(rows, request.user)
+        filename = request.session.get(IMPORT_NAME_KEY, '')
+        counts = cms_csv.apply(rows, request.user, request=request, filename=filename)
         del request.session[IMPORT_SESSION_KEY]
+        cms_audit.record(request, 'imported',
+                         f"Imported {filename or 'CSV file'}: {counts['created']} added, {counts['updated']} updated, "
+                         f"{counts['returned']} returned, {counts['skipped']} skipped, {len(errors)} with errors",
+                         label=filename, changes={k.capitalize(): ['', str(v)] for k, v in counts.items()},
+                         source='CSV import')
         parts = [f"{counts['created']} added", f"{counts['updated']} updated"]
         if counts['returned']:
             parts.append(f"{counts['returned']} marked returned")
@@ -506,6 +545,7 @@ def container_import(request):
             context['file_error'] = str(e)
         else:
             request.session[IMPORT_SESSION_KEY] = text
+            request.session[IMPORT_NAME_KEY] = upload.name[:120]
             context.update({
                 'filename': upload.name,
                 'rows': rows,
@@ -535,9 +575,14 @@ def container_import_template(request):
 @role_required(*CMS_ROLES)
 def shipping(request, pk=None):
     line = get_object_or_404(ShippingLine, pk=pk) if pk else None
+    before = cms_audit.snapshot(line, cms_audit.SHIPPING_FIELDS) if line else {}
     form = ShippingLineForm(request.POST or None, instance=line)
     if request.method == 'POST' and form.is_valid():
         saved = form.save()
+        changes = cms_audit.diff(before, cms_audit.snapshot(saved, cms_audit.SHIPPING_FIELDS))
+        if changes or not line:
+            cms_audit.record(request, 'shipping_edited' if line else 'shipping_added',
+                             f'Shipping line {saved.name} {"edited" if line else "added"}', saved, saved.name, changes)
         messages.success(request, f'{saved.name} {"updated" if line else "added"}.')
         return redirect('cms_shipping')
 
@@ -561,7 +606,12 @@ def shipping(request, pk=None):
 def shipping_delete(request, pk):
     line = get_object_or_404(ShippingLine, pk=pk)
     try:
-        line.delete()
+        with transaction.atomic():
+            line_pk = line.pk
+            line.delete()
+            line.pk = line_pk   # delete() clears it; the log keeps the old id
+            cms_audit.record(request, 'shipping_deleted', f'Shipping line {line.name} deleted', line, line.name,
+                             {k: [v, ''] for k, v in cms_audit.snapshot(line, cms_audit.SHIPPING_FIELDS).items() if v})
         messages.success(request, f'{line.name} deleted.')
     except ProtectedError:
         messages.error(request, f'{line.name} still owns containers — it cannot be deleted.')
@@ -593,6 +643,8 @@ def returns(request):
         response = HttpResponse(content_type='text/csv')
         response['Content-Disposition'] = f'attachment; filename="returned_{timezone.localdate():%Y%m%d}.csv"'
         cms_csv.write_returns(response, qs)
+        cms_audit.record(request, 'exported', f'Exported {qs.count()} returned container(s) to CSV',
+                         label='Returned containers', source=_filters_text(f))
         return response
 
     params = request.GET.copy()
@@ -625,6 +677,10 @@ def return_undo(request, pk):
         if not container.returns.exists():
             container.returned = False
             container.save(update_fields=['returned', 'updated_at'])
+        returned_on = record.returned_date.strftime('%d/%m/%Y') if record.returned_date else ''
+        cms_audit.record(request, 'return_undone', f'Return of {container.code} undone, back in {container.yard}',
+                         container, container.code, {'Returned date': [returned_on, ''],
+                                                     'Returned': ['Yes', 'Yes' if container.returned else 'No']})
     messages.success(request, f'Return of {container.code} undone — it is back in {container.yard}.')
     return redirect(_safe_next(request, 'cms_returns'))
 
@@ -687,6 +743,70 @@ def yard_move(request, pk):
     # Keep pins on (or just off) Upolu.
     if not (-14.15 <= lat <= -13.70 and -172.15 <= lng <= -171.35):
         return JsonResponse({'ok': False, 'error': 'That is outside Upolu'}, status=400)
+    old = f'{yard.latitude:.6f}, {yard.longitude:.6f}'
     yard.latitude, yard.longitude = round(lat, 6), round(lng, 6)
     yard.save(update_fields=['latitude', 'longitude'])
+    cms_audit.record(request, 'yard_moved', f'Yard {yard.code} pin moved on the Atlas', yard, yard.code,
+                     {'Position': [old, f'{yard.latitude:.6f}, {yard.longitude:.6f}']})
     return JsonResponse({'ok': True, 'lat': yard.latitude, 'lng': yard.longitude})
+
+
+# ── Audit log (read-only) ────────────────────────────────────────────────────
+
+@login_required
+@role_required(*CMS_ROLES)
+@require_safe
+def audit_log(request):
+    """Everything done in the CMS: who, when, what changed. There is no way to edit or delete entries."""
+    qs = CmsAuditLog.objects.all()
+    f = {k: request.GET.get(k, '').strip() for k in ('q', 'action', 'user', 'from', 'to')}
+    if f['q']:
+        for word in f['q'].split():
+            qs = qs.filter(Q(object_label__icontains=word) | Q(summary__icontains=word) |
+                           Q(username__icontains=word) | Q(full_name__icontains=word) | Q(source__icontains=word))
+    if f['action'] in dict(CmsAuditLog.ACTION_CHOICES):
+        qs = qs.filter(action=f['action'])
+    if f['user']:
+        qs = qs.filter(username=f['user'])
+    for key, lookup in (('from', 'created_at__date__gte'), ('to', 'created_at__date__lte')):
+        try:
+            qs = qs.filter(**{lookup: date.fromisoformat(f[key])})
+        except ValueError:
+            f[key] = ''
+
+    if request.GET.get('export') == 'csv':
+        import csv
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = f'attachment; filename="cms_audit_log_{timezone.localdate():%Y%m%d}.csv"'
+        writer = csv.writer(response)
+        writer.writerow(['When', 'User', 'Name', 'Action', 'Record', 'Summary', 'Changes', 'Source', 'IP address'])
+        for e in qs:
+            writer.writerow([timezone.localtime(e.created_at).strftime('%d/%m/%Y %H:%M:%S'), e.username, e.full_name,
+                             e.get_action_display(), e.object_label, e.summary,
+                             '; '.join(f'{k}: {b or "—"} → {a or "—"}' for k, (b, a) in e.changes.items()),
+                             e.source, e.ip_address or ''])
+        cms_audit.record(request, 'exported', f'Exported {qs.count()} audit log entries to CSV',
+                         label='Audit log', source=_filters_text(f))
+        return response
+
+    page = Paginator(qs, PAGE_SIZE).get_page(request.GET.get('page'))
+    # Link each entry to its container while that record still exists.
+    live = set(CmsContainer.objects.filter(
+        pk__in=[e.object_id for e in page.object_list if e.object_type == 'cmscontainer']).values_list('pk', flat=True))
+    for e in page.object_list:
+        e.link = reverse('cms_container_edit', args=[e.object_id]) \
+            if e.object_type == 'cmscontainer' and e.object_id in live else ''
+    params = request.GET.copy()
+    params.pop('page', None)
+    today = timezone.localdate()
+    return render(request, 'cms/audit_log.html', {
+        'page': page,
+        'f': f,
+        'query': params.urlencode(),
+        'actions': CmsAuditLog.ACTION_CHOICES,
+        'users': CmsAuditLog.objects.exclude(username='').order_by('username')
+                     .values_list('username', flat=True).distinct(),
+        'count_today': CmsAuditLog.objects.filter(created_at__date=today).count(),
+        'count_week': CmsAuditLog.objects.filter(created_at__date__gte=today - timedelta(days=6)).count(),
+        'count_total': CmsAuditLog.objects.count(),
+    })

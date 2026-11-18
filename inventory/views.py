@@ -24,7 +24,7 @@ from .forms import (ProductForm, SupplierForm, CategoryForm, GRNForm, GRNItemFor
                     PalletForm, CheckInForm, TransferForm, PalletEditForm,
                     ContainerForm, ContainerItemFormSet, ContainerCommentForm,
                     ContainerPalletForm, ShipmentTrackingForm, ShelfAddForm, ShelfEditForm)
-from . import auto_refresh, terminal49
+from . import auto_refresh, cms_audit, terminal49
 
 
 def role_required(*roles):
@@ -2208,8 +2208,14 @@ def container_close(request, pk):
         # Unloaded — the broker now sees the box as Empty, ready to go back.
         # With products still inside it stays as it is until it is re-opened and emptied.
         if container.cms_container and not left:
-            container.cms_container.status = CmsContainer.STATUS_EMPTY
-            container.cms_container.save()
+            cms = container.cms_container
+            was = cms.get_status_display()
+            cms.status = CmsContainer.STATUS_EMPTY
+            cms.save()
+            if was != cms.get_status_display():
+                cms_audit.record(request, 'status_changed', f'{cms.code} set to Empty when the warehouse closed it',
+                                 cms, cms.code, {'Status': [was, cms.get_status_display()]},
+                                 f'Warehouse: {container.container_number}')
     if left:
         messages.success(request, f'Container {container.container_number} closed with {left} unit{pluralize(left)} '
                                   f'still inside. Re-open it from the Closed tab to finish palletizing.')

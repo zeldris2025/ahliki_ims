@@ -130,8 +130,9 @@ def _snapshot(instance):
 
 
 def _should_log(sender, raw=False):
-    from .models import AuditLog
-    if raw or sender is AuditLog or _current_request.get() is None:
+    from .models import AuditLog, CmsAuditLog
+    # Audit entries themselves are not logged — CmsAuditLog is the CMS tab's own record.
+    if raw or sender in (AuditLog, CmsAuditLog) or _current_request.get() is None:
         return False
     return sender._meta.app_label == 'inventory' or sender is get_user_model()
 

@@ -10,6 +10,7 @@
     <a class="cms-tab{% if 'cms_shipping' in n %} active{% endif %}" href="{% url 'cms_shipping' %}">⚓ Shipping</a>
     <a class="cms-tab{% if 'cms_return' in n %} active{% endif %}" href="{% url 'cms_returns' %}">↩️ Returned Containers</a>
     <a class="cms-tab{% if n == 'cms_atlas' %} active{% endif %}" href="{% url 'cms_atlas' %}">🗺️ Ah Liki Atlas</a>
+    <a class="cms-tab{% if n == 'cms_audit_log' %} active{% endif %}" href="{% url 'cms_audit_log' %}">🧾 Audit Log</a>
     <span class="cms-tab disabled" aria-disabled="true" title="Coming soon">📡 Track Container <span class="cms-soon">Soon</span></span>
   </nav>
   {% block cms_content %}{% endblock %}

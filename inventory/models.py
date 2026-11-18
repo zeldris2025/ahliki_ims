@@ -932,3 +932,66 @@ class AuditLog(models.Model):
         who = self.username or 'System'
         what = f" {self.object_type} {self.object_repr}".rstrip() if self.object_type else ''
         return f"{who} {self.get_action_display().lower()}{what}"
+
+
+class AuditLogQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise PermissionError('The CMS audit log is read-only.')
+
+    def delete(self):
+        raise PermissionError('The CMS audit log is read-only.')
+
+
+class CmsAuditLog(models.Model):
+    """Who did what in the Container Management System, and when.
+
+    Read-only once written: the model refuses edits and deletes, and database triggers (migration
+    0023) block UPDATE and DELETE on the table itself. The user is stored as a plain id + username
+    copy — not a foreign key — so deleting a user never touches the log.
+    """
+    ACTION_CHOICES = [
+        ('container_added', 'Container added'),
+        ('container_edited', 'Container edited'),
+        ('container_deleted', 'Container deleted'),
+        ('transferred', 'Transferred'),
+        ('status_changed', 'Status changed'),
+        ('returned', 'Returned to wharf'),
+        ('return_undone', 'Return undone'),
+        ('imported', 'CSV import'),
+        ('exported', 'CSV export'),
+        ('shipping_added', 'Shipping line added'),
+        ('shipping_edited', 'Shipping line edited'),
+        ('shipping_deleted', 'Shipping line deleted'),
+        ('yard_moved', 'Yard pin moved'),
+    ]
+
+    created_at = models.DateTimeField(default=timezone.now, db_index=True, editable=False)
+    user_id = models.IntegerField(null=True, blank=True, editable=False)
+    username = models.CharField(max_length=150, blank=True, editable=False)
+    full_name = models.CharField(max_length=150, blank=True, editable=False)
+    action = models.CharField(max_length=30, choices=ACTION_CHOICES, db_index=True, editable=False)
+    object_type = models.CharField(max_length=30, blank=True, editable=False)   # container, shipping_line, yard
+    object_id = models.IntegerField(null=True, blank=True, editable=False)
+    object_label = models.CharField(max_length=120, blank=True, db_index=True, editable=False)  # e.g. container code
+    summary = models.CharField(max_length=500, editable=False)
+    changes = models.JSONField(default=dict, blank=True, editable=False)   # {field: [before, after]}
+    source = models.CharField(max_length=60, blank=True, editable=False)   # page, bulk action, CSV import, warehouse…
+    ip_address = models.GenericIPAddressField(null=True, blank=True, editable=False)
+
+    objects = AuditLogQuerySet.as_manager()
+
+    class Meta:
+        ordering = ['-created_at', '-pk']
+        verbose_name = 'CMS audit log entry'
+        verbose_name_plural = 'CMS audit log'
+
+    def __str__(self):
+        return f'{self.created_at:%d %b %Y %H:%M} {self.username or "system"}: {self.summary}'
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise PermissionError('The CMS audit log is read-only.')
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise PermissionError('The CMS audit log is read-only.')
