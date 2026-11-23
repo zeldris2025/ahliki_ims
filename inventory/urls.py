@@ -39,7 +39,6 @@ urlpatterns = [
     # Invoices
     path('invoices/', views.invoice_list, name='invoice_list'),
     path('invoices/<int:pk>/', views.invoice_detail, name='invoice_detail'),
-    path('invoices/<int:pk>/pay/', views.invoice_mark_paid, name='invoice_mark_paid'),
 
     # Warehouse Dispatch
     path('warehouse/dispatch/', views.warehouse_dispatch_list, name='warehouse_dispatch_list'),

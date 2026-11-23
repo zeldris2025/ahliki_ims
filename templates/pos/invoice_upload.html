@@ -48,6 +48,15 @@
         <div class="grid-2" style="gap:16px">
 
           <div class="form-group">
+            <label for="id_site" style="font-weight:600">Site <span style="color:#dc2626">*</span></label>
+            <select name="site" id="id_site" required
+              style="width:100%;padding:8px 12px;border:1px solid var(--gray-200);border-radius:7px;font-size:14px;box-sizing:border-box">
+              {% if upload_sites|length != 1 %}<option value="">{% if upload_sites %}Pick a site…{% else %}No site assigned: ask an admin{% endif %}</option>{% endif %}
+              {% for site in upload_sites %}<option value="{{ site }}" {% if site == chosen_site %}selected{% endif %}>{{ site }}</option>{% endfor %}
+            </select>
+          </div>
+
+          <div class="form-group">
             <label for="{{ form.invoice_number.id_for_label }}" style="font-weight:600">
               Invoice # <span style="color:#dc2626">*</span>
             </label>

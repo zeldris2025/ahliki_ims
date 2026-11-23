@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load ls_central %}
 {% block title %}{{ invoice.invoice_number }} — Ah Liki IMS{% endblock %}
 {% block topbar_title %}Invoice Detail{% endblock %}
 {% block content %}
@@ -8,9 +9,6 @@
     <p>{{ invoice.customer_name|default:"Walk-in" }} &mdash; {{ invoice.created_at|date:"d M Y H:i" }}</p>
   </div>
   <div style="display:flex;gap:8px">
-    {% if invoice.status == 'unpaid' or invoice.status == 'overdue' %}
-    <button onclick="document.getElementById('payModal').style.display='flex'" class="btn btn-primary">✅ Mark as Paid</button>
-    {% endif %}
     {% if invoice.invoice_file %}
     <a href="{{ invoice.invoice_file.url }}" target="_blank" class="btn btn-secondary">📄 View PDF</a>
     {% endif %}
@@ -22,7 +20,9 @@
 
   <!-- Left: PDF viewer or items table -->
   <div>
-    {% if invoice.invoice_file %}
+    {% if invoice.ls_central %}
+    {% ls_invoice_document invoice %}
+    {% elif invoice.invoice_file %}
     <div class="card" style="margin-bottom:16px">
       <div class="card-header"><h2>📄 Invoice Document</h2></div>
       <div style="padding:0">
@@ -102,7 +102,7 @@
           {% endif %}
         </td></tr>
         {% if invoice.dispatch_status == 'dispatched' %}
-        <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Dispatched by</td><td>{{ invoice.dispatched_by.get_full_name|default:invoice.dispatched_by.username }}</td></tr>
+        <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Dispatched by</td><td>{% if invoice.dispatched_by %}{{ invoice.dispatched_by.get_full_name|default:invoice.dispatched_by.username }}{% else %}—{% endif %}</td></tr>
         <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Dispatched at</td><td>{{ invoice.dispatched_at|date:"d M Y H:i" }}</td></tr>
         {% if invoice.truck_plate %}
         <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Truck Plate</td><td>
@@ -111,7 +111,7 @@
         {% endif %}
         {% endif %}
         <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Due Date</td><td>{{ invoice.due_date|default:"—" }}</td></tr>
-        <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Uploaded by</td><td>{{ invoice.cashier.get_full_name|default:invoice.cashier.username }}</td></tr>
+        <tr><td style="color:var(--gray-500);padding:6px 0;font-size:13px">Uploaded by</td><td>{% if invoice.cashier %}{{ invoice.cashier.get_full_name|default:invoice.cashier.username }}{% else %}LS Central{% endif %}</td></tr>
       </table>
       {% if invoice.notes %}
       <div style="margin-top:12px;padding:10px;background:var(--gray-50,#f9fafb);border-radius:7px;font-size:13px;color:var(--gray-600)">
@@ -130,24 +130,4 @@
 
 </div>
 
-<!-- Mark Paid Modal -->
-<div id="payModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center" onclick="if(event.target===this)this.style.display='none'">
-  <div style="background:white;border-radius:12px;padding:24px;width:360px">
-    <h2 style="margin-bottom:16px;font-size:16px">Mark Invoice as Paid</h2>
-    <form method="post" action="{% url 'invoice_mark_paid' invoice.pk %}">{% csrf_token %}
-      <div class="form-group"><label>Payment Method</label>
-        <select name="payment_method">
-          <option value="cash">Cash</option>
-          <option value="credit">Credit Account</option>
-          <option value="eftpos">EFTPOS</option>
-          <option value="cheque">Cheque</option>
-        </select>
-      </div>
-      <div style="display:flex;gap:8px;margin-top:16px">
-        <button type="submit" class="btn btn-primary">Confirm Paid</button>
-        <button type="button" class="btn btn-secondary" onclick="document.getElementById('payModal').style.display='none'">Cancel</button>
-      </div>
-    </form>
-  </div>
-</div>
 {% endblock %}

@@ -300,7 +300,7 @@
           <div class="user-avatar">{{ request.user.first_name|first|upper|default:request.user.username|first|upper }}</div>
           <div class="user-info">
             <div class="user-name">{{ request.user.get_full_name|default:request.user.username }}</div>
-            <div class="user-role">{% if request.user.is_authenticated %}{{ request.user|user_role|default:"Staff" }}{% else %}Guest{% endif %}</div>
+            <div class="user-role">{% if request.user.is_authenticated %}{{ request.user|user_role|default:"Staff" }}{% if site_label %} · {{ site_label }}{% endif %}{% else %}Guest{% endif %}</div>
           </div>
           <span class="dropdown-arrow">▲</span>
         </button>

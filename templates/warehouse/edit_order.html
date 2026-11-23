@@ -81,7 +81,7 @@
     <div style="padding:16px 20px;border-top:1px solid var(--gray-200);display:flex;justify-content:flex-end;gap:10px">
       <a href="{% url 'warehouse_dispatch_detail' invoice.pk %}" class="btn btn-secondary">Cancel</a>
       <button type="submit" id="saveBtn" class="btn btn-primary" disabled
-        onclick="return confirm('Save changes to order {{ invoice.invoice_number }}?')">
+        onclick="return confirm('Save changes to order {{ invoice.invoice_number|escapejs }}?')">
         💾 Save Changes
       </button>
     </div>

@@ -14,6 +14,39 @@
 
 {% ls_central_bar %}
 
+<!-- Site filter: applies to both tabs and the CSV export -->
+<style>
+  .site-filter { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:16px; }
+  .site-opt { display:inline-flex; align-items:center; gap:7px; padding:7px 14px; border:1px solid var(--gray-200); border-radius:20px; background:#fff; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; color:var(--gray-700); }
+  .site-opt input { margin:0; cursor:pointer; }
+  .site-opt.on { border-color:var(--green-mid,#2d7a4f); background:#ecfdf5; color:var(--green-dark,#1a3a2a); }
+  .site-opt small { font-weight:500; color:var(--gray-500); }
+  .site-n-log, .site-filter.on-log .site-n-pending { display:none; }
+  .site-filter.on-log .site-n-log { display:inline; }
+</style>
+<form method="get" id="siteFilter" class="site-filter">
+  <input type="hidden" name="site" value="">
+  <input type="hidden" name="tab" id="siteTab" value="">
+  {% for name, value in keep_searches %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+  <span style="font-size:13px;font-weight:600;color:var(--gray-500)">Site:</span>
+  {% if not site_options %}
+  <span class="badge badge-amber" style="font-size:13px;padding:7px 14px">No site assigned: ask an admin to give you a site</span>
+  {% elif site_options|length == 1 %}
+  <span class="site-opt on" style="cursor:default">{{ site_options.0.label }} <small class="site-n-pending">{{ site_options.0.pending }}</small><small class="site-n-log">{{ site_options.0.dispatched }}</small></span>
+  {% else %}
+  <label class="site-opt{% if not picked_sites %} on{% endif %}">
+    <input type="checkbox" id="siteAll" {% if not picked_sites %}checked{% endif %} onchange="showAllSites()"> All sites
+  </label>
+  {% for opt in site_options %}
+  <label class="site-opt{% if opt.picked %} on{% endif %}">
+    <input type="checkbox" name="site" value="{{ opt.code }}" {% if opt.picked %}checked{% endif %} onchange="this.form.submit()">
+    {{ opt.label }}
+    <small class="site-n-pending">{{ opt.pending }}</small><small class="site-n-log">{{ opt.dispatched }}</small>
+  </label>
+  {% endfor %}
+  {% endif %}
+</form>
+
 <!-- Tab bar -->
 <div style="display:flex;gap:0;border-bottom:2px solid var(--gray-200);margin-bottom:24px">
   <button
@@ -23,8 +56,8 @@
     style="padding:10px 22px;font-size:14px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:3px solid var(--green-mid,#2d7a4f);margin-bottom:-2px;color:var(--green-mid,#2d7a4f)"
   >
     📋 Pending Dispatch
-    {% if pending.count > 0 %}
-    <span class="badge badge-amber" style="margin-left:6px">{{ pending.count }}</span>
+    {% if pending_page.paginator.count > 0 %}
+    <span class="badge badge-amber" style="margin-left:6px">{{ pending_page.paginator.count }}</span>
     {% endif %}
   </button>
   <button
@@ -34,23 +67,27 @@
     style="padding:10px 22px;font-size:14px;font-weight:600;border:none;background:none;cursor:pointer;color:var(--gray-500);border-bottom:3px solid transparent;margin-bottom:-2px"
   >
     📖 Dispatch Log
-    <span class="badge badge-green" style="margin-left:6px">{{ dispatch_log.count }}</span>
+    <span class="badge badge-green" style="margin-left:6px">{{ log_page.paginator.count }}</span>
   </button>
 </div>
 
 <!-- ── PENDING TAB ── -->
 <div id="tab-pending">
   <!-- Pending search bar -->
-  <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+  <form method="get" style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+    {% for name, value in keep_for_pending %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
     <input
-      type="text"
+      type="search"
+      name="q"
       id="pendingSearch"
-      placeholder="Search invoice #, customer, account…"
-      oninput="filterPending()"
+      value="{{ q }}"
+      placeholder="Search invoice #, customer, account… (press Enter)"
       style="flex:1;min-width:180px;padding:8px 14px;border:1px solid var(--gray-200);border-radius:7px;font-size:13px;outline:none"
     >
-    <span id="pendingCount" style="font-size:13px;color:var(--gray-500);white-space:nowrap">{{ pending.count }} pending</span>
-  </div>
+    <button type="submit" class="btn btn-secondary btn-sm">Search</button>
+    {% if q %}<a href="?{{ clear_pending }}" class="btn btn-secondary btn-sm">Clear</a>{% endif %}
+    <span id="pendingCount" style="font-size:13px;color:var(--gray-500);white-space:nowrap">{{ pending_page.paginator.count }} pending</span>
+  </form>
 
   <div class="card">
     <div class="table-wrap">
@@ -68,14 +105,14 @@
           </tr>
         </thead>
         <tbody id="pendingBody">
-        {% for inv in pending %}
-        <tr data-search="{{ inv.invoice_number|lower }} {{ inv.customer_name|lower }} {{ inv.account_number|lower }} {{ inv.cashier.get_full_name|lower|default:'' }} {{ inv.cashier.username|lower }}">
-          <td><strong>{{ inv.invoice_number }}</strong></td>
+        {% for inv in pending_page %}
+        <tr>
+          <td><strong>{{ inv.invoice_number }}</strong>{% if inv.site %} <span class="badge badge-gray">{{ inv.site }}</span>{% endif %}</td>
           <td>{{ inv.customer_name|default:"Walk-in" }}</td>
           <td>{{ inv.account_number|default:"—" }}</td>
-          <td>{{ inv.items.count }} item{{ inv.items.count|pluralize }}</td>
+          <td>{{ inv.item_count }} item{{ inv.item_count|pluralize }}</td>
           <td><strong>SAT${{ inv.total_amount }}</strong></td>
-          <td style="font-size:12px">{% if inv.ls_central %}<span class="badge badge-blue">LS Central</span>{% else %}{{ inv.cashier.get_full_name|default:inv.cashier.username }}{% endif %}</td>
+          <td style="font-size:12px">{% if inv.ls_central %}<span class="badge badge-blue">LS Central</span>{% else %}{% if inv.cashier %}{{ inv.cashier.get_full_name|default:inv.cashier.username }}{% else %}—{% endif %}{% endif %}</td>
           <td style="font-size:12px">{{ inv.created_at|date:"d M Y H:i" }}</td>
           <td>
             <a href="{% url 'warehouse_dispatch_detail' inv.pk %}" class="btn btn-primary btn-sm">
@@ -86,44 +123,50 @@
         {% empty %}
         <tr id="emptyPendingRow">
           <td colspan="8" style="text-align:center;color:var(--gray-500);padding:40px">
+            {% if q %}No pending orders match “{{ q }}”.
+            {% else %}
             <div style="font-size:36px;margin-bottom:10px">✅</div>
-            <strong>All clear!</strong><br>No invoices pending dispatch.
+            <strong>All clear!</strong><br>No invoices pending dispatch{% if picked_sites %} for the selected sites{% endif %}.
+            {% endif %}
           </td>
         </tr>
         {% endfor %}
         </tbody>
       </table>
     </div>
-    <div id="noPendingResults" style="display:none;text-align:center;padding:32px;color:var(--gray-500)">
-      No pending orders match your search.
-    </div>
+    {% include 'warehouse/_pager.html' with page=pending_page pager=pending_pager %}
   </div>
 </div>
 
 <!-- ── DISPATCH LOG TAB ── -->
 <div id="tab-log" style="display:none">
   <!-- Search / filter bar -->
-  <div style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+  <form method="get" style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+    {% for name, value in keep_for_log %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+    <input type="hidden" name="tab" value="log">
     <input
-      type="text"
+      type="search"
+      name="lq"
       id="logSearch"
-      placeholder="Search invoice, customer, plate…"
-      oninput="filterLog()"
+      value="{{ lq }}"
+      placeholder="Search invoice, customer, plate… (press Enter)"
       style="flex:1;min-width:180px;padding:8px 14px;border:1px solid var(--gray-200);border-radius:7px;font-size:13px;outline:none"
     >
     <label style="font-size:13px;color:var(--gray-500);white-space:nowrap;display:flex;align-items:center;gap:6px">
-      From <input type="date" id="filterFrom" onchange="filterLog()" style="padding:7px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px">
+      From <input type="date" name="from" id="filterFrom" value="{{ log_from }}" onchange="this.form.submit()" style="padding:7px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px">
     </label>
     <label style="font-size:13px;color:var(--gray-500);white-space:nowrap;display:flex;align-items:center;gap:6px">
-      To <input type="date" id="filterTo" onchange="filterLog()" style="padding:7px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px">
+      To <input type="date" name="to" id="filterTo" value="{{ log_to }}" onchange="this.form.submit()" style="padding:7px 10px;border:1px solid var(--gray-200);border-radius:6px;font-size:13px">
     </label>
-  </div>
+    <button type="submit" class="btn btn-secondary btn-sm">Search</button>
+    {% if lq or log_from or log_to %}<a href="?{{ clear_log }}" class="btn btn-secondary btn-sm">Clear</a>{% endif %}
+  </form>
 
   <div class="card">
     <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
       <h2>Dispatch Log</h2>
       <div style="display:flex;align-items:center;gap:10px">
-        <span id="logCount" style="font-size:13px;color:var(--gray-500)">{{ dispatch_log.count }} record{{ dispatch_log.count|pluralize }}</span>
+        <span id="logCount" style="font-size:13px;color:var(--gray-500)">{{ log_page.paginator.count }} record{{ log_page.paginator.count|pluralize }}</span>
         <button onclick="exportLog()" class="btn btn-secondary btn-sm" style="white-space:nowrap">⬇ Export CSV</button>
       </div>
     </div>
@@ -141,16 +184,13 @@
           </tr>
         </thead>
         <tbody id="logBody">
-        {% for inv in dispatch_log %}
-        <tr
-          data-search="{{ inv.invoice_number|lower }} {{ inv.customer_name|lower }} {{ inv.truck_plate|lower }} {{ inv.dispatched_by.get_full_name|lower|default:'' }} {{ inv.dispatched_by.username|lower|default:'' }}"
-          data-date="{{ inv.dispatched_at|date:'Y-m-d'|default:'' }}"
-        >
+        {% for inv in log_page %}
+        <tr>
           <td style="white-space:nowrap">{{ inv.dispatched_at|date:"d M Y H:i"|default:"—" }}</td>
-          <td><strong>{{ inv.invoice_number }}</strong></td>
+          <td><strong>{{ inv.invoice_number }}</strong>{% if inv.site %} <span class="badge badge-gray">{{ inv.site }}</span>{% endif %}</td>
           <td>{{ inv.customer_name|default:"Walk-in" }}</td>
           <td><strong>SAT${{ inv.total_amount }}</strong></td>
-          <td>{{ inv.dispatched_by.get_full_name|default:inv.dispatched_by.username|default:"—" }}</td>
+          <td>{% if inv.dispatched_by %}{{ inv.dispatched_by.get_full_name|default:inv.dispatched_by.username }}{% else %}—{% endif %}</td>
           <td>
             {% if inv.truck_plate %}
             <span style="font-family:monospace;font-weight:700;background:var(--gray-100,#f3f4f6);padding:3px 10px;border-radius:4px;letter-spacing:1px;font-size:13px">
@@ -166,15 +206,13 @@
         </tr>
         {% empty %}
         <tr>
-          <td colspan="7" style="text-align:center;color:var(--gray-500);padding:40px">No dispatch records yet.</td>
+          <td colspan="7" style="text-align:center;color:var(--gray-500);padding:40px">{% if lq or log_from or log_to %}No records match your search.{% elif picked_sites %}No dispatch records for the selected sites.{% else %}No dispatch records yet.{% endif %}</td>
         </tr>
         {% endfor %}
         </tbody>
       </table>
     </div>
-    <div id="noResults" style="display:none;text-align:center;padding:32px;color:var(--gray-500)">
-      No records match your search.
-    </div>
+    {% include 'warehouse/_pager.html' with page=log_page pager=log_pager %}
   </div>
 </div>
 
@@ -190,45 +228,21 @@ function switchTab(tab) {
   document.getElementById('tab-pending-btn').style.cssText = tab === 'pending' ? activeStyle : inactiveStyle;
   document.getElementById('tab-log-btn').style.cssText     = tab === 'log'     ? activeStyle : inactiveStyle;
 
-  history.replaceState(null, '', tab === 'log' ? '?tab=log' : location.pathname);
+  document.getElementById('siteFilter').classList.toggle('on-log', tab === 'log');
+  document.getElementById('siteTab').value = tab === 'log' ? 'log' : '';
+
+  // Keep the picked sites in the address, so the page can be bookmarked or shared.
+  const params = new URLSearchParams(location.search);
+  if (tab === 'log') params.set('tab', 'log'); else params.delete('tab');
+  const qs = params.toString();
+  history.replaceState(null, '', qs ? '?' + qs : location.pathname);
 }
 
-// ── Pending search ─────────────────────────────────────────────────────────
-function filterPending() {
-  const q    = document.getElementById('pendingSearch').value.toLowerCase();
-  const rows = document.querySelectorAll('#pendingBody tr[data-search]');
-  let visible = 0;
-
-  rows.forEach(function(row) {
-    const show = !q || (row.dataset.search || '').includes(q);
-    row.style.display = show ? '' : 'none';
-    if (show) visible++;
-  });
-
-  document.getElementById('pendingCount').textContent = visible + ' pending';
-  document.getElementById('noPendingResults').style.display =
-    (visible === 0 && rows.length > 0) ? '' : 'none';
-}
-
-// ── Log filtering ─────────────────────────────────────────────────────────
-function filterLog() {
-  const q    = document.getElementById('logSearch').value.toLowerCase();
-  const from = document.getElementById('filterFrom').value;
-  const to   = document.getElementById('filterTo').value;
-  const rows = document.querySelectorAll('#logBody tr[data-search]');
-  let visible = 0;
-
-  rows.forEach(function(row) {
-    const matchQ    = !q    || (row.dataset.search || '').includes(q);
-    const matchFrom = !from || (row.dataset.date || '') >= from;
-    const matchTo   = !to   || (row.dataset.date || '') <= to;
-    const show = matchQ && matchFrom && matchTo;
-    row.style.display = show ? '' : 'none';
-    if (show) visible++;
-  });
-
-  document.getElementById('logCount').textContent = visible + ' record' + (visible !== 1 ? 's' : '');
-  document.getElementById('noResults').style.display = (visible === 0 && rows.length > 0) ? '' : 'none';
+// ── Site filter ────────────────────────────────────────────────────────────
+function showAllSites() {
+  const form = document.getElementById('siteFilter');
+  form.querySelectorAll('input[type="checkbox"][name="site"]').forEach(function(box) { box.checked = false; });
+  form.submit();
 }
 
 // ── Export CSV (passes active filters to server) ───────────────────────────
@@ -237,6 +251,8 @@ function exportLog() {
   const from = document.getElementById('filterFrom').value;
   const to   = document.getElementById('filterTo').value;
   const params = new URLSearchParams();
+  params.append('site', '');
+  [{% for site in picked_sites %}'{{ site|escapejs }}',{% endfor %}].forEach(function(site) { params.append('site', site); });
   if (q)    params.set('q',    q);
   if (from) params.set('from', from);
   if (to)   params.set('to',   to);

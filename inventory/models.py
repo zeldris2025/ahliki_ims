@@ -6,6 +6,10 @@ from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 
+# The sites of the business. Invoices belong to one, staff are given access by site.
+SITES = ('HDQ', 'SAV', 'TAU', 'VAI')
+
+
 class UserProfile(models.Model):
     ROLE_CHOICES = [
         ('admin', 'Admin'),
@@ -39,6 +43,17 @@ class UserProfile(models.Model):
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='cashier')
+    # Comma-separated, e.g. 'HDQ,SAV'. Empty means no invoices (see site_access.py).
+    sites = models.CharField(max_length=100, blank=True, default='', db_default='',
+                             help_text='Set on the Users page. The Admin role sees every site.')
+
+    @property
+    def site_list(self):
+        chosen = self.sites.split(',')
+        return [site for site in SITES if site in chosen]
+
+    def set_sites(self, chosen):
+        self.sites = ','.join(site for site in SITES if site in chosen)
 
     def __str__(self):
         return f"{self.user.username} ({self.get_role_display()})"
@@ -303,6 +318,8 @@ class Invoice(models.Model):
         ('dispatched', 'Dispatched'),
     ]
     invoice_number = models.CharField(max_length=100, unique=True)
+    # Who can see the invoice depends on this; with no site, only admins can.
+    site = models.CharField(max_length=20, blank=True, default='', db_default='')
     cashier = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='invoices')
     customer_name = models.CharField(max_length=200, blank=True)
     account_number = models.CharField(max_length=100, blank=True)

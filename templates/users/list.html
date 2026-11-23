@@ -9,7 +9,7 @@
 <div class="card">
   <div class="table-wrap">
     <table>
-      <thead><tr><th>Username</th><th>Full Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th><th></th></tr></thead>
+      <thead><tr><th>Username</th><th>Full Name</th><th>Email</th><th>Role</th><th>Sites</th><th>Status</th><th>Last Login</th><th></th></tr></thead>
       <tbody>
       {% for u in users %}
       <tr>
@@ -31,11 +31,15 @@
           {% endif %}
           {% endwith %}
         </td>
+        <td>
+          {% if u.is_superuser or u.profile.role == 'admin' %}<span class="badge badge-blue">All sites</span>
+          {% else %}{% for site in u.profile.site_list %}<span class="badge badge-gray">{{ site }}</span> {% empty %}<span class="badge badge-amber">No site</span>{% endfor %}{% endif %}
+        </td>
         <td>{% if u.is_active %}<span class="badge badge-green">Active</span>{% else %}<span class="badge badge-red">Inactive</span>{% endif %}</td>
         <td style="font-size:12px;color:var(--gray-500)">{{ u.last_login|date:"d M Y H:i"|default:"Never" }}</td>
         <td><a href="{% url 'user_edit' u.pk %}" class="btn btn-sm btn-secondary">Edit</a></td>
       </tr>
-      {% empty %}<tr><td colspan="7" style="text-align:center;color:var(--gray-500);padding:24px">No users found.</td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="8" style="text-align:center;color:var(--gray-500);padding:24px">No users found.</td></tr>{% endfor %}
       </tbody>
     </table>
   </div>

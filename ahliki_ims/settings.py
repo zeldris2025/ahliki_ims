@@ -192,9 +192,13 @@ LS_CENTRAL_ENVIRONMENT = os.environ.get('LS_CENTRAL_ENVIRONMENT', 'Production')
 LS_CENTRAL_COMPANY = os.environ.get('LS_CENTRAL_COMPANY', '')
 LS_CENTRAL_API_URL = os.environ.get('LS_CENTRAL_API_URL', 'https://api.businesscentral.dynamics.com/v2.0')
 LS_CENTRAL_API_PATH = os.environ.get('LS_CENTRAL_API_PATH', 'api/v2.0')
-LS_CENTRAL_INVOICE_STATUSES = env_list('LS_CENTRAL_INVOICE_STATUSES', 'Open,Paid')
 LS_CENTRAL_SYNC_DAYS = int(os.environ.get('LS_CENTRAL_SYNC_DAYS', 7))
 LS_CENTRAL_SYNC_MINUTES = float(os.environ.get('LS_CENTRAL_SYNC_MINUTES', 10))
+
+# Temporary, for testing: dispatchers may tick off and dispatch items the system shows no stock for
+# (e.g. products just added from LS Central). Stock goes negative until it is received.
+# Set DISPATCH_ALLOW_NO_STOCK=0 (or change the default to '0') once product stock is up to date.
+DISPATCH_ALLOW_NO_STOCK = os.environ.get('DISPATCH_ALLOW_NO_STOCK', '1').strip().lower() in ('1', 'true', 'yes', 'on')
 
 try:
     from . import ls_central_config as _ls_config

@@ -28,11 +28,8 @@ LS_CENTRAL_COMPANY = ''
 
 # ── Optional — the defaults suit LS Central in the cloud ──────────────────────
 
-# Which invoice statuses to import: 'Open' (posted, unpaid) and 'Paid'. Add 'Draft' to also
-# import invoices that are not posted yet.
-# LS_CENTRAL_INVOICE_STATUSES = ['Open', 'Paid']
-
-# How many days back to look for invoices on each sync.
+# How many days back to look for invoices on each sync. Paid and unpaid are both imported, and
+# invoices numbered after the newest one imported are picked up whatever their date.
 # LS_CENTRAL_SYNC_DAYS = 7
 
 # How often the website checks LS Central for new invoices, in minutes. 0 turns it off

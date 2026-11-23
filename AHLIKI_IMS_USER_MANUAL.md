@@ -371,9 +371,9 @@ Finance team monitors financial health, manages costs, and generates reports:
 
 ---
 
-### Step 2B: Track Invoice Payments
+### Step 2B: View Invoice Payment Status
 
-**When**: Following up on payments
+**When**: Checking an invoice (view only)
 **Access**: Invoices
 
 1. Navigate to **Invoices**
@@ -385,13 +385,8 @@ Finance team monitors financial health, manages costs, and generates reports:
    - **Unpaid**: Outstanding payment
    - **Paid**: Payment received
    - **Overdue**: Payment past due date
-4. To mark as paid:
-   - Click on invoice
-   - Click **Mark as Paid**
-   - Enter payment date and method
-   - Click **Confirm**
-
-**Tip**: Track overdue invoices to improve cash flow
+**Note**: Invoices cannot be marked as paid in the IMS, by any user. Payments are handled in LS Central.
+The IMS is for dispatch, and an invoice can be dispatched whether it is paid or not.
 
 ---
 

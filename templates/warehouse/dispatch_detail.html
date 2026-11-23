@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load ls_central %}
 {% block title %}Dispatch {{ invoice.invoice_number }} — Ah Liki IMS{% endblock %}
 {% block topbar_title %}Dispatch{% endblock %}
 {% block content %}
@@ -23,7 +24,7 @@
   <span style="font-size:26px">✅</span>
   <div>
     <strong>Dispatched</strong> — Processed by
-    <strong>{{ invoice.dispatched_by.get_full_name|default:invoice.dispatched_by.username }}</strong>
+    <strong>{% if invoice.dispatched_by %}{{ invoice.dispatched_by.get_full_name|default:invoice.dispatched_by.username }}{% else %}—{% endif %}</strong>
     on {{ invoice.dispatched_at|date:"d M Y H:i" }}.
   </div>
 </div>
@@ -42,6 +43,7 @@
 
   <!-- Main panel: PDF or checklist -->
   <div>
+    {% if item_data %}{% ls_invoice_document invoice collapsible=True open=False %}{% else %}{% ls_invoice_document invoice collapsible=True %}{% endif %}
     {% if invoice.invoice_file %}
     <!-- PDF Invoice Viewer -->
     <div class="card" style="margin-bottom:16px">
@@ -63,6 +65,11 @@
         <span id="checkCount" style="font-size:13px;color:var(--gray-500)">0 of {{ item_data|length }} checked</span>
         {% endif %}
       </div>
+      {% if allow_no_stock and invoice.dispatch_status != 'dispatched' %}
+      <div style="padding:8px 20px;background:#eff6ff;border-bottom:1px solid #bfdbfe;font-size:12px;color:#1e40af">
+        Testing mode: items with no stock can still be ticked off and dispatched (stock will go negative).
+      </div>
+      {% endif %}
 
       {% if invoice.dispatch_status != 'dispatched' %}
       <form method="post" action="{% url 'warehouse_dispatch_submit' invoice.pk %}" id="dispatchForm">
@@ -87,7 +94,7 @@
             {% if invoice.dispatch_status != 'dispatched' %}
             <td style="text-align:center">
               <input type="checkbox" name="checked_items" value="{{ row.item.pk }}" id="chk-{{ row.item.pk }}" class="item-check"
-                {% if row.current_stock == 0 %}disabled title="No stock available"{% endif %}
+                {% if row.current_stock <= 0 and not allow_no_stock %}disabled title="No stock available"{% endif %}
                 onchange="updateState()" style="width:18px;height:18px;cursor:pointer">
             </td>
             {% endif %}
@@ -97,9 +104,9 @@
             <td style="text-align:center;font-weight:700;{% if row.sufficient %}color:#059669{% else %}color:#dc2626{% endif %}">{{ row.current_stock }} {{ row.item.product.unit }}</td>
             {% if invoice.dispatch_status != 'dispatched' %}
             <td style="text-align:center">
-              {% if row.current_stock > 0 %}
+              {% if row.current_stock > 0 or allow_no_stock %}
               <input type="number" name="dispatch_qty_{{ row.item.pk }}" id="dqty-{{ row.item.pk }}"
-                value="{{ row.default_dispatch_qty }}" min="1" max="{{ row.current_stock }}"
+                value="{{ row.default_dispatch_qty }}" min="1"{% if not allow_no_stock %} max="{{ row.current_stock }}"{% endif %}
                 data-ordered="{{ row.item.quantity }}" data-item="{{ row.item.pk }}" class="dispatch-qty-input"
                 oninput="onQtyInput(this);updateState()"
                 style="width:75px;padding:5px 8px;border-radius:6px;font-size:14px;text-align:center;border:1px solid {% if row.sufficient %}var(--gray-200){% else %}#fca5a5{% endif %}">
@@ -133,7 +140,7 @@
           </div>
           <div>
             <button type="submit" id="submitBtn" class="btn btn-primary" disabled style="white-space:nowrap;min-width:160px"
-              onclick="return confirm('Confirm dispatch for {{ invoice.invoice_number }}?')">
+              onclick="return confirm('Confirm dispatch for {{ invoice.invoice_number|escapejs }}?')">
               ✅ Confirm Dispatch
             </button>
           </div>
@@ -144,8 +151,8 @@
     </div>
     {% endif %}
 
-    {% if invoice.dispatch_status != 'dispatched' and invoice.invoice_file %}
-    <!-- Dispatch confirm form for PDF-based invoices -->
+    {% if invoice.dispatch_status != 'dispatched' and not item_data %}
+    <!-- Dispatch confirm form for invoices with no checklist (PDF uploads, LS Central invoices with no catalogue matches) -->
     <div class="card">
       <div class="card-header"><h2>Confirm Dispatch</h2></div>
       <div class="card-body">
@@ -163,7 +170,7 @@
               style="width:100%;padding:8px 12px;border:1px solid var(--gray-200);border-radius:7px;font-size:13px;resize:vertical;font-family:inherit"></textarea>
           </div>
           <button type="submit" class="btn btn-primary"
-            onclick="return confirm('Confirm dispatch for {{ invoice.invoice_number }}?')">
+            onclick="return confirm('Confirm dispatch for {{ invoice.invoice_number|escapejs }}?')">
             ✅ Confirm Dispatch
           </button>
         </form>
@@ -191,7 +198,7 @@
             {% else %}<span class="badge badge-amber">Pending</span>{% endif %}
           </td></tr>
           {% if invoice.dispatch_status == 'dispatched' %}
-          <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Dispatched by</td><td>{{ invoice.dispatched_by.get_full_name|default:invoice.dispatched_by.username }}</td></tr>
+          <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Dispatched by</td><td>{% if invoice.dispatched_by %}{{ invoice.dispatched_by.get_full_name|default:invoice.dispatched_by.username }}{% else %}—{% endif %}</td></tr>
           <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Dispatched at</td><td>{{ invoice.dispatched_at|date:"d M Y H:i" }}</td></tr>
           {% if invoice.truck_plate %}
           <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Truck Plate</td><td>
@@ -200,7 +207,7 @@
           {% endif %}
           {% endif %}
           <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Due Date</td><td>{{ invoice.due_date|default:"—" }}</td></tr>
-          <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Uploaded by</td><td>{{ invoice.cashier.get_full_name|default:invoice.cashier.username }}</td></tr>
+          <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Uploaded by</td><td>{% if invoice.cashier %}{{ invoice.cashier.get_full_name|default:invoice.cashier.username }}{% else %}LS Central{% endif %}</td></tr>
         </table>
       </div>
     </div>
@@ -218,10 +225,10 @@
       <div style="background:var(--gray-50,#f9fafb);border:1px solid var(--gray-200);border-radius:10px;padding:12px 16px">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
           <div style="width:30px;height:30px;border-radius:50%;background:#1a3a2a;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">
-            {{ comment.author.first_name|first|upper|default:comment.author.username|first|upper }}
+            {% if comment.author %}{{ comment.author.first_name|first|upper|default:comment.author.username|first|upper }}{% else %}S{% endif %}
           </div>
           <div>
-            <span style="font-weight:600;font-size:13px">{{ comment.author.get_full_name|default:comment.author.username }}</span>
+            <span style="font-weight:600;font-size:13px">{% if comment.author %}{{ comment.author.get_full_name|default:comment.author.username }}{% else %}System{% endif %}</span>
             <span style="color:var(--gray-400);font-size:12px;margin-left:8px">{{ comment.created_at|date:"d M Y H:i" }}</span>
           </div>
         </div>

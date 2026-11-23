@@ -45,8 +45,10 @@ class LsCentralClient:
         self.client_secret = client_secret
         self.environment = environment
         self.company = company
-        self.base = f'{api_url.rstrip("/")}/{tenant}/{environment}/{api_path.strip("/")}'
+        self.root = f'{api_url.rstrip("/")}/{tenant}/{environment}'
+        self.base = f'{self.root}/{api_path.strip("/")}'
         self._company_id = None
+        self._company_name = None
 
     @classmethod
     def from_settings(cls):
@@ -144,10 +146,35 @@ class LsCentralClient:
         self._company_id = match['id']
         return self._company_id
 
+    def web_service(self, name, params=None):
+        """Every row of a published ODataV4 web service (these take the company's name, not its id)."""
+        if self._company_name is None:
+            company_id = self.company_id()
+            self._company_name = next(c['name'] for c in self.companies() if c['id'] == company_id)
+        company = urllib.parse.quote(self._company_name.replace("'", "''"))
+        return self.get_all(f"{self.root}/ODataV4/Company('{company}')/{name}", params)
+
+    def analytics(self, name, params=None):
+        """Every row of an entity in the LS Analytics API."""
+        return self.get_all(
+            f'{self.root}/api/canaryTechnology/lsanalytics/v2.0/companies({self.company_id()})/{name}', params)
+
+    def item(self, item_id):
+        """The item card (number, displayName, type, baseUnitOfMeasureCode, gtin, unitPrice, unitCost)."""
+        return self.get(f'companies({self.company_id()})/items({item_id})')
+
     def sales_invoices(self, since):
         """Sales invoices dated on or after `since` (a date), each with its lines."""
         return self.get_all(f'companies({self.company_id()})/salesInvoices', {
             '$filter': f'invoiceDate ge {since.isoformat()}',
+            '$expand': 'salesInvoiceLines',
+        })
+
+    def sales_invoices_after(self, number):
+        """Sales invoices numbered after `number`, whatever their date, each with its lines."""
+        quoted = str(number).replace("'", "''")
+        return self.get_all(f'companies({self.company_id()})/salesInvoices', {
+            '$filter': f"number gt '{quoted}'",
             '$expand': 'salesInvoiceLines',
         })
 

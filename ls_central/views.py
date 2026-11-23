@@ -42,8 +42,8 @@ def status(request):
         ('Environment', settings.LS_CENTRAL_ENVIRONMENT),
         ('Company', settings.LS_CENTRAL_COMPANY or '(only company)'),
         ('API address', f'{settings.LS_CENTRAL_API_URL}/…/{settings.LS_CENTRAL_API_PATH}'),
-        ('Invoice statuses imported', ', '.join(settings.LS_CENTRAL_INVOICE_STATUSES)),
-        ('Looks back', f'{settings.LS_CENTRAL_SYNC_DAYS} days'),
+        ('Invoices imported', 'All posted invoices, paid or unpaid (not drafts or cancelled)'),
+        ('Looks back', f'{settings.LS_CENTRAL_SYNC_DAYS} days, plus any newer invoice number whatever its date'),
         ('Automatic sync', f'every {settings.LS_CENTRAL_SYNC_MINUTES:g} minutes'
                            if settings.LS_CENTRAL_SYNC_MINUTES else 'off'),
     ]

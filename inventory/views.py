@@ -27,6 +27,13 @@ from .forms import (ProductForm, SupplierForm, CategoryForm, GRNForm, GRNItemFor
 from . import auto_refresh, cms_audit, terminal49
 
 
+from .models import SITES
+from django.http import Http404
+from django.views.static import serve
+
+from .site_access import get_visible_invoice, mask_other_sites, sees_all_sites, user_sites, visible_invoices
+
+
 def role_required(*roles):
     from functools import wraps
     def decorator(view_func):
@@ -124,14 +131,14 @@ def dashboard(request):
     stock_value = total_stock_value()
 
     # Warehouse-specific
-    pending_dispatch = Invoice.objects.filter(dispatch_status='pending').select_related('cashier').order_by('-created_at')[:8]
-    pending_dispatch_count = Invoice.objects.filter(dispatch_status='pending').count()
+    pending_dispatch = visible_invoices(request.user).filter(dispatch_status='pending').select_related('cashier', 'ls_central').order_by('-created_at')[:8]
+    pending_dispatch_count = visible_invoices(request.user).filter(dispatch_status='pending').count()
 
     # Dispatch activity — last 7 days
     dispatch_chart = []
     for i in range(6, -1, -1):
         d = today - timedelta(days=i)
-        count = Invoice.objects.filter(dispatch_status='dispatched', dispatched_at__date=d).count()
+        count = visible_invoices(request.user).filter(dispatch_status='dispatched', dispatched_at__date=d).count()
         dispatch_chart.append({'date': d.strftime('%d %b'), 'count': count})
 
     # Stock health breakdown
@@ -306,7 +313,7 @@ def stock_lookup_search(request):
 @login_required
 def product_detail(request, pk):
     product = get_object_or_404(Product, pk=pk)
-    movements = product.stock_movements.order_by('-timestamp')[:20]
+    movements = mask_other_sites(request.user, product.stock_movements.order_by('-timestamp')[:20])
     alerts = product.alerts.filter(is_resolved=False)
     return render(request, 'products/detail.html', {
         'product': product,
@@ -477,7 +484,8 @@ def sale_detail(request, pk):
 @login_required
 @role_required('admin', 'warehouse')
 def stock_movements(request):
-    movements = StockMovement.objects.select_related('product', 'performed_by').order_by('-timestamp')[:100]
+    movements = mask_other_sites(
+        request.user, StockMovement.objects.select_related('product', 'performed_by').order_by('-timestamp')[:100])
     return render(request, 'stock/movements.html', {'movements': movements})
 
 
@@ -646,10 +654,13 @@ def user_add(request):
         else:
             u = User.objects.create_user(username=username, password=password,
                 first_name=first_name, last_name=last_name, email=email)
-            UserProfile.objects.filter(user=u).update(role=role)
+            new_profile = UserProfile.objects.get(user=u)
+            new_profile.role = role
+            new_profile.set_sites(request.POST.getlist('sites'))
+            new_profile.save()
             messages.success(request, f'User "{username}" created successfully.')
             return redirect('user_list')
-    return render(request, 'users/add.html')
+    return render(request, 'users/add.html', {'all_sites': SITES, 'chosen_sites': request.POST.getlist('sites')})
 
 
 @login_required
@@ -665,6 +676,7 @@ def user_edit(request, pk):
         u.is_active = 'is_active' in request.POST
         u.save()
         profile.role = request.POST.get('role', 'cashier')
+        profile.set_sites(request.POST.getlist('sites'))
         profile.save()
         new_pw = request.POST.get('new_password', '').strip()
         if new_pw:
@@ -672,7 +684,8 @@ def user_edit(request, pk):
             u.save()
         messages.success(request, f'User "{u.username}" updated.')
         return redirect('user_list')
-    return render(request, 'users/edit.html', {'u': u, 'profile': profile})
+    return render(request, 'users/edit.html', {'u': u, 'profile': profile,
+                                               'all_sites': SITES, 'chosen_sites': profile.site_list})
 
 
 # ── INVOICE UPLOAD (replaces POS) ─────────────────────────────────────────────
@@ -829,10 +842,16 @@ def invoice_parse_pdf(request):
 @role_required('admin', 'cashier')
 def invoice_upload(request):
     """Simple invoice upload view — upload the Ah Liki PDF invoice into the system."""
+    sites = user_sites(request.user)
     if request.method == 'POST':
         form = InvoiceUploadForm(request.POST, request.FILES)
-        if form.is_valid():
+        site = sites[0] if len(sites) == 1 else request.POST.get('site', '')
+        if site not in sites:
+            messages.error(request, 'Pick the site this invoice belongs to.' if sites else
+                           'You have no site yet, so you cannot upload invoices. Ask an admin to give you one.')
+        elif form.is_valid():
             invoice = form.save(commit=False)
+            invoice.site = site
             invoice.cashier = request.user
             invoice.dispatch_status = 'pending'
             invoice.save()
@@ -896,7 +915,8 @@ def invoice_upload(request):
             return redirect('invoice_detail', pk=invoice.pk)
     else:
         form = InvoiceUploadForm()
-    return render(request, 'pos/invoice_upload.html', {'form': form})
+    return render(request, 'pos/invoice_upload.html',
+                  {'form': form, 'upload_sites': sites, 'chosen_site': request.POST.get('site', '')})
 
 
 
@@ -942,6 +962,7 @@ def quote_convert(request, pk):
     with transaction.atomic():
         invoice = Invoice.objects.create(
             invoice_number=gen_number('INV'),
+            site=next(iter(user_sites(request.user)), ''),
             cashier=request.user,
             customer_name=quote.customer_name,
             account_number=quote.account_number,
@@ -964,15 +985,118 @@ def quote_convert(request, pk):
 
 # ── WAREHOUSE DISPATCH ─────────────────────────────────────────────────────────
 
+def _picked_sites(request):
+    """The sites picked on Warehouse Dispatch; none picked means all of them.
+
+    Remembered for the login session, so Back to Dispatch, Sync now and the menu keep the filter.
+    """
+    options = user_sites(request.user) + (['OTHER'] if sees_all_sites(request.user) else [])
+    if 'site' in request.GET:
+        asked = {value.upper() for value in request.GET.getlist('site')}
+        request.session['dispatch_sites'] = [site for site in options if site in asked]
+    # Re-checked each time: access may have changed since the sites were picked.
+    return [site for site in request.session.get('dispatch_sites', []) if site in options]
+
+
+def _filter_sites(invoices, picked):
+    """Only invoices of the picked sites. OTHER is everything outside the known sites, e.g. uploads."""
+    if not picked:
+        return invoices
+    wanted = Q(site__in=picked)
+    if 'OTHER' in picked:
+        wanted |= ~Q(site__in=SITES)
+    return invoices.filter(wanted)
+
+
+def _site_options(user, picked):
+    """The filter's options for this user, each with its pending and dispatched totals."""
+    codes = user_sites(user) + (['OTHER'] if sees_all_sites(user) else [])
+    totals = {site: {'pending': 0, 'dispatched': 0} for site in codes}
+    rows = (visible_invoices(user).order_by().values('dispatch_status', 'site')
+            .annotate(n=Count('pk')))
+    for row in rows:
+        site = row['site'] if row['site'] in SITES else 'OTHER'
+        if row['dispatch_status'] in totals[site]:
+            totals[site][row['dispatch_status']] += row['n']
+    return [{'code': site, 'label': 'Other / no site' if site == 'OTHER' else site, 'picked': site in picked, **n}
+            for site, n in totals.items()
+            if site != 'OTHER' or site in picked or any(n.values())]
+
+
+DISPATCH_PER_PAGE = 30
+
+
+def _search_log(invoices, q='', date_from='', date_to=''):
+    """The Dispatch Log's search and dates, shared by the page and its CSV export."""
+    from datetime import datetime
+    for value, lookup in ((date_from, 'dispatched_at__date__gte'), (date_to, 'dispatched_at__date__lte')):
+        try:
+            invoices = invoices.filter(**{lookup: datetime.strptime(value, '%Y-%m-%d').date()})
+        except ValueError:
+            pass
+    if q:
+        invoices = invoices.filter(
+            Q(invoice_number__icontains=q) | Q(customer_name__icontains=q) | Q(truck_plate__icontains=q)
+            | Q(dispatched_by__first_name__icontains=q) | Q(dispatched_by__last_name__icontains=q)
+            | Q(dispatched_by__username__icontains=q))
+    return invoices
+
+
+def _query(request, drop=(), **extra):
+    """The current query string without the `drop` parameters, plus `extra`."""
+    params = request.GET.copy()
+    for name in drop:
+        params.pop(name, None)
+    for name, value in extra.items():
+        params[name] = value
+    return params
+
+
 @login_required
 @role_required('admin', 'warehouse', 'wms_dispatcher')
 def warehouse_dispatch_list(request):
-    """List invoices pending dispatch and recently dispatched ones."""
-    pending = Invoice.objects.filter(dispatch_status='pending').select_related('cashier').order_by('-created_at')
-    dispatch_log = Invoice.objects.filter(dispatch_status='dispatched').select_related('cashier', 'dispatched_by').order_by('-dispatched_at')
+    """Invoices pending dispatch and the dispatch log, each 30 to a page.
+
+    Search runs on the server, over every page. Each tab pages on its own and its links keep the
+    other tab's page and searches.
+    """
+    q = request.GET.get('q', '').strip()
+    lq = request.GET.get('lq', '').strip()
+    log_from = request.GET.get('from', '').strip()
+    log_to = request.GET.get('to', '').strip()
+    picked = _picked_sites(request)
+
+    # Thousands of POS invoices can be pending, so nothing here may cost a query per row.
+    pending = _filter_sites(
+        visible_invoices(request.user).filter(dispatch_status='pending').select_related('cashier', 'ls_central')
+        .annotate(item_count=Count('items')), picked).order_by('-created_at', '-pk')
+    if q:
+        pending = pending.filter(
+            Q(invoice_number__icontains=q) | Q(customer_name__icontains=q) | Q(account_number__icontains=q)
+            | Q(cashier__first_name__icontains=q) | Q(cashier__last_name__icontains=q)
+            | Q(cashier__username__icontains=q))
+    dispatch_log = _search_log(_filter_sites(
+        visible_invoices(request.user).filter(dispatch_status='dispatched')
+        .select_related('cashier', 'dispatched_by', 'ls_central'), picked), lq, log_from, log_to
+    ).order_by('-dispatched_at', '-pk')
+
+    searches = ('q', 'lq', 'from', 'to')
     return render(request, 'warehouse/dispatch_list.html', {
         'pending': pending,
         'dispatch_log': dispatch_log,
+        'pending_page': Paginator(pending, DISPATCH_PER_PAGE).get_page(request.GET.get('page')),
+        'log_page': Paginator(dispatch_log, DISPATCH_PER_PAGE).get_page(request.GET.get('log_page')),
+        'pending_pager': {'param': 'page', 'query': _query(request, ('page', 'tab', 'site')).urlencode()},
+        'log_pager': {'param': 'log_page', 'query': _query(request, ('log_page', 'site'), tab='log').urlencode()},
+        'q': q, 'lq': lq, 'log_from': log_from, 'log_to': log_to,
+        # A new search starts on page 1 of its own tab; the other tab keeps its place.
+        'keep_for_pending': [(k, v) for k, v in _query(request, ('q', 'page', 'tab', 'site')).items()],
+        'keep_for_log': [(k, v) for k, v in _query(request, ('lq', 'from', 'to', 'log_page', 'tab', 'site')).items()],
+        'keep_searches': [(k, request.GET[k]) for k in searches if request.GET.get(k)],
+        'clear_pending': _query(request, ('q', 'page', 'tab', 'site')).urlencode(),
+        'clear_log': _query(request, ('lq', 'from', 'to', 'log_page', 'site'), tab='log').urlencode(),
+        'site_options': _site_options(request.user, picked),
+        'picked_sites': picked,
     })
 
 
@@ -980,7 +1104,7 @@ def warehouse_dispatch_list(request):
 @role_required('admin', 'warehouse', 'wms_dispatcher')
 def warehouse_dispatch_detail(request, pk):
     """Show the dispatch detail for a single invoice."""
-    invoice = get_object_or_404(Invoice, pk=pk)
+    invoice = get_visible_invoice(request.user, pk=pk)
 
     # Handle inline comment submission
     if request.method == 'POST' and request.POST.get('add_comment'):
@@ -990,8 +1114,17 @@ def warehouse_dispatch_detail(request, pk):
             messages.success(request, 'Comment added.')
         return redirect('warehouse_dispatch_detail', pk=pk)
 
+    if invoice.dispatch_status == 'pending':
+        # LS Central invoices: add any lines still missing from the catalogue to Products first.
+        from ls_central.sync import complete_pick_list
+        added = complete_pick_list(invoice)
+        if added:
+            messages.info(request, f'{len(added)} product{"s" if len(added) != 1 else ""} not in the catalogue '
+                                   'added to Products from this invoice: ' + ', '.join(p.sku for p in added) + '.')
+
     items = list(invoice.items.select_related('product').all())
     stock_map = stock_by_product([i.product_id for i in items])
+    allow_no_stock = settings.DISPATCH_ALLOW_NO_STOCK
     item_data = []
     for item in items:
         stock = stock_map[item.product_id]
@@ -999,13 +1132,15 @@ def warehouse_dispatch_detail(request, pk):
             'item': item,
             'current_stock': stock,
             'sufficient': stock >= item.quantity,
-            'default_dispatch_qty': min(item.quantity, stock) if stock > 0 else 0,
+            'default_dispatch_qty': (item.quantity if allow_no_stock
+                                     else min(item.quantity, stock) if stock > 0 else 0),
         })
     comments = invoice.comments.select_related('author').all()
     return render(request, 'warehouse/dispatch_detail.html', {
         'invoice': invoice,
         'item_data': item_data,
         'comments': comments,
+        'allow_no_stock': allow_no_stock,
     })
 
 
@@ -1013,7 +1148,7 @@ def warehouse_dispatch_detail(request, pk):
 @role_required('admin', 'warehouse', 'wms_dispatcher')
 def warehouse_dispatch_submit(request, pk):
     """Confirm dispatch — for PDF invoices just marks dispatched; for item invoices deducts stock."""
-    invoice = get_object_or_404(Invoice, pk=pk)
+    invoice = get_visible_invoice(request.user, pk=pk)
     if request.method != 'POST':
         return redirect('warehouse_dispatch_detail', pk=pk)
 
@@ -1062,7 +1197,7 @@ def warehouse_dispatch_submit(request, pk):
             dqty = dispatch_quantities[item.pk]
             if dqty <= 0:
                 errors.append(f"Dispatch quantity for {item.product.name} must be at least 1.")
-            elif dqty > stock_map[item.product_id]:
+            elif dqty > stock_map[item.product_id] and not settings.DISPATCH_ALLOW_NO_STOCK:
                 errors.append(
                     f"Dispatch quantity for {item.product.name} ({dqty}) exceeds available stock "
                     f"({stock_map[item.product_id]} {item.product.unit})."
@@ -1122,33 +1257,11 @@ def warehouse_dispatch_submit(request, pk):
 @login_required
 @role_required('admin', 'warehouse', 'wms_dispatcher')
 def warehouse_dispatch_export(request):
-    """Export the dispatch log as a CSV, with optional date/search filters."""
-    from datetime import datetime
-    qs = Invoice.objects.filter(dispatch_status='dispatched').select_related('cashier', 'dispatched_by').order_by('-dispatched_at')
+    """Export the dispatch log as a CSV, with optional site/date/search filters."""
+    qs = visible_invoices(request.user).filter(dispatch_status='dispatched').select_related('cashier', 'dispatched_by').order_by('-dispatched_at')
 
-    q     = request.GET.get('q', '').strip().lower()
-    from_ = request.GET.get('from', '').strip()
-    to_   = request.GET.get('to', '').strip()
-
-    if from_:
-        try:
-            qs = qs.filter(dispatched_at__date__gte=datetime.strptime(from_, '%Y-%m-%d').date())
-        except ValueError:
-            pass
-    if to_:
-        try:
-            qs = qs.filter(dispatched_at__date__lte=datetime.strptime(to_, '%Y-%m-%d').date())
-        except ValueError:
-            pass
-    if q:
-        qs = qs.filter(
-            Q(invoice_number__icontains=q) |
-            Q(customer_name__icontains=q) |
-            Q(truck_plate__icontains=q) |
-            Q(dispatched_by__first_name__icontains=q) |
-            Q(dispatched_by__last_name__icontains=q) |
-            Q(dispatched_by__username__icontains=q)
-        )
+    qs = _search_log(_filter_sites(qs, _picked_sites(request)), request.GET.get('q', '').strip(),
+                     request.GET.get('from', '').strip(), request.GET.get('to', '').strip())
 
     filename = f"dispatch_log_{timezone.now().strftime('%Y%m%d_%H%M%S')}.csv"
     response = HttpResponse(content_type='text/csv')
@@ -1179,26 +1292,31 @@ def warehouse_dispatch_export(request):
 # ── INVOICES ──────────────────────────────────────────────────────────────────
 
 @login_required
+def invoice_media(request, path):
+    """Uploaded files: only the exact file of an invoice the user may see."""
+    if not path or not visible_invoices(request.user).filter(invoice_file=path).exists():
+        raise Http404
+    response = serve(request, path, document_root=settings.MEDIA_ROOT)
+    response['X-Content-Type-Options'] = 'nosniff'
+    if not path.lower().endswith('.pdf'):
+        # Anything else (say .html) could run as a page in the viewer's session.
+        response['Content-Disposition'] = 'attachment'
+    return response
+
+
+@login_required
 def invoice_list(request):
-    invoices = Invoice.objects.select_related('cashier').order_by('-created_at')
-    return render(request, 'pos/invoice_list.html', {'invoices': invoices})
+    invoices = visible_invoices(request.user).select_related('cashier').order_by('-created_at', '-pk')
+    return render(request, 'pos/invoice_list.html', {
+        'invoices': Paginator(invoices, DISPATCH_PER_PAGE).get_page(request.GET.get('page')),
+        'pager': {'param': 'page', 'query': _query(request, ('page',)).urlencode()},
+    })
 
 
 @login_required
 def invoice_detail(request, pk):
-    invoice = get_object_or_404(Invoice, pk=pk)
+    invoice = get_visible_invoice(request.user, pk=pk)
     return render(request, 'pos/invoice_detail.html', {'invoice': invoice})
-
-
-@login_required
-def invoice_mark_paid(request, pk):
-    invoice = get_object_or_404(Invoice, pk=pk)
-    if request.method == 'POST':
-        invoice.status = 'paid'
-        invoice.payment_method = request.POST.get('payment_method', 'cash')
-        invoice.save()
-        messages.success(request, f'Invoice {invoice.invoice_number} marked as paid.')
-    return redirect('invoice_detail', pk=pk)
 
 
 @login_required
@@ -1514,8 +1632,7 @@ def wms_transfer(request):
 @login_required
 @role_required('admin', 'manager', 'warehouse', 'wms_operator', 'wms_dispatcher')
 def picking_ticket(request, invoice_pk):
-    from .models import Invoice
-    invoice = get_object_or_404(Invoice, pk=invoice_pk)
+    invoice = get_visible_invoice(request.user, pk=invoice_pk)
     items = invoice.items.select_related('product').all()
 
     # For each item build a pick line with FEFO (earliest expiry first) pallets
@@ -1608,8 +1725,7 @@ def manager_dashboard(request):
         'pallet__product', 'shelf', 'assigned_by'
     ).order_by('-assigned_at')[:10]
 
-    from .models import Invoice as Inv
-    recent_dispatches = Inv.objects.filter(dispatch_status='dispatched').order_by('-dispatched_at')[:8]
+    recent_dispatches = visible_invoices(request.user).filter(dispatch_status='dispatched').order_by('-dispatched_at')[:8]
 
     # All pallets with locations for the full stock view
     all_pallets = Pallet.objects.select_related('product', 'created_by').order_by('product__name', '-created_at')
@@ -1664,8 +1780,7 @@ def api_pallet_lookup(request, lot_number):
 @login_required
 @role_required('admin', 'manager', 'warehouse', 'wms_dispatcher')
 def wms_dispatcher_dashboard(request):
-    from .models import Invoice as Inv
-    pending_count = Inv.objects.filter(dispatch_status='pending').count()
+    pending_count = visible_invoices(request.user).filter(dispatch_status='pending').count()
     return render(request, 'wms/dispatcher_dashboard.html', {
         'pending_count': pending_count,
         'today': date.today(),
@@ -1676,8 +1791,7 @@ def wms_dispatcher_dashboard(request):
 @role_required('admin', 'warehouse', 'wms_dispatcher')
 def dispatcher_add_comment(request, pk):
     """Add a comment/note to a dispatch order."""
-    from .models import Invoice as Inv
-    invoice = get_object_or_404(Inv, pk=pk)
+    invoice = get_visible_invoice(request.user, pk=pk)
     if request.method == 'POST':
         body = request.POST.get('body', '').strip()
         if body:
@@ -1692,8 +1806,7 @@ def dispatcher_add_comment(request, pk):
 @role_required('admin', 'warehouse', 'wms_dispatcher')
 def dispatcher_edit_order(request, pk):
     """Allow dispatcher to adjust item quantities for a pending dispatch order."""
-    from .models import Invoice as Inv, InvoiceItem
-    invoice = get_object_or_404(Inv, pk=pk, dispatch_status='pending')
+    invoice = get_visible_invoice(request.user, pk=pk, dispatch_status='pending')
 
     if request.method == 'POST':
         edit_reason = request.POST.get('edit_reason', '').strip()

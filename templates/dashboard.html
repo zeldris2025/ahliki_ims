@@ -94,7 +94,7 @@
         <td>{{ inv.customer_name|default:"Walk-in" }}</td>
         <td>{{ inv.items.count }}</td>
         <td>SAT${{ inv.total_amount }}</td>
-        <td style="font-size:12px">{{ inv.cashier.get_full_name|default:inv.cashier.username }}</td>
+        <td style="font-size:12px">{% if inv.ls_central %}LS Central{% else %}{% if inv.cashier %}{{ inv.cashier.get_full_name|default:inv.cashier.username }}{% else %}—{% endif %}{% endif %}</td>
         <td style="font-size:12px;color:var(--gray-500)">{{ inv.created_at|date:"d M H:i" }}</td>
         <td><a href="{% url 'warehouse_dispatch_detail' inv.pk %}" class="btn btn-sm btn-primary">Process →</a></td>
       </tr>

@@ -48,8 +48,8 @@ class UserProfileInline(admin.StackedInline):
     model = UserProfile
     can_delete = False
     verbose_name_plural = 'Role & department'
-    fields = ['role', 'department_name']
-    readonly_fields = ['department_name']
+    fields = ['role', 'department_name', 'sites']
+    readonly_fields = ['department_name', 'sites']
 
     @admin.display(description='Department')
     def department_name(self, obj):
@@ -90,7 +90,8 @@ class StaffUserAdmin(UserAdmin):
 
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):
-    list_display = ['user', 'department', 'role']
+    list_display = ['user', 'department', 'role', 'sites']
+    readonly_fields = ['sites']
     list_filter = [DepartmentFilter, 'role']
     list_select_related = ['user']
     search_fields = ['user__username', 'user__first_name', 'user__last_name']

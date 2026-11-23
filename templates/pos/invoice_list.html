@@ -13,7 +13,7 @@
       <tbody>
       {% for inv in invoices %}
       <tr>
-        <td><a href="{% url 'invoice_detail' inv.pk %}"><strong>{{ inv.invoice_number }}</strong></a></td>
+        <td><a href="{% url 'invoice_detail' inv.pk %}"><strong>{{ inv.invoice_number }}</strong></a>{% if inv.site %} <span class="badge badge-gray">{{ inv.site }}</span>{% endif %}</td>
         <td>{{ inv.customer_name|default:"Walk-in" }}</td>
         <td><strong>SAT${{ inv.total_amount }}</strong></td>
         <td>SAT${{ inv.tax_amount }}</td>
@@ -31,9 +31,10 @@
         <td style="font-size:12px">{{ inv.created_at|date:"d M Y" }}</td>
         <td><a href="{% url 'invoice_detail' inv.pk %}" class="btn btn-sm btn-secondary">View</a></td>
       </tr>
-      {% empty %}<tr><td colspan="8" style="text-align:center;color:var(--gray-500);padding:24px">No invoices yet.</td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="9" style="text-align:center;color:var(--gray-500);padding:24px">{% if site_label == 'No site assigned' %}You have no site assigned, so no invoices are shown. Ask an admin to give you a site.{% else %}No invoices yet.{% endif %}</td></tr>{% endfor %}
       </tbody>
     </table>
   </div>
+  {% include 'warehouse/_pager.html' with page=invoices pager=pager %}
 </div>
 {% endblock %}

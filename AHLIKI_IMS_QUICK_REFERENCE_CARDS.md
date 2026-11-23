@@ -190,8 +190,8 @@ Create Quote:
 Convert Quote:
   Quotes → Find → Click → Convert to Invoice
 
-Mark Invoice Paid:
-  Invoices → Find → Click → Mark Paid → Save
+Invoice Payments:
+  View only in IMS → Payments are handled in LS Central
 
 Generate Sales Report:
   Reports → Sales → Set Date Range → Export

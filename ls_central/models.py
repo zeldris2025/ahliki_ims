@@ -1,7 +1,6 @@
 from django.conf import settings
 from django.db import models
 
-
 class LsCentralInvoice(models.Model):
     """Links an invoice in Warehouse Dispatch to the LS Central invoice it was imported from."""
 
@@ -12,6 +11,8 @@ class LsCentralInvoice(models.Model):
     invoice_date = models.DateField(null=True, blank=True)
     # Lines that could not be matched to a product in the catalogue, as LS Central sent them.
     unmatched_lines = models.JSONField(default=list, blank=True)
+    # Every line of the LS Central invoice (items, charges, comments), used to draw the invoice document.
+    lines = models.JSONField(default=list, blank=True)
     linked_existing = models.BooleanField(default=False,
                                           help_text='The invoice was already in the system (e.g. uploaded as a PDF) '
                                                     'and was linked instead of imported again.')

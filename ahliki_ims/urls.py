@@ -1,10 +1,7 @@
 from django.contrib import admin
 from django.urls import path, include, re_path
-from django.views.static import serve
 from django.contrib.auth import views as auth_views
-from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect
-from django.conf import settings
 from inventory import views as inventory_views
 
 
@@ -55,6 +52,6 @@ urlpatterns = [
     path('', home_redirect, name='home'),
     path('', include('inventory.urls')),
     # Uploaded files (invoices). static() only works with DEBUG on, so serve them explicitly —
-    # behind the login, since the site is reachable from the internet once it is on Azure.
-    re_path(r'^media/(?P<path>.*)$', login_required(serve), {'document_root': settings.MEDIA_ROOT}),
+    # behind the login and the user's site access (see inventory/site_access.py).
+    re_path(r'^media/(?P<path>.*)$', inventory_views.invoice_media, name='invoice_media'),
 ]
