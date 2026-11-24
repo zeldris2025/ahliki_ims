@@ -1,4 +1,6 @@
 {% extends 'cms/_base.html' %}
+{% load static %}
+{% block head_js %}<script src="{% static 'vendor/chartjs/chart.umd.min.js' %}"></script>{% endblock %}
 {% block title %}Container Dashboard — Ah Liki IMS{% endblock %}
 {% block topbar_title %}Container Management System{% endblock %}
 {% block cms_content %}

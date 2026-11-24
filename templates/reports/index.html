@@ -1,4 +1,6 @@
 {% extends 'base.html' %}
+{% load static %}
+{% block head_js %}<script src="{% static 'vendor/chartjs/chart.umd.min.js' %}"></script>{% endblock %}
 {% block title %}Reports — Ah Liki IMS{% endblock %}
 {% block topbar_title %}Reports & Analytics{% endblock %}
 {% block content %}

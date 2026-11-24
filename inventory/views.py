@@ -57,6 +57,9 @@ def role_required(*roles):
             if profile.role == 'cashier':
                 return redirect('invoice_upload')
             return redirect('invoice_upload')
+        # Read by the sidebar (inventory/navigation.py) so a menu link is only shown to roles
+        # this view will actually let in.
+        _wrapped.allowed_roles = frozenset(roles)
         return _wrapped
     return decorator
 

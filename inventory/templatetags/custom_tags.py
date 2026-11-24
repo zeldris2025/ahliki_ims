@@ -25,3 +25,10 @@ def has_role(user, role):
         return profile.role == role
     except:
         return False
+
+
+@register.simple_tag
+def icon(name, cls=''):
+    """Inline SVG icon from templates/_icons.html, e.g. {% icon 'truck' %}."""
+    from django.utils.html import format_html
+    return format_html('<svg class="ic {}" aria-hidden="true" focusable="false"><use href="#i-{}"/></svg>', cls, name)
