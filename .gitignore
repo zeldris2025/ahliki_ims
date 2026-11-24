@@ -9,3 +9,7 @@ __pycache__/
 
 # LS Central keys
 ahliki_ims/ls_central_config.py
+
+# SQLite write-ahead log (WAL mode)
+db.sqlite3-wal
+db.sqlite3-shm

@@ -9,9 +9,10 @@ from inventory.views import role_required
 
 from .client import LsCentralClient, LsCentralError, missing_settings
 from .models import LsCentralInvoice, LsCentralSync
-from .sync import sync_invoices
+from .sync import in_background, sync_invoices
 
 DISPATCH_ROLES = ('admin', 'warehouse', 'wms_dispatcher')
+SYNC_NOW_WAIT = 15      # seconds Sync now waits for the result before leaving it to run on
 
 
 def is_ls_admin(user):
@@ -64,8 +65,16 @@ def status(request):
 @role_required(*DISPATCH_ROLES)
 @require_POST
 def sync_now(request):
-    run = sync_invoices(user=request.user, force_pos=True)
-    (messages.success if run.ok else messages.error)(request, f'LS Central: {run.message}')
+    # Runs beside the page: the day's store batch can take a minute, and the page shouldn't wait.
+    state, run = in_background(sync_invoices, wait=SYNC_NOW_WAIT, user=request.user, force_pos=True)
+    if state == 'busy':
+        messages.info(request, 'LS Central: a sync is already running. New invoices appear here when it '
+                               'finishes. Refresh the page in a minute.')
+    elif state == 'running':
+        messages.info(request, 'LS Central: importing in the background (the store sales take a minute). '
+                               'Refresh the page shortly to see the new invoices.')
+    else:
+        (messages.success if run.ok else messages.error)(request, f'LS Central: {run.message}')
     return _back(request)
 
 

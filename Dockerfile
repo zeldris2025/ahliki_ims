@@ -6,6 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     SQLITE_PATH=/app/data/db.sqlite3 \
+    SQLITE_WAL=0 \
     MEDIA_ROOT=/app/data/media
 
 WORKDIR /app

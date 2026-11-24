@@ -11,6 +11,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, days=None, **options):
         run = sync_invoices(days=days)
+        if run is None:
+            raise CommandError('Another LS Central sync is running. Try again when it has finished.')
         if not run.ok:
             raise CommandError(run.message)
         self.stdout.write(self.style.SUCCESS(run.message))

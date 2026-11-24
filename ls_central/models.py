@@ -45,6 +45,13 @@ class LsCentralSync(models.Model):
     def __str__(self):
         return f'{self.started_at:%Y-%m-%d %H:%M} — {"ok" if self.ok else "failed"}'
 
+    @property
+    def is_recent(self):
+        """Started within the last 15 minutes: an unfinished run this young is still going."""
+        from datetime import timedelta
+        from django.utils import timezone
+        return self.started_at >= timezone.now() - timedelta(minutes=15)
+
 
 class LsCentralPosDay(models.Model):
     """How far the store (POS) sales of one day have been imported, so finished days are not asked again."""

@@ -7,13 +7,14 @@ the LS Central record and listed in a dispatch comment so nothing goes missing s
 """
 import logging
 import re
+import threading
+import time
 from collections import defaultdict
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from django.conf import settings
-from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db import IntegrityError, OperationalError, close_old_connections, transaction
 from django.utils import timezone
 
 from .client import LsCentralClient, LsCentralError
@@ -62,10 +63,33 @@ class ProductMatcher:
     """
 
     def __init__(self, client=None):
-        self._by_name = None
+        self._by_name = self._by_sku = self._by_barcode = None
         self.client = client
         self._cards = {}
         self.created = []
+
+    def _load(self):
+        """Read the catalogue once per sync, so matching a line costs no database query."""
+        if self._by_sku is not None:
+            return
+        from inventory.models import Product
+        self._by_sku, self._by_barcode, self._by_name = {}, {}, defaultdict(list)
+        for product in Product.objects.order_by('pk'):
+            self._remember(product)
+
+    def reload(self):
+        """Read the catalogue again (after a rolled-back transaction) and drop lost new products."""
+        from inventory.models import Product
+        self._by_sku = None
+        kept = set(Product.objects.filter(pk__in=[p.pk for p in self.created]).values_list('pk', flat=True))
+        self.created = [p for p in self.created if p.pk in kept]
+
+    def _remember(self, product):
+        self._by_sku.setdefault(product.sku.lower(), product)
+        if product.barcode:
+            self._by_barcode.setdefault(product.barcode, product)
+        if product.is_active:
+            self._by_name[_norm(product.name)].append(product)
 
     def item_card(self, item_id):
         """The LS Central item card, or None when it can't be read (tried again next sync)."""
@@ -94,7 +118,8 @@ class ProductMatcher:
         sku = str(card.get('number') or row['item_no'] or '').strip()[:100]
         if not sku:
             return None
-        existing = Product.objects.filter(sku__iexact=sku).first()
+        self._load()
+        existing = self._by_sku.get(sku.lower())
         if existing:
             return existing
         line_price = Decimal(row['unit_price']) if row['unit_price'] else None
@@ -107,27 +132,18 @@ class ProductMatcher:
             barcode=str(card.get('gtin') or '')[:200],
             description=f'Added automatically from LS Central invoice {invoice_number}.',
         )
-        self._names()[_norm(product.name)].append(product)
+        self._remember(product)
         self.created.append(product)
         return product
 
-    def _names(self):
-        if self._by_name is None:
-            from inventory.models import Product
-            self._by_name = defaultdict(list)
-            for product in Product.objects.filter(is_active=True).only('pk', 'name', 'unit', 'unit_price'):
-                self._by_name[_norm(product.name)].append(product)
-        return self._by_name
-
     def match(self, item_no, description='', unit='', unit_price=None):
-        from inventory.models import Product
+        self._load()
         item_no = (item_no or '').strip()
         if item_no:
-            product = (Product.objects.filter(sku__iexact=item_no).first()
-                       or Product.objects.filter(Q(barcode=item_no) & ~Q(barcode='')).first())
+            product = self._by_sku.get(item_no.lower()) or self._by_barcode.get(item_no)
             if product:
                 return product
-        candidates = self._names().get(_norm(description), [])
+        candidates = self._by_name.get(_norm(description), [])
         if len(candidates) <= 1:
             return candidates[0] if candidates else None
         same_unit = [p for p in candidates if _norm(p.unit) == _norm(unit)] if unit else []
@@ -165,7 +181,7 @@ def _build_items(invoice, rows, matcher):
     """Create the pick-list items from the LS Central lines. Returns (rows, unmatched)."""
     from inventory.models import DispatchComment, InvoiceItem
 
-    unmatched, rounded, added = [], [], []
+    unmatched, rounded, added, items = [], [], [], []
     for row in rows:
         qty = Decimal(row['quantity'])
         if row['line_type'] != 'Item' or qty <= 0:
@@ -184,9 +200,10 @@ def _build_items(invoice, rows, matcher):
         whole = int(qty.quantize(Decimal('1'), rounding=ROUND_HALF_UP)) or 1
         if whole != qty:
             rounded.append(f'{product.name}: {qty} → {whole}')
-        InvoiceItem.objects.create(invoice=invoice, product=product, quantity=whole,
-                                   unit_price=product.unit_price if price is None else price,
-                                   discount_percent=Decimal(row['discount_percent']))
+        items.append(InvoiceItem(invoice=invoice, product=product, quantity=whole,
+                                 unit_price=product.unit_price if price is None else price,
+                                 discount_percent=Decimal(row['discount_percent'])))
+    InvoiceItem.objects.bulk_create(items)
 
     notes = []
     if added:
@@ -314,9 +331,79 @@ def _fetch_invoices(client, since):
     return docs
 
 
+class DatabaseBusy(Exception):
+    """The database stayed locked by other work through every retry."""
+
+
+def with_retry(func, *args, **kwargs):
+    """Call func; when SQLite reports the database locked, wait and try again (each attempt has
+    already waited the connection's own timeout). Raises DatabaseBusy if it never frees up.
+    A ProductMatcher among the arguments forgets products whose insert was rolled back."""
+    for attempt in range(3):
+        try:
+            return func(*args, **kwargs)
+        except OperationalError as exc:
+            if 'locked' not in str(exc) and 'busy' not in str(exc):
+                raise
+            logger.warning('Database busy (attempt %s): %s', attempt + 1, exc)
+            for arg in args:
+                if isinstance(arg, ProductMatcher):
+                    arg.reload()
+            time.sleep(2 + attempt * 3)
+    raise DatabaseBusy('The database stayed busy')
+
+
+# One sync at a time in this process; another process sees the unfinished LsCentralSync row.
+_running = threading.Lock()
+STALE_RUN = timedelta(minutes=15)       # an unfinished run older than this crashed
+
+
+def sync_running():
+    return _running.locked() or LsCentralSync.objects.filter(
+        finished_at__isnull=True, started_at__gte=timezone.now() - STALE_RUN).exists()
+
+
 def sync_invoices(user=None, days=None, client=None, force_pos=False):
-    """Import new LS Central invoices: back-office ones and store (POS) sales. Always returns the
-    LsCentralSync record of the run. `force_pos` checks the stores now, not on their own timer."""
+    """Import new LS Central invoices: back-office ones and store (POS) sales. Returns the
+    LsCentralSync record of the run, or None when another sync is still running (two at once
+    would only fight over the database). `force_pos` checks the stores now, not on their timer."""
+    if not _running.acquire(blocking=False):
+        return None
+    try:
+        if LsCentralSync.objects.filter(finished_at__isnull=True,
+                                        started_at__gte=timezone.now() - STALE_RUN).exists():
+            return None
+        return _sync(user, days, client, force_pos)
+    finally:
+        _running.release()
+
+
+def in_background(sync, wait=20, **kwargs):
+    """Run `sync` (sync_invoices) in its own thread, so a long import never holds up a page.
+    Waits up to `wait` seconds. Returns ('busy', None) when a sync is already running,
+    ('done', run) when it finished in time, otherwise ('running', None)."""
+    if sync_running():
+        return 'busy', None
+    result = {}
+
+    def work():
+        try:
+            result['run'] = sync(**kwargs)
+        except Exception:
+            logger.exception('LS Central sync failed')
+        finally:
+            close_old_connections()
+
+    thread = threading.Thread(target=work, name='ls-central-sync-now', daemon=True)
+    thread.start()
+    thread.join(wait)
+    if thread.is_alive():
+        return 'running', None
+    run = result.get('run')
+    return ('done', run) if run is not None else ('busy', None)
+
+
+def _sync(user, days, client, force_pos):
     run = LsCentralSync.objects.create(triggered_by=user if user and user.is_authenticated else None)
     days = settings.LS_CENTRAL_SYNC_DAYS if days is None else days
     errors, rematched, from_stores = [], 0, 0
@@ -330,11 +417,11 @@ def sync_invoices(user=None, days=None, client=None, force_pos=False):
             if not doc.get('id') or str(doc.get('status', '')).lower() in NOT_FOR_DISPATCH:
                 continue
             if doc['id'] in known:
-                run.updated += _update_status(known[doc['id']], doc)
-                rematched += _refresh_lines(known[doc['id']], doc, matcher)
+                run.updated += with_retry(_update_status, known[doc['id']], doc)
+                rematched += with_retry(_refresh_lines, known[doc['id']], doc, matcher)
                 continue
             try:
-                record = import_invoice(doc, matcher)
+                record = with_retry(import_invoice, doc, matcher)
             except IntegrityError:
                 continue    # imported at the same moment by another worker
             except LsCentralError as exc:
@@ -366,11 +453,16 @@ def sync_invoices(user=None, days=None, client=None, force_pos=False):
         run.message = ', '.join(parts) + '.' + (' ' + ' '.join(errors) if errors else '')
     except LsCentralError as exc:
         run.message = str(exc)
+    except DatabaseBusy:
+        logger.warning('LS Central sync stopped: the database stayed busy')
+        run.message = (f'{run.imported} new invoice{"s" if run.imported != 1 else ""} imported, then the '
+                       'database stayed busy with other work, so the sync stopped. Nothing was lost: '
+                       'the rest are imported on the next sync.')
     except Exception as exc:   # keep a record of unexpected failures too
         logger.exception('LS Central sync failed')
         run.message = f'Unexpected error: {exc}'
     run.finished_at = timezone.now()
-    run.save()
+    with_retry(run.save)
     return run
 
 

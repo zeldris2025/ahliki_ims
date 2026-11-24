@@ -7,7 +7,9 @@
         {% if can_configure %}Add the keys in <code>ahliki_ims/ls_central_config.py</code>.{% endif %}
       {% elif last %}
         — last sync {{ last.started_at|timesince }} ago:
-        {% if last.ok %}<span class="badge badge-green">OK</span>{% else %}<span class="badge badge-red">Failed</span>{% endif %}
+        {% if last.ok %}<span class="badge badge-green">OK</span>
+        {% elif not last.finished_at and last.is_recent %}<span class="badge badge-blue">Running</span> importing now — refresh shortly
+        {% else %}<span class="badge badge-red">Failed</span>{% endif %}
         {{ last.message|truncatechars:140 }}
       {% else %}
         — not synced yet.

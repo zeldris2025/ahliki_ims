@@ -16,6 +16,7 @@ when some are not imported yet. import_pos_invoices fetches older days (past MAX
 """
 import re
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -25,12 +26,16 @@ from django.db.models import Max
 from django.utils import timezone
 
 from .models import LsCentralInvoice, LsCentralPosDay
-from .sync import ProductMatcher, _decimal, import_invoice
+from .sync import ProductMatcher, _decimal, import_invoice, with_retry
 
 MAX_DAYS = 5    # how far back POS invoices may be imported; the full history is over 330,000 invoices
 # How far back the automatic sync looks for the newest posted day (Saturday's sales, on a Monday).
 LOOK_BACK_DAYS = 3
 POS_NUMBER = re.compile(r'^([A-Z]{3})-\1\d+-\d+$')
+CUSTOMER_FIELDS = 'Document_No,Document_Type,Amount_LCY,Due_Date,Customer_No,Customer_Name'
+VALUE_FIELDS = ('Document_No,Item_Ledger_Entry_No,Entry_No,Item_No,Item_Description,Invoiced_Quantity,'
+                'Sales_Amount_Actual')
+ITEM_ENTRY_FIELDS = 'EntryNo,QtyPerUnitOfMeasure,UnitOfMeasureCode'
 
 
 def store_of(number):
@@ -47,9 +52,20 @@ def pos_invoices(client, day, stores=None):
         store = store_of(number)
         return store is not None and (not stores or store in stores)
 
+    # The three ledgers are read at the same time, and only the columns used.
+    on_day = day.isoformat()
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        customers = pool.submit(client.web_service, 'Cust_LedgerEntries',
+                                {'$filter': f'Posting_Date eq {on_day}', '$select': CUSTOMER_FIELDS})
+        item_entries = pool.submit(client.analytics, 'itemLedgerEntries',
+                                   {'$filter': f'PostingDate eq {on_day}', '$select': ITEM_ENTRY_FIELDS})
+        values = pool.submit(client.web_service, 'ValueEntries',
+                             {'$filter': f'Posting_Date eq {on_day}', '$select': VALUE_FIELDS})
+        customers, item_entries, values = customers.result(), item_entries.result(), values.result()
+
     totals, paid = defaultdict(Decimal), defaultdict(Decimal)
     headers = {}
-    for row in client.web_service('Cust_LedgerEntries', {'$filter': f'Posting_Date eq {day.isoformat()}'}):
+    for row in customers:
         number = row.get('Document_No')
         if not wanted(number):
             continue
@@ -61,12 +77,11 @@ def pos_invoices(client, day, stores=None):
     if not headers:
         return []
 
-    units = {row['EntryNo']: row for row in client.analytics(
-        'itemLedgerEntries', {'$filter': f'PostingDate eq {day.isoformat()}'})}
+    units = {row['EntryNo']: row for row in item_entries}
 
     # One sold line can have several value entries (cost adjustments): add them up.
     lines = defaultdict(dict)
-    for row in client.web_service('ValueEntries', {'$filter': f'Posting_Date eq {day.isoformat()}'}):
+    for row in values:
         number = row.get('Document_No')
         if number not in headers:
             continue
@@ -136,7 +151,7 @@ def save_invoices(docs, matcher=None):
     added = 0
     for doc in not_yet_imported(docs):
         try:
-            record = import_invoice(doc, matcher)
+            record = with_retry(import_invoice, doc, matcher)
         except IntegrityError:
             continue    # imported at the same moment by someone else
         added += not record.linked_existing
@@ -180,7 +195,7 @@ def sync_pos(client, matcher=None, force=False):
         if imported < len(numbers):
             added += save_invoices(pos_invoices(client, day), matcher or ProductMatcher())
             imported = _imported(numbers)
-        LsCentralPosDay.objects.update_or_create(day=day, defaults={
+        with_retry(LsCentralPosDay.objects.update_or_create, day=day, defaults={
             'posted': len(numbers), 'imported': imported, 'checked_at': now,
             'complete': imported >= len(numbers)})
         if numbers:

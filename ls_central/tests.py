@@ -10,7 +10,7 @@ from inventory.models import DispatchComment, Invoice, Product, UserProfile
 
 from .client import LsCentralClient, LsCentralError, NotConfigured
 from .models import LsCentralInvoice
-from .sync import sync_invoices
+from .sync import ProductMatcher, sync_invoices
 
 KEYS = dict(LS_CENTRAL_TENANT_ID='tenant', LS_CENTRAL_CLIENT_ID='client', LS_CENTRAL_CLIENT_SECRET='secret',
             LS_CENTRAL_ENVIRONMENT='Production', LS_CENTRAL_COMPANY='')
@@ -581,6 +581,67 @@ class AutoPosTests(TestCase):
             sync.return_value = mock.Mock(ok=True, message='done')
             self.client.post(reverse('ls_central:sync'))
         self.assertTrue(sync.call_args.kwargs['force_pos'])
+
+
+@override_settings(**KEYS, LS_CENTRAL_IMPORT_POS=True, LS_CENTRAL_POS_MINUTES=30, LS_CENTRAL_SYNC_DAYS=0)
+class OneSyncAtATimeTests(TestCase):
+    def test_a_second_sync_waits_for_the_first(self):
+        from . import sync as sync_module
+        with sync_module._running:      # a sync is running in this process
+            self.assertIsNone(sync_invoices(client=StoresAndBackOffice([ls_invoice()])))
+        self.assertFalse(Invoice.objects.exists())
+        self.assertIsNotNone(sync_invoices(client=StoresAndBackOffice([ls_invoice()])))
+
+    def test_an_unfinished_run_elsewhere_blocks_until_it_is_stale(self):
+        from .models import LsCentralSync
+        other = LsCentralSync.objects.create()      # another server process, still importing
+        self.assertIsNone(sync_invoices(client=StoresAndBackOffice([ls_invoice()])))
+        LsCentralSync.objects.filter(pk=other.pk).update(started_at=timezone.now() - timezone.timedelta(minutes=20))
+        self.assertTrue(sync_invoices(client=StoresAndBackOffice([ls_invoice()])).ok)
+
+    def test_a_busy_database_is_retried(self):
+        from django.db import OperationalError
+        from . import sync as sync_module
+        real, calls = sync_module.import_invoice, []
+
+        def locked_once(doc, matcher=None):
+            calls.append(doc['number'])
+            if len(calls) == 1:
+                raise OperationalError('database is locked')
+            return real(doc, matcher)
+        with mock.patch.object(sync_module, 'import_invoice', locked_once), mock.patch.object(sync_module.time, 'sleep'):
+            run = sync_invoices(client=StoresAndBackOffice([ls_invoice()], posted_days=()))
+        self.assertTrue(run.ok, run.message)
+        self.assertEqual(run.imported, 1)
+        self.assertEqual(len(calls), 2)
+
+    def test_a_database_that_stays_busy_stops_the_sync_cleanly(self):
+        from django.db import OperationalError
+        from . import sync as sync_module
+        with mock.patch.object(sync_module, 'import_invoice', side_effect=OperationalError('database is locked')), \
+                mock.patch.object(sync_module.time, 'sleep'):
+            run = sync_invoices(client=StoresAndBackOffice([ls_invoice()], posted_days=()))
+        self.assertFalse(run.ok)
+        self.assertIn('the rest are imported on the next sync', run.message)
+        self.assertIsNotNone(run.finished_at)
+
+    def test_sync_now_while_a_sync_runs(self):
+        from .models import LsCentralSync
+        LsCentralSync.objects.create()
+        self.client.force_login(User.objects.create_superuser('boss', password='pw'))
+        with mock.patch('ls_central.views.sync_invoices') as sync:
+            resp = self.client.post(reverse('ls_central:sync'), follow=True)
+        sync.assert_not_called()
+        self.assertContains(resp, 'a sync is already running')
+
+    def test_matching_a_line_needs_no_database_query(self):
+        Product.objects.create(sku='AL1', name='Rice 10kg', unit='bag', unit_price=Decimal('30'), barcode='999')
+        matcher = ProductMatcher()
+        matcher.match('x', 'nothing')       # reads the catalogue once
+        with self.assertNumQueries(0):
+            self.assertEqual(matcher.match('al1').sku, 'AL1')
+            self.assertEqual(matcher.match('999').sku, 'AL1')
+            self.assertEqual(matcher.match('', 'RICE  10KG').sku, 'AL1')
 
 
 @override_settings(**KEYS)

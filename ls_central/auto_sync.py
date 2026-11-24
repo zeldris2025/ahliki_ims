@@ -37,6 +37,8 @@ def _run():
             if LsCentralSync.objects.filter(started_at__gte=recent).exists():
                 continue
             run = sync_invoices()
+            if run is None:
+                continue    # a Sync now is still running
             if run.imported or not run.ok:
                 logger.info('LS Central auto-sync: %s', run.message)
         except Exception:   # never let the thread die

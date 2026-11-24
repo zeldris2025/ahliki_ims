@@ -106,11 +106,25 @@ if os.environ.get('DATABASE_URL'):
     DATABASES = {'default': dj_database_url.parse(os.environ['DATABASE_URL'], conn_max_age=600,
                                                   conn_health_checks=True)}
 else:
+    # SQLite allows one writer at a time. So that a long LS Central import and people using the
+    # site don't fail each other with "database is locked":
+    # * IMMEDIATE: a write transaction takes the write lock when it starts, so a second writer
+    #   waits its turn (up to `timeout` seconds) instead of failing at once on a lock upgrade.
+    # * WAL: pages being read never block a write, and a write never blocks them. The database
+    #   then has -wal and -shm files beside it; back it up with sqlite3's .backup, not a plain
+    #   file copy. Off with SQLITE_WAL=0 (Docker bind mounts and network storage, where WAL's
+    #   shared memory file is not safe).
+    _sqlite_wal = os.environ.get('SQLITE_WAL', '1').strip().lower() not in ('0', 'false', 'no', 'off')
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': Path(os.environ.get('SQLITE_PATH', BASE_DIR / 'db.sqlite3')),
-            'OPTIONS': {'timeout': 20},
+            'OPTIONS': {
+                'timeout': 30,
+                'transaction_mode': 'IMMEDIATE',
+                'init_command': ('PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL' if _sqlite_wal
+                                 else 'PRAGMA journal_mode=DELETE'),
+            },
         }
     }
 
