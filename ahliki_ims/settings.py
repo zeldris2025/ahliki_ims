@@ -192,8 +192,15 @@ LS_CENTRAL_ENVIRONMENT = os.environ.get('LS_CENTRAL_ENVIRONMENT', 'Production')
 LS_CENTRAL_COMPANY = os.environ.get('LS_CENTRAL_COMPANY', '')
 LS_CENTRAL_API_URL = os.environ.get('LS_CENTRAL_API_URL', 'https://api.businesscentral.dynamics.com/v2.0')
 LS_CENTRAL_API_PATH = os.environ.get('LS_CENTRAL_API_PATH', 'api/v2.0')
-LS_CENTRAL_SYNC_DAYS = int(os.environ.get('LS_CENTRAL_SYNC_DAYS', 7))
+# Back-office invoices dated today only (0), plus any newer invoice number whatever its date.
+LS_CENTRAL_SYNC_DAYS = int(os.environ.get('LS_CENTRAL_SYNC_DAYS', 0))
 LS_CENTRAL_SYNC_MINUTES = float(os.environ.get('LS_CENTRAL_SYNC_MINUTES', 10))
+# Each sync also imports today's batch of store (POS) sales from the ledgers: the newest day the
+# stores have posted (they post the next working morning). Checked at most every
+# LS_CENTRAL_POS_MINUTES (Sync now always checks). LS_CENTRAL_IMPORT_POS=0 turns it off.
+# Older days: python manage.py import_pos_invoices (past 5 days at most).
+LS_CENTRAL_IMPORT_POS = os.environ.get('LS_CENTRAL_IMPORT_POS', '1').strip().lower() in ('1', 'true', 'yes', 'on')
+LS_CENTRAL_POS_MINUTES = float(os.environ.get('LS_CENTRAL_POS_MINUTES', 30))
 
 # Temporary, for testing: dispatchers may tick off and dispatch items the system shows no stock for
 # (e.g. products just added from LS Central). Stock goes negative until it is received.

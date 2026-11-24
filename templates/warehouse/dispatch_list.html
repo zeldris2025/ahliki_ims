@@ -23,6 +23,10 @@
   .site-opt small { font-weight:500; color:var(--gray-500); }
   .site-n-log, .site-filter.on-log .site-n-pending { display:none; }
   .site-filter.on-log .site-n-log { display:inline; }
+  a.site-opt { text-decoration:none; }
+  a.site-opt:hover { border-color:var(--green-mid,#2d7a4f); }
+  .date-range { display:inline-flex; gap:6px; align-items:center; font-size:13px; color:var(--gray-500); margin:0; flex-wrap:wrap; }
+  .date-range input[type="date"] { padding:6px 9px; border:1px solid var(--gray-200); border-radius:6px; font-size:13px; }
 </style>
 <form method="get" id="siteFilter" class="site-filter">
   <input type="hidden" name="site" value="">
@@ -73,6 +77,22 @@
 
 <!-- ── PENDING TAB ── -->
 <div id="tab-pending">
+  <!-- Pending date filter: Today unless another is picked -->
+  <div class="site-filter" style="margin-bottom:12px">
+    <span style="font-size:13px;font-weight:600;color:var(--gray-500)">Received:</span>
+    {% for opt in date_options %}
+    <a href="?{{ opt.query }}" class="site-opt{% if opt.on %} on{% endif %}">{{ opt.label }} <small>{{ opt.count }}</small></a>
+    {% endfor %}
+    <form method="get" class="date-range">
+      {% for name, value in keep_for_pending %}{% if name != 'when' and name != 'pfrom' and name != 'pto' %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endif %}{% endfor %}
+      <input type="hidden" name="when" value="range">
+      <label class="site-opt{% if when == 'range' %} on{% endif %}" style="cursor:default">From
+        <input type="date" name="pfrom" value="{{ pending_from }}" onchange="this.form.submit()"></label>
+      <label class="site-opt{% if when == 'range' %} on{% endif %}" style="cursor:default">To
+        <input type="date" name="pto" value="{{ pending_to }}" onchange="this.form.submit()"></label>
+    </form>
+  </div>
+
   <!-- Pending search bar -->
   <form method="get" style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
     {% for name, value in keep_for_pending %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
@@ -123,10 +143,11 @@
         {% empty %}
         <tr id="emptyPendingRow">
           <td colspan="8" style="text-align:center;color:var(--gray-500);padding:40px">
-            {% if q %}No pending orders match “{{ q }}”.
+            {% if q %}No pending orders match “{{ q }}”{% if when != 'all' %} received {{ when_label|lower }}. <a href="?{{ search_all_dates }}">Search all dates</a>{% endif %}.
             {% else %}
             <div style="font-size:36px;margin-bottom:10px">✅</div>
-            <strong>All clear!</strong><br>No invoices pending dispatch{% if picked_sites %} for the selected sites{% endif %}.
+            <strong>All clear!</strong><br>No invoices pending dispatch{% if when != 'all' %} received {{ when_label|lower }}{% endif %}{% if picked_sites %} for the selected sites{% endif %}.
+            {% if when != 'all' %}<br><a href="?{{ search_all_dates }}">Show all dates</a>{% endif %}
             {% endif %}
           </td>
         </tr>
@@ -140,6 +161,14 @@
 
 <!-- ── DISPATCH LOG TAB ── -->
 <div id="tab-log" style="display:none">
+  <!-- Quick dates: set From / To below -->
+  <div class="site-filter" style="margin-bottom:12px">
+    <span style="font-size:13px;font-weight:600;color:var(--gray-500)">Dispatched:</span>
+    {% for opt in log_dates %}
+    <a href="?{{ opt.query }}" class="site-opt{% if opt.on %} on{% endif %}">{{ opt.label }}</a>
+    {% endfor %}
+  </div>
+
   <!-- Search / filter bar -->
   <form method="get" style="display:flex;gap:10px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
     {% for name, value in keep_for_log %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}

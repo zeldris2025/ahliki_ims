@@ -314,11 +314,12 @@ def _fetch_invoices(client, since):
     return docs
 
 
-def sync_invoices(user=None, days=None, client=None):
-    """Import new LS Central invoices. Always returns the LsCentralSync record of the run."""
+def sync_invoices(user=None, days=None, client=None, force_pos=False):
+    """Import new LS Central invoices: back-office ones and store (POS) sales. Always returns the
+    LsCentralSync record of the run. `force_pos` checks the stores now, not on their own timer."""
     run = LsCentralSync.objects.create(triggered_by=user if user and user.is_authenticated else None)
     days = settings.LS_CENTRAL_SYNC_DAYS if days is None else days
-    errors, rematched = [], 0
+    errors, rematched, from_stores = [], 0, 0
     try:
         client = client or LsCentralClient.from_settings()
         matcher = ProductMatcher(client)
@@ -342,8 +343,16 @@ def sync_invoices(user=None, days=None, client=None):
             if not record.linked_existing:
                 run.imported += 1
                 run.unmatched_lines += len(record.unmatched_lines)
+        if hasattr(client, 'web_service'):      # store sales come from the ledgers
+            from .pos import sync_pos
+            try:
+                from_stores = sync_pos(client, matcher, force=force_pos)
+            except LsCentralError as exc:
+                errors.append(f'Store (POS) invoices: {exc}')
+            run.imported += from_stores
         run.ok = True
-        parts = [f'{run.imported} new invoice{"s" if run.imported != 1 else ""} imported']
+        parts = [f'{run.imported} new invoice{"s" if run.imported != 1 else ""} imported'
+                 + (f' ({from_stores} from the store tills)' if from_stores else '')]
         if run.updated:
             parts.append(f'{run.updated} marked paid')
         if matcher.created:

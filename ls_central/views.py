@@ -42,8 +42,13 @@ def status(request):
         ('Environment', settings.LS_CENTRAL_ENVIRONMENT),
         ('Company', settings.LS_CENTRAL_COMPANY or '(only company)'),
         ('API address', f'{settings.LS_CENTRAL_API_URL}/…/{settings.LS_CENTRAL_API_PATH}'),
-        ('Invoices imported', 'All posted invoices, paid or unpaid (not drafts or cancelled)'),
-        ('Looks back', f'{settings.LS_CENTRAL_SYNC_DAYS} days, plus any newer invoice number whatever its date'),
+        ('Invoices imported', 'All posted invoices, paid or unpaid (not drafts or cancelled): '
+                              'back-office and store (POS) sales'),
+        ('Store (POS) sales', (f"today's batch: the newest day the stores have posted (they post the next "
+                               f'working morning), checked every {settings.LS_CENTRAL_POS_MINUTES:g} minutes')
+                              if settings.LS_CENTRAL_IMPORT_POS else 'off'),
+        ('Looks back', (f'{settings.LS_CENTRAL_SYNC_DAYS} days' if settings.LS_CENTRAL_SYNC_DAYS else 'Today only')
+                       + ', plus any newer invoice number whatever its date'),
         ('Automatic sync', f'every {settings.LS_CENTRAL_SYNC_MINUTES:g} minutes'
                            if settings.LS_CENTRAL_SYNC_MINUTES else 'off'),
     ]
@@ -59,7 +64,7 @@ def status(request):
 @role_required(*DISPATCH_ROLES)
 @require_POST
 def sync_now(request):
-    run = sync_invoices(user=request.user)
+    run = sync_invoices(user=request.user, force_pos=True)
     (messages.success if run.ok else messages.error)(request, f'LS Central: {run.message}')
     return _back(request)
 

@@ -163,6 +163,22 @@ class LsCentralClient:
         """The item card (number, displayName, type, baseUnitOfMeasureCode, gtin, unitPrice, unitCost)."""
         return self.get(f'companies({self.company_id()})/items({item_id})')
 
+    # The product catalogue. The item card (items API) is refused to this app, but these three are
+    # readable. Each takes an optional OData filter so later syncs ask only for the items they need.
+
+    def catalogue_items(self, where=None):
+        """Items: number, description, unit cost, sales unit and posting group."""
+        return self.web_service('ItemSalesAndProfit', _params(where, CATALOGUE_ITEM_FIELDS))
+
+    def item_units(self, where=None):
+        """Every unit of measure of each item, with how many base units it holds."""
+        return self.analytics('itemUnitOfMeasures', _params(where, 'ItemNo,Code,QtyPerUnitOfMeasure'))
+
+    def sale_prices(self, price_list, where=None):
+        """The lines of one sales price list (e.g. SET, All Stores Pricing)."""
+        only = f"PriceListCode eq '{_quote(price_list)}'" + (f' and ({where})' if where else '')
+        return self.analytics('priceListLines', _params(only, CATALOGUE_PRICE_FIELDS))
+
     def sales_invoices(self, since):
         """Sales invoices dated on or after `since` (a date), each with its lines."""
         return self.get_all(f'companies({self.company_id()})/salesInvoices', {
@@ -177,6 +193,21 @@ class LsCentralClient:
             '$filter': f"number gt '{quoted}'",
             '$expand': 'salesInvoiceLines',
         })
+
+
+CATALOGUE_ITEM_FIELDS = 'No,Description,Unit_Cost,Unit_Price,Sales_Unit_of_Measure,Gen_Prod_Posting_Group'
+CATALOGUE_PRICE_FIELDS = 'ProductNo,UnitOfMeasureCode,UnitPrice,Status,StartingDate,EndingDate,MinimumQuantity'
+
+
+def _quote(value):
+    return str(value).replace("'", "''")
+
+
+def _params(where, fields):
+    params = {'$select': fields}
+    if where:
+        params['$filter'] = where
+    return params
 
 
 def _error_text(exc):

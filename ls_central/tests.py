@@ -482,6 +482,107 @@ class PosTests(TestCase):
         self.assertFalse(Invoice.objects.exists())
 
 
+class StoresAndBackOffice(FakeClient, FakeLedgers):
+    """LS Central with back-office invoices and the ledgers. The stores' sales are posted for
+    `posted_days` (days before today; 0 is today). Counts the ledger calls."""
+
+    def __init__(self, docs=(), fail=False, posted_days=(0,)):
+        super().__init__(list(docs))
+        self.ledger_calls, self.fail, self.posted_days = [], fail, posted_days
+
+    def asked_days(self):
+        today = timezone.localdate()
+        return [(today - timezone.datetime.strptime(f.split(' eq ')[1].split(' ')[0], '%Y-%m-%d').date()).days
+                for name, f in self.ledger_calls if name == 'Cust_LedgerEntries' and 'Document_Type' in f]
+
+    def web_service(self, name, params=None):
+        if self.fail:
+            raise LsCentralError('The app has no permission to read this data (403)')
+        where = (params or {}).get('$filter', '')
+        self.ledger_calls.append((name, where))
+        posted = {(timezone.localdate() - timezone.timedelta(days=n)).isoformat() for n in self.posted_days}
+        if not any(day in where for day in posted):
+            return []
+        rows = super().web_service(name, params)
+        if "Document_Type eq 'Invoice'" in where:
+            rows = [r for r in rows if r['Document_Type'] == 'Invoice']
+        return rows
+
+
+@override_settings(**KEYS, LS_CENTRAL_IMPORT_POS=True, LS_CENTRAL_POS_MINUTES=30, LS_CENTRAL_SYNC_DAYS=0)
+class AutoPosTests(TestCase):
+    def test_sync_imports_store_sales_with_back_office_invoices(self):
+        run = sync_invoices(client=StoresAndBackOffice([ls_invoice(number='106231')]))
+        self.assertTrue(run.ok, run.message)
+        self.assertEqual(run.imported, 3)
+        self.assertIn('3 new invoices imported (2 from the store tills)', run.message)
+        self.assertEqual(sorted(Invoice.objects.values_list('invoice_number', flat=True)),
+                         ['106231', 'HDQ-HDQ02-14375', 'SAV-SAV01-200'])
+
+    def test_back_office_invoices_of_today_only(self):
+        yesterday = (timezone.localdate() - timezone.timedelta(days=1)).isoformat()
+        sync_invoices(client=StoresAndBackOffice([ls_invoice(number='106231'),
+                                                  ls_invoice(number='106230', invoiceDate=yesterday)],
+                                                 posted_days=()))
+        self.assertEqual(list(Invoice.objects.values_list('invoice_number', flat=True)), ['106231'])
+
+    def test_store_sales_of_the_newest_posted_day_only(self):
+        client = StoresAndBackOffice(posted_days=(1, 2))      # yesterday's and older sales are posted
+        sync_invoices(client=client, force_pos=True)
+        self.assertEqual(client.asked_days(), [0, 1])         # stops at yesterday: today's batch
+        self.assertEqual(Invoice.objects.count(), 2)
+
+    def test_on_monday_saturdays_sales_are_found(self):
+        client = StoresAndBackOffice(posted_days=(2, 3))
+        sync_invoices(client=client, force_pos=True)
+        self.assertEqual(client.asked_days(), [0, 1, 2])
+        self.assertEqual(Invoice.objects.count(), 2)
+
+    def test_looks_back_three_days_at_most(self):
+        client = StoresAndBackOffice(posted_days=(4, 5))
+        sync_invoices(client=client, force_pos=True)
+        self.assertEqual(client.asked_days(), [0, 1, 2, 3])
+        self.assertFalse(Invoice.objects.exists())
+
+    def test_light_check_first_full_ledgers_only_when_something_is_new(self):
+        client = StoresAndBackOffice()
+        sync_invoices(client=client, force_pos=True)
+        self.assertEqual([n for n, _ in client.ledger_calls].count('ValueEntries'), 1)
+        client.ledger_calls.clear()
+        sync_invoices(client=client, force_pos=True)
+        self.assertEqual([n for n, _ in client.ledger_calls], ['Cust_LedgerEntries'])
+        self.assertEqual(Invoice.objects.count(), 2)
+
+    def test_automatic_sync_checks_the_stores_every_30_minutes(self):
+        client = StoresAndBackOffice()
+        sync_invoices(client=client)
+        self.assertTrue(client.ledger_calls)
+        client.ledger_calls.clear()
+        sync_invoices(client=client)                      # 10 minutes later
+        self.assertEqual(client.ledger_calls, [])
+        sync_invoices(client=client, force_pos=True)      # Sync now
+        self.assertTrue(client.ledger_calls)
+
+    def test_ledger_errors_do_not_stop_the_back_office_import(self):
+        run = sync_invoices(client=StoresAndBackOffice([ls_invoice(number='106231')], fail=True))
+        self.assertTrue(run.ok)
+        self.assertEqual(run.imported, 1)
+        self.assertIn('Store (POS) invoices: The app has no permission', run.message)
+
+    @override_settings(LS_CENTRAL_IMPORT_POS=False)
+    def test_can_be_turned_off(self):
+        client = StoresAndBackOffice()
+        sync_invoices(client=client, force_pos=True)
+        self.assertEqual(client.ledger_calls, [])
+
+    def test_sync_now_button_checks_the_stores(self):
+        self.client.force_login(User.objects.create_superuser('boss', password='pw'))
+        with mock.patch('ls_central.views.sync_invoices') as sync:
+            sync.return_value = mock.Mock(ok=True, message='done')
+            self.client.post(reverse('ls_central:sync'))
+        self.assertTrue(sync.call_args.kwargs['force_pos'])
+
+
 @override_settings(**KEYS)
 class SiteFilterTests(TestCase):
     def setUp(self):

@@ -30,7 +30,7 @@ LS_CENTRAL_COMPANY = ''
 
 # How many days back to look for invoices on each sync. Paid and unpaid are both imported, and
 # invoices numbered after the newest one imported are picked up whatever their date.
-# LS_CENTRAL_SYNC_DAYS = 7
+# LS_CENTRAL_SYNC_DAYS = 0      # 0 = today only
 
 # How often the website checks LS Central for new invoices, in minutes. 0 turns it off
 # (the "Sync now" button and `manage.py sync_ls_central` still work).

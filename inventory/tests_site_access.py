@@ -250,3 +250,75 @@ class InvoiceListPagingTests(TestCase):
     def test_no_pager_when_one_page(self):
         Invoice.objects.filter(invoice_number__gte='H010').delete()
         self.assertNotContains(self.client.get(reverse('invoice_list')), 'Page 1 /')
+
+
+@override_settings(LS_CENTRAL_TENANT_ID='')
+class DispatchDateFilterTests(TestCase):
+    """Pending Dispatch shows invoices received today unless another date is picked."""
+
+    def setUp(self):
+        now = timezone.now()
+        today = timezone.localdate()
+        noon = lambda days: timezone.make_aware(timezone.datetime.combine(today - timezone.timedelta(days=days),
+                                                                          timezone.datetime.min.time()).replace(hour=12))
+        self.made = {}
+        for name, days, site in (('T1', 0, 'HDQ'), ('T2', 0, 'SAV'), ('Y1', 1, 'HDQ'), ('W1', 4, 'HDQ'), ('OLD', 30, 'HDQ')):
+            self.made[name] = Invoice.objects.create(invoice_number=name, site=site, customer_name=f'Cust {name}',
+                                                     created_at=now if days == 0 else noon(days))
+        Invoice.objects.create(invoice_number='GONE', site='HDQ', dispatch_status='dispatched',
+                               created_at=now, dispatched_at=now - timezone.timedelta(days=2))
+        self.client.force_login(User.objects.create_superuser('boss', password='pw'))
+
+    def get(self, query=''):
+        return self.client.get(reverse('warehouse_dispatch_list') + query)
+
+    def numbers(self, query=''):
+        return sorted(i.invoice_number for i in self.get(query).context['pending_page'])
+
+    def test_today_is_the_default(self):
+        page = self.get()
+        self.assertEqual(sorted(i.invoice_number for i in page.context['pending_page']), ['T1', 'T2'])
+        self.assertEqual(page.context['when'], 'today')
+        counts = {o['code']: (o['count'], o['on']) for o in page.context['date_options']}
+        self.assertEqual(counts, {'today': (2, True), 'yesterday': (1, False), 'week': (4, False), 'all': (5, False)})
+
+    def test_each_date_button(self):
+        self.assertEqual(self.numbers('?when=yesterday'), ['Y1'])
+        self.assertEqual(self.numbers('?when=week'), ['T1', 'T2', 'W1', 'Y1'])
+        self.assertEqual(self.numbers('?when=all'), ['OLD', 'T1', 'T2', 'W1', 'Y1'])
+        self.assertEqual(self.numbers('?when=nonsense'), ['T1', 'T2'])
+
+    def test_custom_range(self):
+        today = timezone.localdate()
+        first = (today - timezone.timedelta(days=5)).isoformat()
+        last = (today - timezone.timedelta(days=1)).isoformat()
+        self.assertEqual(self.numbers(f'?when=range&pfrom={first}&pto={last}'), ['W1', 'Y1'])
+        self.assertEqual(self.numbers(f'?when=range&pfrom={first}'), ['T1', 'T2', 'W1', 'Y1'])
+        self.assertEqual(self.numbers('?when=range&pfrom=bad'), ['OLD', 'T1', 'T2', 'W1', 'Y1'])
+
+    def test_search_within_the_dates_and_offer_all_dates(self):
+        self.assertEqual(self.numbers('?q=Cust'), ['T1', 'T2'])
+        page = self.get('?q=OLD')
+        self.assertContains(page, 'Search all dates')
+        self.assertEqual(self.numbers('?q=OLD&when=all'), ['OLD'])
+
+    def test_dates_kept_by_pages_search_and_sites(self):
+        page = self.get('?when=week')
+        self.assertContains(page, 'name="when" value="week"')        # search form and site filter keep it
+        self.assertEqual(page.context['pending_pager']['query'], 'when=week')
+
+    def test_site_numbers_follow_the_dates(self):
+        options = {o['code']: o['pending'] for o in self.get().context['site_options']}
+        self.assertEqual((options['HDQ'], options['SAV']), (1, 1))
+        options = {o['code']: o['pending'] for o in self.get('?when=all').context['site_options']}
+        self.assertEqual((options['HDQ'], options['SAV']), (4, 1))
+        self.assertEqual(self.numbers('?when=all&site=HDQ'), ['OLD', 'T1', 'W1', 'Y1'])
+
+    def test_log_quick_dates(self):
+        page = self.get('?tab=log')
+        labels = [(o['label'], o['on']) for o in page.context['log_dates']]
+        self.assertEqual(labels[-1], ('All dates', True))
+        today = timezone.localdate().isoformat()
+        self.assertIn(f'from={today}&to={today}', page.context['log_dates'][0]['query'])
+        self.assertEqual(len(self.get(f'?tab=log&from={today}&to={today}').context['log_page']), 0)
+        self.assertEqual(len(self.get('?tab=log').context['log_page']), 1)

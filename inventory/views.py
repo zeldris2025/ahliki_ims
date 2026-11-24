@@ -1008,16 +1008,21 @@ def _filter_sites(invoices, picked):
     return invoices.filter(wanted)
 
 
-def _site_options(user, picked):
-    """The filter's options for this user, each with its pending and dispatched totals."""
+def _site_options(user, picked, pending=None, dispatched=None):
+    """The filter's options for this user, each with its pending and dispatched totals.
+
+    `pending` and `dispatched` are the tabs' invoices before the site filter (so with their dates),
+    so each site's number is what the tab would show for it.
+    """
     codes = user_sites(user) + (['OTHER'] if sees_all_sites(user) else [])
     totals = {site: {'pending': 0, 'dispatched': 0} for site in codes}
-    rows = (visible_invoices(user).order_by().values('dispatch_status', 'site')
-            .annotate(n=Count('pk')))
-    for row in rows:
-        site = row['site'] if row['site'] in SITES else 'OTHER'
-        if row['dispatch_status'] in totals[site]:
-            totals[site][row['dispatch_status']] += row['n']
+    visible = visible_invoices(user)
+    for status, invoices in (('pending', pending), ('dispatched', dispatched)):
+        invoices = visible.filter(dispatch_status=status) if invoices is None else invoices
+        for row in invoices.order_by().values('site').annotate(n=Count('pk', distinct=True)):
+            site = row['site'] if row['site'] in SITES else 'OTHER'
+            if site in totals:
+                totals[site][status] += row['n']
     return [{'code': site, 'label': 'Other / no site' if site == 'OTHER' else site, 'picked': site in picked, **n}
             for site, n in totals.items()
             if site != 'OTHER' or site in picked or any(n.values())]
@@ -1039,6 +1044,44 @@ def _search_log(invoices, q='', date_from='', date_to=''):
             Q(invoice_number__icontains=q) | Q(customer_name__icontains=q) | Q(truck_plate__icontains=q)
             | Q(dispatched_by__first_name__icontains=q) | Q(dispatched_by__last_name__icontains=q)
             | Q(dispatched_by__username__icontains=q))
+    return invoices
+
+
+PENDING_DATES = (('today', 'Today'), ('yesterday', 'Yesterday'), ('week', 'Last 7 days'), ('all', 'All dates'))
+
+
+def _day(value):
+    from datetime import datetime
+    try:
+        return datetime.strptime(value, '%Y-%m-%d').date()
+    except (TypeError, ValueError):
+        return None
+
+
+def _pending_dates(params):
+    """The Pending tab's date filter: ('today' | 'yesterday' | 'week' | 'all' | 'range', first, last).
+
+    Today is the default. Dates are the day the invoice reached the IMS (the list's Date column).
+    """
+    when = params.get('when', 'today')
+    today = timezone.localdate()
+    if when == 'range':
+        first, last = _day(params.get('pfrom', '')), _day(params.get('pto', ''))
+        if first or last:
+            return when, first, last
+        when = 'all'
+    ranges = {'today': (today, today), 'yesterday': (today - timedelta(days=1), today - timedelta(days=1)),
+              'week': (today - timedelta(days=6), today), 'all': (None, None)}
+    if when not in ranges:
+        when = 'today'
+    return (when, *ranges[when])
+
+
+def _between(invoices, field, first, last):
+    if first:
+        invoices = invoices.filter(**{f'{field}__date__gte': first})
+    if last:
+        invoices = invoices.filter(**{f'{field}__date__lte': last})
     return invoices
 
 
@@ -1065,22 +1108,41 @@ def warehouse_dispatch_list(request):
     log_from = request.GET.get('from', '').strip()
     log_to = request.GET.get('to', '').strip()
     picked = _picked_sites(request)
+    when, pending_from, pending_to = _pending_dates(request.GET)
 
     # Thousands of POS invoices can be pending, so nothing here may cost a query per row.
-    pending = _filter_sites(
-        visible_invoices(request.user).filter(dispatch_status='pending').select_related('cashier', 'ls_central')
-        .annotate(item_count=Count('items')), picked).order_by('-created_at', '-pk')
+    all_pending = visible_invoices(request.user).filter(dispatch_status='pending')
     if q:
-        pending = pending.filter(
+        all_pending = all_pending.filter(
             Q(invoice_number__icontains=q) | Q(customer_name__icontains=q) | Q(account_number__icontains=q)
             | Q(cashier__first_name__icontains=q) | Q(cashier__last_name__icontains=q)
             | Q(cashier__username__icontains=q))
-    dispatch_log = _search_log(_filter_sites(
-        visible_invoices(request.user).filter(dispatch_status='dispatched')
-        .select_related('cashier', 'dispatched_by', 'ls_central'), picked), lq, log_from, log_to
-    ).order_by('-dispatched_at', '-pk')
+    dated_pending = _between(all_pending, 'created_at', pending_from, pending_to)
+    pending = (_filter_sites(dated_pending, picked).select_related('cashier', 'ls_central')
+               .annotate(item_count=Count('items')).order_by('-created_at', '-pk'))
+    log_base = _search_log(visible_invoices(request.user).filter(dispatch_status='dispatched'), lq, log_from, log_to)
+    dispatch_log = (_filter_sites(log_base, picked).select_related('cashier', 'dispatched_by', 'ls_central')
+                    .order_by('-dispatched_at', '-pk'))
 
-    searches = ('q', 'lq', 'from', 'to')
+    # The date buttons, each with how many pending invoices it would show (same sites and search).
+    sited = _filter_sites(all_pending, picked)
+    date_options = []
+    for code, label in PENDING_DATES:
+        _, first, last = _pending_dates({'when': code})
+        date_options.append({'code': code, 'label': label, 'on': when == code,
+                             'count': _between(sited, 'created_at', first, last).count(),
+                             'query': _query(request, ('when', 'pfrom', 'pto', 'page', 'tab', 'site'),
+                                             when=code).urlencode()})
+    today = timezone.localdate()
+    log_dates = []
+    for label, first, last in (('Today', today, today), ('Yesterday', today - timedelta(days=1), today - timedelta(days=1)),
+                               ('Last 7 days', today - timedelta(days=6), today), ('All dates', None, None)):
+        first, last = (first.isoformat() if first else ''), (last.isoformat() if last else '')
+        extra = {k: v for k, v in (('from', first), ('to', last)) if v}
+        log_dates.append({'label': label, 'on': (log_from, log_to) == (first, last),
+                          'query': _query(request, ('from', 'to', 'log_page', 'site'), tab='log', **extra).urlencode()})
+
+    searches = ('q', 'lq', 'from', 'to', 'when', 'pfrom', 'pto')
     return render(request, 'warehouse/dispatch_list.html', {
         'pending': pending,
         'dispatch_log': dispatch_log,
@@ -1089,13 +1151,18 @@ def warehouse_dispatch_list(request):
         'pending_pager': {'param': 'page', 'query': _query(request, ('page', 'tab', 'site')).urlencode()},
         'log_pager': {'param': 'log_page', 'query': _query(request, ('log_page', 'site'), tab='log').urlencode()},
         'q': q, 'lq': lq, 'log_from': log_from, 'log_to': log_to,
+        'when': when, 'date_options': date_options, 'log_dates': log_dates,
+        'pending_from': pending_from.isoformat() if when == 'range' and pending_from else '',
+        'pending_to': pending_to.isoformat() if when == 'range' and pending_to else '',
+        'when_label': dict(PENDING_DATES).get(when, 'these dates'),
+        'search_all_dates': _query(request, ('when', 'pfrom', 'pto', 'page', 'tab', 'site'), when='all').urlencode(),
         # A new search starts on page 1 of its own tab; the other tab keeps its place.
         'keep_for_pending': [(k, v) for k, v in _query(request, ('q', 'page', 'tab', 'site')).items()],
         'keep_for_log': [(k, v) for k, v in _query(request, ('lq', 'from', 'to', 'log_page', 'tab', 'site')).items()],
         'keep_searches': [(k, request.GET[k]) for k in searches if request.GET.get(k)],
         'clear_pending': _query(request, ('q', 'page', 'tab', 'site')).urlencode(),
         'clear_log': _query(request, ('lq', 'from', 'to', 'log_page', 'site'), tab='log').urlencode(),
-        'site_options': _site_options(request.user, picked),
+        'site_options': _site_options(request.user, picked, dated_pending, log_base),
         'picked_sites': picked,
     })
 

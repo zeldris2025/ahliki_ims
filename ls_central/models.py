@@ -44,3 +44,20 @@ class LsCentralSync(models.Model):
 
     def __str__(self):
         return f'{self.started_at:%Y-%m-%d %H:%M} — {"ok" if self.ok else "failed"}'
+
+
+class LsCentralPosDay(models.Model):
+    """How far the store (POS) sales of one day have been imported, so finished days are not asked again."""
+
+    day = models.DateField(unique=True)
+    posted = models.PositiveIntegerField(default=0, help_text='POS invoices LS Central had for the day')
+    imported = models.PositiveIntegerField(default=0, help_text='Of those, how many are in the IMS')
+    complete = models.BooleanField(default=False, help_text="All of the day's posted invoices are imported")
+    checked_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ['-day']
+        verbose_name = 'LS Central POS day'
+
+    def __str__(self):
+        return f'{self.day}: {self.imported}/{self.posted}'
