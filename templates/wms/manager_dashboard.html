@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load custom_tags %}
 {% block title %}Manager Dashboard — Ahliki WMS{% endblock %}
 {% block topbar_title %}Manager Dashboard{% endblock %}
 {% block content %}
@@ -142,7 +143,7 @@
           <td><strong>{{ loc.pallet.lot_number }}</strong></td>
           <td style="font-size:12px">{{ loc.pallet.product.name }}</td>
           <td><span class="badge badge-blue" style="font-weight:700">{{ loc.shelf.code }}</span></td>
-          <td style="font-size:12px">{{ loc.assigned_by.get_full_name|default:loc.assigned_by.username }}</td>
+          <td style="font-size:12px">{{ loc.assigned_by|staff_name }}</td>
           <td style="font-size:12px">{{ loc.assigned_at|date:"d M H:i" }}</td>
         </tr>
         {% empty %}

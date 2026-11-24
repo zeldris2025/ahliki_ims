@@ -1,403 +1,282 @@
 {% extends 'base.html' %}
-{% load static %}
-{% block head_js %}<script src="{% static 'vendor/chartjs/chart.umd.min.js' %}"></script>{% endblock %}
+{% load static custom_tags %}
+{% block head_js %}<script src="{% static 'vendor/chartjs/chart.umd.min.js' %}" defer></script>{% endblock %}
 {% block title %}Dashboard — Ah Liki IMS{% endblock %}
 {% block topbar_title %}Dashboard{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">{% endblock %}
+
 {% block content %}
-<div class="page-header">
+{% with f=filters inv=inventory %}
+<div class="dash-head">
   <div>
-    <h1>Dashboard</h1>
-    <p>Welcome back, {{ request.user.get_full_name|default:request.user.username }}</p>
+    <h1>Talofa, {{ request.user.first_name|default:request.user.username }}</h1>
+    <p>{{ today|date:"l j F Y" }} · Samoa time · {{ f.first|date:"j M" }} – {{ f.last|date:"j M Y" }}{% if f.category %} · {{ f.category.name }}{% endif %}{% if f.site %} · {{ f.site }}{% endif %}</p>
   </div>
-  <a href="{% url 'warehouse_dispatch_list' %}" class="btn btn-primary">🚚 Dispatch Orders</a>
-</div>
-
-{% if user_role == 'warehouse' %}
-<!-- ══════════════════════════════════════════════════════════════════════════ -->
-<!-- WAREHOUSE DASHBOARD                                                        -->
-<!-- ══════════════════════════════════════════════════════════════════════════ -->
-
-<!-- Stat cards -->
-<div class="stats-grid">
-  <div class="stat-card {% if pending_dispatch_count %}warning{% endif %}">
-    <div class="stat-label">Pending Dispatch</div>
-    <div class="stat-value">{{ pending_dispatch_count }}</div>
-    <div class="stat-sub">Invoice{{ pending_dispatch_count|pluralize }} awaiting dispatch</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Total Products</div>
-    <div class="stat-value">{{ total_products }}</div>
-    <div class="stat-sub">Active SKUs in system</div>
-  </div>
-  <div class="stat-card {% if low_stock_count %}danger{% endif %}">
-    <div class="stat-label">Low Stock Items</div>
-    <div class="stat-value">{{ low_stock_count }}</div>
-    <div class="stat-sub">Below reorder level</div>
-  </div>
-  <div class="stat-card {% if out_of_stock_count %}danger{% endif %}">
-    <div class="stat-label">Out of Stock</div>
-    <div class="stat-value">{{ out_of_stock_count }}</div>
-    <div class="stat-sub">Zero quantity on hand</div>
-  </div>
-  <div class="stat-card success">
-    <div class="stat-label">Stock Value</div>
-    <div class="stat-value" style="font-size:22px">SAT${{ stock_value|floatformat:2 }}</div>
-    <div class="stat-sub">Total at cost price</div>
-  </div>
-  <div class="stat-card {% if open_alerts_count %}warning{% endif %}">
-    <div class="stat-label">Open Alerts</div>
-    <div class="stat-value">{{ open_alerts_count }}</div>
-    <div class="stat-sub">Require attention</div>
-  </div>
-</div>
-
-<!-- Charts -->
-<div class="charts-grid" style="margin-bottom:16px">
-  <div class="card">
-    <div class="card-header"><h2>📦 Dispatches — Last 7 Days</h2></div>
-    <div class="card-body"><canvas id="dispatchChart" height="100"></canvas></div>
-  </div>
-  <div class="card">
-    <div class="card-header"><h2>🏷️ Stock Health</h2></div>
-    <div class="card-body" style="display:flex;align-items:center;justify-content:center;gap:32px;min-height:160px">
-      <canvas id="stockHealthChart" style="max-width:160px;max-height:160px"></canvas>
-      <div style="font-size:13px;display:flex;flex-direction:column;gap:10px">
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="width:13px;height:13px;border-radius:3px;background:#22c55e;display:inline-block;flex-shrink:0"></span>
-          <span>Healthy &mdash; <strong>{{ healthy_stock }}</strong></span>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="width:13px;height:13px;border-radius:3px;background:#f59e0b;display:inline-block;flex-shrink:0"></span>
-          <span>Low Stock &mdash; <strong>{{ low_not_zero }}</strong></span>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="width:13px;height:13px;border-radius:3px;background:#ef4444;display:inline-block;flex-shrink:0"></span>
-          <span>Out of Stock &mdash; <strong>{{ out_of_stock_count }}</strong></span>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- Pending Dispatch -->
-<div class="card" style="margin-bottom:16px">
-  <div class="card-header">
-    <h2>🚚 Pending Dispatch Orders</h2>
-    <a href="{% url 'warehouse_dispatch_list' %}" class="btn btn-sm btn-primary">View all →</a>
-  </div>
-  {% if pending_dispatch %}
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>Invoice #</th><th>Customer</th><th>Items</th><th>Total</th><th>Created by</th><th>Date</th><th></th></tr></thead>
-      <tbody>
-      {% for inv in pending_dispatch %}
-      <tr>
-        <td><strong>{{ inv.invoice_number }}</strong></td>
-        <td>{{ inv.customer_name|default:"Walk-in" }}</td>
-        <td>{{ inv.items.count }}</td>
-        <td>SAT${{ inv.total_amount }}</td>
-        <td style="font-size:12px">{% if inv.ls_central %}LS Central{% else %}{% if inv.cashier %}{{ inv.cashier.get_full_name|default:inv.cashier.username }}{% else %}—{% endif %}{% endif %}</td>
-        <td style="font-size:12px;color:var(--gray-500)">{{ inv.created_at|date:"d M H:i" }}</td>
-        <td><a href="{% url 'warehouse_dispatch_detail' inv.pk %}" class="btn btn-sm btn-primary">Process →</a></td>
-      </tr>
+  <form method="get" class="dash-filters" id="dashFilters" data-no-guard>
+    <div class="seg" role="radiogroup" aria-label="Date range">
+      {% for key, label in range_choices %}
+      <label class="seg-opt{% if f.range_key == key %} on{% endif %}"><input type="radio" name="range" value="{{ key }}"{% if f.range_key == key %} checked{% endif %}>{{ label }}</label>
       {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <div class="card-body" style="color:var(--gray-500);font-size:13px">✅ No orders pending dispatch.</div>
-  {% endif %}
+      <label class="seg-opt{% if f.range_key == 'custom' %} on{% endif %}"><input type="radio" name="range" value="custom"{% if f.range_key == 'custom' %} checked{% endif %}>Custom</label>
+    </div>
+    <span class="custom-dates"{% if f.range_key != 'custom' %} hidden{% endif %}>
+      <input type="date" name="from" value="{{ f.first|date:'Y-m-d' }}" aria-label="From date" max="{{ today|date:'Y-m-d' }}">
+      <span aria-hidden="true">–</span>
+      <input type="date" name="to" value="{{ f.last|date:'Y-m-d' }}" aria-label="To date" max="{{ today|date:'Y-m-d' }}">
+      <button class="btn btn-sm btn-primary" type="submit">Apply</button>
+    </span>
+    <select name="category" aria-label="Category">
+      <option value="">All categories</option>
+      {% for c in categories %}<option value="{{ c.pk }}"{% if f.category and f.category.pk == c.pk %} selected{% endif %}>{{ c.name }}</option>{% endfor %}
+    </select>
+    {% if show.dispatch and f.site_options|length > 1 %}
+    <select name="site" aria-label="Site (dispatch figures)">
+      <option value="">All my sites</option>
+      {% for s in f.site_options %}<option value="{{ s }}"{% if f.site == s %} selected{% endif %}>{{ s }}</option>{% endfor %}
+    </select>
+    {% endif %}
+    <noscript><button class="btn btn-sm btn-secondary" type="submit">Apply</button></noscript>
+    {% if request.GET %}<a class="btn btn-sm btn-secondary" href="{% url 'dashboard' %}">Reset</a>{% endif %}
+  </form>
 </div>
 
-<div class="grid-2" style="gap:16px">
+<div class="kpi-grid">
+  {% for k in kpis %}{% include 'dashboard/_kpi.html' %}{% endfor %}
+</div>
 
-  {% include '_low_stock_card.html' %}
+{% if show.value %}{% if value.bulk_movements or value.top10_share >= 50 or value.no_cost %}
+<div class="data-note" role="note">
+  <span class="data-note-icon">{% icon 'info' %}</span>
+  <div>
+    <strong>Stock value isn't reliable yet.</strong>
+    {% if value.bulk_movements %}{{ value.bulk_movements|num }} ledger entries are bulk placeholder stock ({{ value.bulk_units|num }} units with a reference starting “BULK-”), not counted stock.{% endif %}
+    {% if value.top10_share >= 50 %}The 10 highest-value products make up {{ value.top10_share }}% of the total; check their cost prices, as some look like freight or shipment references rather than products.{% endif %}
+    {% if value.no_cost %}{{ value.no_cost|num }} stocked product{{ value.no_cost|pluralize }} {{ value.no_cost|pluralize:"has,have" }} no cost price.{% endif %}
+  </div>
+</div>
+{% endif %}{% endif %}
 
-  <!-- Out of Stock -->
-  <div class="card" id="out-of-stock">
-    <div class="card-header">
-      <h2>🚫 Out of Stock</h2>
-      <a href="{% url 'stock_adjust' %}" class="btn btn-sm btn-secondary">Adjust Stock</a>
-    </div>
-    {% if out_of_stock_page.object_list %}
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Product</th><th>SKU</th><th>Reorder Level</th></tr></thead>
-        <tbody>
-        {% for p in out_of_stock_page %}
-        <tr>
-          <td><a href="{% url 'product_detail' p.pk %}">{{ p.name }}</a></td>
-          <td><code>{{ p.sku }}</code></td>
-          <td>{{ p.reorder_level }}</td>
-        </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    <div class="card-body" style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;color:var(--gray-500)">
-      <span>Showing {{ out_of_stock_page.start_index }}–{{ out_of_stock_page.end_index }} of {{ out_of_stock_page.paginator.count }}</span>
-      {% if out_of_stock_page.has_other_pages %}
-      <div style="display:flex;align-items:center;gap:6px">
-        {% if out_of_stock_page.has_previous %}<a href="?out_page={{ out_of_stock_page.previous_page_number }}#out-of-stock" class="btn btn-sm btn-secondary">← Prev</a>{% endif %}
-        <span>Page {{ out_of_stock_page.number }} / {{ out_of_stock_page.paginator.num_pages }}</span>
-        {% if out_of_stock_page.has_next %}<a href="?out_page={{ out_of_stock_page.next_page_number }}#out-of-stock" class="btn btn-sm btn-secondary">Next →</a>{% endif %}
+{# ── Inventory overview ─────────────────────────────────────────────────── #}
+<details class="dash-section" open data-section="inventory">
+  <summary><h2>Inventory overview</h2><span>Stock health, and stock by category and supplier</span>{% icon 'chevron-down' 'sec-caret' %}</summary>
+  <div class="dash-grid">
+    <section class="panel">
+      <header class="panel-head"><h3>Stock health</h3><span class="panel-sub">{{ inv.total|num }} products</span></header>
+      <div class="health">
+        <div class="chart-box chart-donut"><canvas id="chHealth" role="img" aria-label="Stock health: {{ inv.healthy }} healthy, {{ inv.low_only }} low, {{ inv.out }} out of stock"></canvas><div class="skeleton chart-skel"></div></div>
+        <ul class="legend-list">
+          <li><span class="sw sw-good"></span>{% icon 'check' %}<span>Healthy</span><strong>{{ inv.healthy|num }}</strong></li>
+          <li><span class="sw sw-warn"></span>{% icon 'alert' %}<span>Low</span>{% if inv.links.low %}<a href="{{ inv.links.low }}"><strong>{{ inv.low_only|num }}</strong></a>{% else %}<strong>{{ inv.low_only|num }}</strong>{% endif %}</li>
+          <li><span class="sw sw-crit"></span>{% icon 'x' %}<span>Out of stock</span>{% if inv.links.out %}<a href="{{ inv.links.out }}"><strong>{{ inv.out|num }}</strong></a>{% else %}<strong>{{ inv.out|num }}</strong>{% endif %}</li>
+        </ul>
       </div>
-      {% endif %}
-    </div>
-    {% else %}
-    <div class="card-body" style="color:var(--gray-500);font-size:13px">✅ No products are completely out of stock.</div>
-    {% endif %}
+    </section>
+    <section class="panel span-2">
+      <header class="panel-head">
+        <h3>Stock by category</h3>
+        <div class="panel-tools">
+          {% if show.value %}<div class="mini-seg" data-toggle="category" role="group" aria-label="Measure"><button type="button" class="on" data-mode="units">Units</button><button type="button" data-mode="value">Value</button></div>{% endif %}
+          <button type="button" class="link-btn" data-table-for="chCategory">Table</button>
+        </div>
+      </header>
+      <div class="chart-box chart-tall"><canvas id="chCategory" role="img" aria-label="Stock by category"></canvas><div class="skeleton chart-skel"></div></div>
+    </section>
+    <section class="panel span-3">
+      <header class="panel-head">
+        <h3>Stock by supplier{% if f.category %} · {{ f.category.name }}{% endif %}</h3>
+        <div class="panel-tools">
+          {% if show.value %}<div class="mini-seg" data-toggle="supplier" role="group" aria-label="Measure"><button type="button" class="on" data-mode="units">Units</button><button type="button" data-mode="value">Value</button></div>{% endif %}
+          <button type="button" class="link-btn" data-table-for="chSupplier">Table</button>
+        </div>
+      </header>
+      <div class="chart-box"><canvas id="chSupplier" role="img" aria-label="Stock by supplier"></canvas><div class="skeleton chart-skel"></div></div>
+      <p class="panel-foot">{% icon 'info' %} Stock is one central ledger, so there is no per-site stock split. The site filter applies to dispatch figures.</p>
+    </section>
   </div>
+</details>
 
-  <!-- Recent GRNs -->
-  <div class="card">
-    <div class="card-header">
-      <h2>📥 Recent Stock Received</h2>
-      <a href="{% url 'grn_list' %}" class="btn btn-sm btn-secondary">View all</a>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>GRN #</th><th>Supplier</th><th>Status</th><th>Date</th></tr></thead>
-        <tbody>
-        {% for g in recent_grns %}
-        <tr>
-          <td><a href="{% url 'grn_detail' g.pk %}">{{ g.grn_number }}</a></td>
-          <td>{{ g.supplier.name }}</td>
-          <td>{% if g.has_discrepancy %}<span class="badge badge-red">Discrepancy</span>{% else %}<span class="badge badge-green">OK</span>{% endif %}</td>
-          <td style="font-size:12px;color:var(--gray-500)">{{ g.received_at|date:"d M" }}</td>
-        </tr>
-        {% empty %}
-        <tr><td colspan="4" style="color:var(--gray-500);text-align:center;padding:20px">No GRNs yet.</td></tr>
+{# ── Stock movement ─────────────────────────────────────────────────────── #}
+{% if show.movement %}
+<details class="dash-section" open data-section="movement">
+  <summary><h2>Stock movement</h2><span>Received, dispatched, adjusted and returned in this period</span>{% icon 'chevron-down' 'sec-caret' %}</summary>
+  <div class="move-totals">
+    {% for kind, t in movement.totals.items %}
+    <div class="move-total mv-{{ kind }}"><span class="sw"></span><div><span class="mt-label">{% if kind == 'in' %}Received{% elif kind == 'out' %}Dispatched / out{% elif kind == 'adjustment' %}Adjustments{% else %}Returns{% endif %}</span><strong data-count="{{ t.q|default:0 }}">{{ t.q|default:0|num }}</strong><span class="mt-sub">units · {{ t.n|default:0|num }} entr{{ t.n|default:0|pluralize:"y,ies" }}</span></div></div>
+    {% endfor %}
+  </div>
+  <div class="dash-grid">
+    <section class="panel span-2">
+      <header class="panel-head">
+        <h3>Daily movement</h3>
+        <div class="panel-tools">
+          <div class="mini-seg" data-toggle="movement" role="group" aria-label="Measure"><button type="button" class="on" data-mode="units">Units</button><button type="button" data-mode="count">Entries</button></div>
+          <button type="button" class="link-btn" data-table-for="chMovement">Table</button>
+          {% if movement.link %}<a class="link-btn" href="{{ movement.link }}">Ledger →</a>{% endif %}
+        </div>
+      </header>
+      <div class="chart-box chart-tall"><canvas id="chMovement" role="img" aria-label="Daily stock movement by type"></canvas><div class="skeleton chart-skel"></div></div>
+    </section>
+    <section class="panel">
+      <header class="panel-head"><h3>Most dispatched products</h3><span class="panel-sub">units out</span></header>
+      {% if movement.top_out %}
+      <ol class="rank-list">
+        {% for r in movement.top_out %}
+        <li><span class="rank">{{ forloop.counter }}</span><a href="{% url 'product_detail' r.product__pk %}" title="{{ r.product__name }}">{{ r.product__name }}</a><strong>{{ r.q|num }} <small>{{ r.product__unit }}</small></strong></li>
         {% endfor %}
-        </tbody>
-      </table>
-    </div>
+      </ol>
+      {% else %}<div class="empty">{% icon 'info' %} No stock went out in this period.</div>{% endif %}
+    </section>
+    <section class="panel span-3">
+      <header class="panel-head"><h3>Monthly in vs out, last 12 months</h3><button type="button" class="link-btn" data-table-for="chMonths">Table</button></header>
+      <div class="chart-box"><canvas id="chMonths" role="img" aria-label="Monthly stock in versus out"></canvas><div class="skeleton chart-skel"></div></div>
+    </section>
   </div>
-
-  <!-- Open Alerts -->
-  <div class="card">
-    <div class="card-header">
-      <h2>🔔 Open Alerts</h2>
-      <a href="{% url 'alert_list' %}" class="btn btn-sm btn-secondary">View all</a>
-    </div>
-    {% if open_alerts %}
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Type</th><th>Product</th><th>Date</th></tr></thead>
-        <tbody>
-        {% for a in open_alerts %}
-        <tr>
-          <td>
-            {% if a.alert_type == 'low_stock' %}<span class="badge badge-red">Low Stock</span>
-            {% elif a.alert_type == 'expiry' %}<span class="badge badge-amber">Expiry</span>
-            {% else %}<span class="badge badge-blue">Discrepancy</span>{% endif %}
-          </td>
-          <td>{{ a.product.name }}</td>
-          <td style="font-size:12px;color:var(--gray-500)">{{ a.created_at|date:"d M Y" }}</td>
-        </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}
-    <div class="card-body" style="color:var(--gray-500);font-size:13px">✅ No open alerts.</div>
-    {% endif %}
-  </div>
-
-</div>
-
-<script>
-// ── Dispatch activity bar chart ───────────────────────────────────────────
-const dispatchData = {{ dispatch_chart_json|safe }};
-new Chart(document.getElementById('dispatchChart'), {
-  type: 'bar',
-  data: {
-    labels: dispatchData.map(d => d.date),
-    datasets: [{
-      label: 'Orders Dispatched',
-      data: dispatchData.map(d => d.count),
-      backgroundColor: '#2d7a4f',
-      borderRadius: 6,
-    }]
-  },
-  options: {
-    responsive: true,
-    plugins: { legend: { display: false } },
-    scales: {
-      y: { beginAtZero: true, ticks: { stepSize: 1, precision: 0 } }
-    }
-  }
-});
-
-// ── Stock health doughnut chart ───────────────────────────────────────────
-new Chart(document.getElementById('stockHealthChart'), {
-  type: 'doughnut',
-  data: {
-    labels: ['Healthy', 'Low Stock', 'Out of Stock'],
-    datasets: [{
-      data: [{{ healthy_stock }}, {{ low_not_zero }}, {{ out_of_stock_count }}],
-      backgroundColor: ['#22c55e', '#f59e0b', '#ef4444'],
-      borderWidth: 2,
-      borderColor: '#fff',
-    }]
-  },
-  options: {
-    responsive: true,
-    cutout: '68%',
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        callbacks: {
-          label: ctx => ` ${ctx.label}: ${ctx.parsed} product${ctx.parsed !== 1 ? 's' : ''}`
-        }
-      }
-    }
-  }
-});
-</script>
-
-{% else %}
-<!-- ══════════════════════════════════════════════════════════════════════════ -->
-<!-- ADMIN / DEFAULT DASHBOARD                                                  -->
-<!-- ══════════════════════════════════════════════════════════════════════════ -->
-
-<div class="stats-grid">
-  <div class="stat-card success">
-    <div class="stat-label">Today's Sales</div>
-    <div class="stat-value">SAT${{ sales_today_total|floatformat:2 }}</div>
-    <div class="stat-sub">{{ sales_today_count }} transaction(s)</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Total Products</div>
-    <div class="stat-value">{{ total_products }}</div>
-    <div class="stat-sub">Active SKUs</div>
-  </div>
-  <div class="stat-card {% if low_stock_count %}danger{% endif %}">
-    <div class="stat-label">Low Stock Items</div>
-    <div class="stat-value">{{ low_stock_count }}</div>
-    <div class="stat-sub">Below reorder level</div>
-  </div>
-  <div class="stat-card warning">
-    <div class="stat-label">Open Alerts</div>
-    <div class="stat-value">{{ open_alerts_count }}</div>
-    <div class="stat-sub">Require attention</div>
-  </div>
-</div>
-
-<div class="charts-grid">
-  <div class="card">
-    <div class="card-header"><h2>Sales — Last 7 Days (SAT$)</h2></div>
-    <div class="card-body"><canvas id="salesChart" height="90"></canvas></div>
-  </div>
-  <div class="card">
-    <div class="card-header"><h2>Stock Value</h2></div>
-    <div class="card-body" style="display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:140px">
-      <div style="font-size:32px;font-weight:800;color:var(--green-dark)">SAT${{ stock_value|floatformat:2 }}</div>
-      <div style="font-size:13px;color:var(--gray-500);margin-top:6px">Total warehouse value (at cost)</div>
-    </div>
-  </div>
-</div>
-
-<div class="grid-2" style="gap:16px">
-  {% include '_low_stock_card.html' %}
-
-  <!-- Recent Alerts -->
-  <div class="card">
-    <div class="card-header">
-      <h2>🔔 Recent Alerts</h2>
-      <a href="{% url 'alert_list' %}" class="btn btn-sm btn-secondary">View all</a>
-    </div>
-    {% if open_alerts %}
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Type</th><th>Product</th><th>Date</th></tr></thead>
-        <tbody>
-        {% for a in open_alerts %}
-        <tr>
-          <td>
-            {% if a.alert_type == 'low_stock' %}<span class="badge badge-red">Low Stock</span>
-            {% elif a.alert_type == 'expiry' %}<span class="badge badge-amber">Expiry</span>
-            {% else %}<span class="badge badge-blue">Discrepancy</span>{% endif %}
-          </td>
-          <td>{{ a.product.name }}</td>
-          <td style="font-size:12px;color:var(--gray-500)">{{ a.created_at|date:"d M Y" }}</td>
-        </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}
-    <div class="card-body" style="color:var(--gray-500);font-size:13px">✅ No open alerts.</div>
-    {% endif %}
-  </div>
-
-  <!-- Recent Sales -->
-  <div class="card">
-    <div class="card-header">
-      <h2>🧾 Recent Sales</h2>
-      <a href="{% url 'sale_list' %}" class="btn btn-sm btn-secondary">View all</a>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Sale #</th><th>Customer</th><th>Total</th><th>Date</th></tr></thead>
-        <tbody>
-        {% for s in recent_sales %}
-        <tr>
-          <td><a href="{% url 'sale_detail' s.pk %}">{{ s.sale_number }}</a></td>
-          <td>{{ s.customer_name|default:"—" }}</td>
-          <td>SAT${{ s.total_amount }}</td>
-          <td style="font-size:12px;color:var(--gray-500)">{{ s.created_at|date:"d M H:i" }}</td>
-        </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Recent GRNs -->
-  <div class="card">
-    <div class="card-header">
-      <h2>📥 Recent Stock Received</h2>
-      <a href="{% url 'grn_list' %}" class="btn btn-sm btn-secondary">View all</a>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>GRN #</th><th>Supplier</th><th>Status</th><th>Date</th></tr></thead>
-        <tbody>
-        {% for g in recent_grns %}
-        <tr>
-          <td><a href="{% url 'grn_detail' g.pk %}">{{ g.grn_number }}</a></td>
-          <td>{{ g.supplier.name }}</td>
-          <td>{% if g.has_discrepancy %}<span class="badge badge-red">Discrepancy</span>{% else %}<span class="badge badge-green">OK</span>{% endif %}</td>
-          <td style="font-size:12px;color:var(--gray-500)">{{ g.received_at|date:"d M" }}</td>
-        </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<script>
-const data = {{ sales_chart_json|safe }};
-new Chart(document.getElementById('salesChart'), {
-  type: 'bar',
-  data: {
-    labels: data.map(d => d.date),
-    datasets: [{
-      label: 'SAT$',
-      data: data.map(d => d.amount),
-      backgroundColor: '#2d5c42',
-      borderRadius: 5,
-    }]
-  },
-  options: {
-    responsive: true,
-    plugins: { legend: { display: false } },
-    scales: { y: { beginAtZero: true, ticks: { callback: v => 'SAT$' + v.toLocaleString() } } }
-  }
-});
-</script>
-
+</details>
 {% endif %}
+
+{# ── Warehouse operations ───────────────────────────────────────────────── #}
+{% if show.operations %}
+{% with o=operations %}
+<details class="dash-section" open data-section="operations">
+  <summary><h2>Warehouse operations</h2><span>Containers, palletizing, pallets and shelves</span>{% icon 'chevron-down' 'sec-caret' %}</summary>
+  <div class="dash-grid">
+    <section class="panel span-2">
+      <header class="panel-head"><h3>Container pipeline</h3>{% if o.links.containers %}<a class="link-btn" href="{{ o.links.containers }}">Containers →</a>{% endif %}</header>
+      <ol class="pipeline">
+        {% for key, label, n in o.statuses %}
+        <li class="pipe-step{% if n %} has{% endif %}"><span class="pipe-n">{{ n|num }}</span><span class="pipe-label">{{ label }}</span></li>
+        {% endfor %}
+      </ol>
+      <div class="meters">
+        <div class="meter">
+          <div class="meter-top"><span>Palletizing (opened containers)</span><strong>{% if o.palletized_pct is not None %}{{ o.palletized_pct }}%{% else %}—{% endif %}</strong></div>
+          <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ o.palletized_pct|default:0 }}"><span style="--w:{{ o.palletized_pct|default:0 }}%"></span></div>
+          <div class="meter-sub">{% if o.manifest_units %}{{ o.palletized_units|num }} of {{ o.manifest_units|num }} manifest units on pallets{% else %}No containers are being unloaded{% endif %}</div>
+        </div>
+        <div class="meter">
+          <div class="meter-top"><span>Pallets on shelves</span><strong>{{ o.shelved|num }} / {{ o.pallets|num }}</strong></div>
+          <div class="bar bar-teal"><span style="--w:{% if o.pallets %}{% widthratio o.shelved o.pallets 100 %}{% else %}0{% endif %}%"></span></div>
+          <div class="meter-sub">{% if o.links.unshelved and o.unshelved %}<a href="{{ o.links.unshelved }}">{{ o.unshelved|num }} awaiting shelving</a>{% else %}{{ o.unshelved|num }} awaiting shelving{% endif %}</div>
+        </div>
+        <div class="meter">
+          <div class="meter-top"><span>Shelf occupancy</span><strong>{{ o.occupied|num }} / {{ o.shelves|num }}</strong></div>
+          <div class="bar bar-navy"><span style="--w:{% if o.shelves %}{% widthratio o.occupied o.shelves 100 %}{% else %}0{% endif %}%"></span></div>
+          <div class="meter-sub">{{ o.available|num }} shelf location{{ o.available|pluralize }} free</div>
+        </div>
+      </div>
+    </section>
+    <section class="panel">
+      <header class="panel-head"><h3>Receiving</h3>{% if o.links.grns %}<a class="link-btn" href="{{ o.links.grns }}">GRNs →</a>{% endif %}</header>
+      <dl class="facts">
+        <div><dt>GRNs this period</dt><dd>{{ o.grns|num }}</dd></div>
+        <div><dt>Containers awaiting receipt</dt><dd>{{ o.awaiting_receipt|num }}</dd></div>
+        <div><dt>Containers being unloaded</dt><dd>{{ o.unloading|num }}</dd></div>
+        <div><dt>Open purchase orders</dt><dd>{{ o.open_pos|num }}</dd></div>
+      </dl>
+      <h4 class="mini-title">Latest GRNs</h4>
+      <ul class="row-list">
+        {% for g in recent_grns %}
+        <li><a href="{% url 'grn_detail' g.pk %}">{{ g.grn_number }}</a><span class="grow">{{ g.supplier.name }}</span>{% if g.has_discrepancy %}<span class="badge badge-red">Discrepancy</span>{% else %}<span class="badge badge-green">OK</span>{% endif %}<time>{{ g.received_at|date:"j M" }}</time></li>
+        {% empty %}<li class="empty">No GRNs yet.</li>{% endfor %}
+      </ul>
+    </section>
+  </div>
+</details>
+{% endwith %}
+{% endif %}
+
+{# ── Dispatch ───────────────────────────────────────────────────────────── #}
+{% if show.dispatch %}
+{% with d=dispatch %}
+<details class="dash-section" open data-section="dispatch">
+  <summary><h2>Dispatch</h2><span>Invoices for {% if f.site %}{{ f.site }}{% else %}the sites you can see{% endif %}</span>{% icon 'chevron-down' 'sec-caret' %}</summary>
+  <div class="dash-grid">
+    <section class="panel">
+      <header class="panel-head"><h3>At a glance</h3></header>
+      <dl class="facts facts-big">
+        <div><dt>Arrived today, pending</dt><dd>{% if d.links.today %}<a href="{{ d.links.today }}">{{ d.pending_today|num }}</a>{% else %}{{ d.pending_today|num }}{% endif %}</dd></div>
+        <div><dt>Dispatched today</dt><dd>{{ d.dispatched_today|num }}</dd></div>
+        <div><dt>All pending</dt><dd>{% if d.links.pending %}<a href="{{ d.links.pending }}">{{ d.pending|num }}</a>{% else %}{{ d.pending|num }}{% endif %}</dd></div>
+        <div><dt>Pending with lines to pick</dt><dd>{{ d.picking|num }}</dd></div>
+        <div><dt>Dispatched this period</dt><dd>{% if d.links.log %}<a href="{{ d.links.log }}">{{ d.dispatched|num }}</a>{% else %}{{ d.dispatched|num }}{% endif %}</dd></div>
+      </dl>
+    </section>
+    <section class="panel span-2">
+      <header class="panel-head"><h3>Invoices dispatched per day</h3><button type="button" class="link-btn" data-table-for="chDispatch">Table</button></header>
+      <div class="chart-box"><canvas id="chDispatch" role="img" aria-label="Invoices dispatched per day"></canvas><div class="skeleton chart-skel"></div></div>
+    </section>
+    <section class="panel">
+      <header class="panel-head"><h3>By site</h3><button type="button" class="link-btn" data-table-for="chSites">Table</button></header>
+      <div class="chart-box"><canvas id="chSites" role="img" aria-label="Pending and dispatched invoices by site"></canvas><div class="skeleton chart-skel"></div></div>
+    </section>
+    <section class="panel span-2">
+      <header class="panel-head"><h3>Newest pending invoices</h3>{% if d.links.pending %}<a class="link-btn" href="{{ d.links.pending }}">All pending →</a>{% endif %}</header>
+      <div class="table-wrap">
+        <table class="dense">
+          <thead><tr><th>Invoice</th><th>Site</th><th>Customer</th><th>Source</th><th class="num">Total</th><th>Arrived</th></tr></thead>
+          <tbody>
+          {% for row in d.recent %}
+          <tr>
+            <td>{% if d.links.pending %}<a href="{% url 'warehouse_dispatch_detail' row.pk %}"><strong>{{ row.invoice_number }}</strong></a>{% else %}<strong>{{ row.invoice_number }}</strong>{% endif %}</td>
+            <td><span class="badge badge-gray">{{ row.site|default:"—" }}</span></td>
+            <td>{{ row.customer_name|default:"Walk-in"|truncatechars:32 }}</td>
+            <td>{% if row.ls_central %}<span class="badge badge-teal">LS Central</span>{% else %}<span class="badge badge-blue">Upload</span>{% endif %}</td>
+            <td class="num">SAT${{ row.total_amount|num:2 }}</td>
+            <td class="muted">{{ row.created_at|date:"j M H:i" }}</td>
+          </tr>
+          {% empty %}<tr><td colspan="6" class="empty">{% icon 'check' %} Nothing waiting for dispatch.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</details>
+{% endwith %}
+{% endif %}
+
+{# ── Needs attention ────────────────────────────────────────────────────── #}
+<details class="dash-section" open data-section="attention">
+  <summary><h2>Needs attention</h2><span>Low and out-of-stock products{% if show.alerts %} and open alerts{% endif %}</span>{% icon 'chevron-down' 'sec-caret' %}</summary>
+  <div class="dash-grid">
+    {% if show.alerts %}
+    {% with a=alerts %}
+    <section class="panel">
+      <header class="panel-head"><h3>Open alerts <span class="panel-sub">{{ a.open|num }}</span></h3>{% if a.link %}<a class="link-btn" href="{{ a.link }}">All open →</a>{% endif %}</header>
+      <div class="alert-types">
+        {% for key, label, n in a.by_type %}
+        <div class="atype atype-{{ key }}"><span class="atype-icon">{% if key == 'expiry' %}{% icon 'clock' %}{% elif key == 'discrepancy' %}{% icon 'alert' %}{% else %}{% icon 'package' %}{% endif %}</span><span class="grow">{{ label }}</span><strong>{{ n|num }}</strong></div>
+        {% endfor %}
+      </div>
+      <dl class="facts">
+        <div><dt>New this period</dt><dd>{{ a.new|num }}</dd></div>
+        <div><dt>Resolved this period</dt><dd>{{ a.resolved|num }}</dd></div>
+        <div><dt>GRNs with discrepancies</dt><dd>{{ a.discrepancy_grns|num }}</dd></div>
+      </dl>
+      <ul class="row-list">
+        {% for al in a.latest %}<li><span class="badge {% if al.alert_type == 'expiry' %}badge-amber{% elif al.alert_type == 'discrepancy' %}badge-blue{% else %}badge-red{% endif %}">{{ al.get_alert_type_display }}</span><span class="grow">{{ al.product.name|truncatechars:40 }}</span><time>{{ al.created_at|date:"j M" }}</time></li>{% endfor %}
+      </ul>
+    </section>
+    {% endwith %}
+    {% endif %}
+    <section class="panel {% if show.alerts %}span-2{% else %}span-3{% endif %}" id="stock-attention">
+      <header class="panel-head">
+        <div class="tabs" role="tablist">
+          <button type="button" role="tab" class="tab on" aria-selected="true" data-tab="low">Low stock <span class="tab-n">{{ low_stock_page.paginator.count|num }}</span></button>
+          <button type="button" role="tab" class="tab" aria-selected="false" data-tab="out">Out of stock <span class="tab-n">{{ out_of_stock_page.paginator.count|num }}</span></button>
+        </div>
+      </header>
+      <div class="tab-panel" data-panel="low" role="tabpanel">
+        {% include 'dashboard/_stock_table.html' with page=low_stock_page param='low_page' empty='No products are low on stock.' more=inv.links.low %}
+      </div>
+      <div class="tab-panel" data-panel="out" role="tabpanel" hidden>
+        {% include 'dashboard/_stock_table.html' with page=out_of_stock_page param='out_page' empty='No products are out of stock.' more=inv.links.out %}
+      </div>
+    </section>
+  </div>
+</details>
+
+{{ chart_data|json_script:"dash-data" }}
+{% endwith %}
 {% endblock %}
+
+{% block extra_js %}<script src="{% static 'js/dashboard.js' %}" defer></script>{% endblock %}

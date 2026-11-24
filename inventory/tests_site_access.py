@@ -115,7 +115,7 @@ class SiteAccessTests(TestCase):
 
     def test_counts_are_for_own_site(self):
         self.login('warehouse', 'HDQ')
-        self.assertEqual(self.client.get(reverse('dashboard')).context['pending_dispatch_count'], 1)
+        self.assertEqual(self.client.get(reverse('dashboard')).context['dispatch']['pending'], 1)
         self.assertEqual(self.client.get(reverse('wms_dispatcher_dashboard')).context['pending_count'], 1)
         options = self.client.get(reverse('warehouse_dispatch_list')).context['site_options']
         self.assertEqual([(o['code'], o['pending'], o['dispatched']) for o in options], [('HDQ', 1, 1)])

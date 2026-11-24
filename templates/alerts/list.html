@@ -2,8 +2,23 @@
 {% block title %}Alerts — Ah Liki IMS{% endblock %}
 {% block topbar_title %}Stock Alerts{% endblock %}
 {% block content %}
-<div class="page-header"><div><h1>Stock Alerts</h1></div></div>
+<div class="page-header"><div><h1>Stock Alerts</h1><p>{{ alerts|length }} alert{{ alerts|length|pluralize }}{% if status %} · {{ status|capfirst }}{% endif %}</p></div></div>
 <div class="card">
+  <div class="card-body" style="padding-bottom:0">
+    <form method="get" class="search-bar">
+      <select name="type" aria-label="Alert type" onchange="this.form.submit()">
+        <option value="">All types</option>
+        {% for key, label in type_choices %}<option value="{{ key }}" {% if alert_type == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+      <select name="status" aria-label="Status" onchange="this.form.submit()">
+        <option value="">Open and resolved</option>
+        <option value="open" {% if status == 'open' %}selected{% endif %}>Open</option>
+        <option value="resolved" {% if status == 'resolved' %}selected{% endif %}>Resolved</option>
+      </select>
+      <noscript><button class="btn btn-secondary" type="submit">Filter</button></noscript>
+      {% if alert_type or status %}<a href="{% url 'alert_list' %}" class="btn btn-secondary">Clear</a>{% endif %}
+    </form>
+  </div>
   <div class="table-wrap">
     <table>
       <thead><tr><th>Type</th><th>Product</th><th>Message</th><th>Created</th><th>Status</th><th></th></tr></thead>

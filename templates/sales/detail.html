@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load custom_tags %}
 {% block title %}{{ sale.sale_number }} — Ah Liki IMS{% endblock %}
 {% block topbar_title %}Sale Detail{% endblock %}
 {% block content %}
@@ -36,7 +37,7 @@
         <tr><td style="color:var(--gray-500);padding:6px 0">Customer</td><td>{{ sale.customer_name|default:"Walk-in" }}</td></tr>
         <tr><td style="color:var(--gray-500);padding:6px 0">Account #</td><td>{{ sale.account_number|default:"—" }}</td></tr>
         <tr><td style="color:var(--gray-500);padding:6px 0">Payment</td><td><span class="badge badge-blue">{{ sale.get_payment_method_display }}</span></td></tr>
-        <tr><td style="color:var(--gray-500);padding:6px 0">Cashier</td><td>{{ sale.cashier.get_full_name|default:sale.cashier.username }}</td></tr>
+        <tr><td style="color:var(--gray-500);padding:6px 0">Cashier</td><td>{{ sale.cashier|staff_name }}</td></tr>
         <tr><td style="color:var(--gray-500);padding:6px 0">Date/Time</td><td>{{ sale.created_at|date:"d M Y H:i" }}</td></tr>
       </table>
     </div>

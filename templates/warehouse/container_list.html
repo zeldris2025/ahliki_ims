@@ -143,7 +143,7 @@
             <td>{% if c.units_left %}<span class="badge badge-amber">📦 {{ c.units_left }} left</span>{% else %}<span class="badge badge-green">Empty</span>{% endif %}</td>
             <td style="font-size:12px">{{ c.comments.count }}</td>
             <td style="font-size:12px">{{ c.closed_at|date:"d M Y H:i" }}</td>
-            <td style="font-size:12px">{{ c.closed_by.get_full_name|default:c.closed_by.username|default:"—" }}</td>
+            <td style="font-size:12px">{{ c.closed_by|staff_name|default:"—" }}</td>
             <td><a href="{% url 'container_detail' c.pk %}" class="btn {% if c.units_left %}btn-primary{% else %}btn-secondary{% endif %} btn-sm">
               {% if c.units_left %}Re-open →{% else %}View{% endif %}</a></td>
           </tr>

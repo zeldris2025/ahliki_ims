@@ -1,4 +1,4 @@
-{% comment %}Email clients ignore <style> blocks and modern CSS, so everything is inline and table-based.{% endcomment %}<!doctype html>
+{% load custom_tags %}{% comment %}Email clients ignore <style> blocks and modern CSS, so everything is inline and table-based.{% endcomment %}<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Container report</title></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:Segoe UI,Arial,sans-serif;color:#111827;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;"><tr><td align="center" style="padding:20px 10px;">
@@ -84,7 +84,7 @@
   {% if activity.damage %}
   <div style="font-size:13px;margin-bottom:6px;color:#b91c1c;"><b>Damage reported ({{ activity.damage|length }}):</b></div>
   {% for d in activity.damage %}
-  <div style="font-size:13px;margin:0 0 6px 12px;"><b>{{ d.container.container_number }}</b>: {{ d.body|truncatechars:200 }}{% if d.author %} <span style="color:#6b7280;">({{ d.author.get_full_name|default:d.author.username }})</span>{% endif %}</div>
+  <div style="font-size:13px;margin:0 0 6px 12px;"><b>{{ d.container.container_number }}</b>: {{ d.body|truncatechars:200 }}{% if d.author %} <span style="color:#6b7280;">({{ d.author|staff_name }})</span>{% endif %}</div>
   {% endfor %}
   {% endif %}
 </td></tr>

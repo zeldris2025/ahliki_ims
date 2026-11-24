@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load custom_tags %}
 {% block title %}{{ quote.quote_number }} — Ah Liki IMS{% endblock %}
 {% block topbar_title %}Quote Detail{% endblock %}
 {% block content %}
@@ -56,7 +57,7 @@
         </td></tr>
         <tr><td style="color:var(--gray-500);padding:6px 0">Valid Until</td><td>{{ quote.valid_until|default:"—" }}</td></tr>
         <tr><td style="color:var(--gray-500);padding:6px 0">Created</td><td>{{ quote.created_at|date:"d M Y H:i" }}</td></tr>
-        <tr><td style="color:var(--gray-500);padding:6px 0">By</td><td>{{ quote.cashier.get_full_name|default:quote.cashier.username }}</td></tr>
+        <tr><td style="color:var(--gray-500);padding:6px 0">By</td><td>{{ quote.cashier|staff_name }}</td></tr>
       </table>
     </div>
   </div>

@@ -95,8 +95,8 @@ def check_and_create_alerts(product):
             defaults={'message': f"{product.name} is below reorder level. Current stock: {product.current_stock}, Reorder level: {product.reorder_level}"}
         )
     # Expiry alert — check GRN items expiring within 30 days
-    soon = date.today() + timedelta(days=30)
-    expiring = GRNItem.objects.filter(product=product, expiry_date__lte=soon, expiry_date__gte=date.today())
+    soon = timezone.localdate() + timedelta(days=30)
+    expiring = GRNItem.objects.filter(product=product, expiry_date__lte=soon, expiry_date__gte=timezone.localdate())
     for item in expiring:
         StockAlert.objects.get_or_create(
             product=product,
@@ -109,66 +109,51 @@ def check_and_create_alerts(product):
 @login_required
 @role_required('admin', 'manager', 'finance', 'warehouse', 'cashier')
 def dashboard(request):
-    products = with_stock(Product.objects.filter(is_active=True)).order_by('name')
-    low_stock = products.filter(stock__lte=F('reorder_level'))
-    out_of_stock = products.filter(stock__lte=0)
-    total_products = products.count()
-    low_stock_count = low_stock.count()
-    out_of_stock_count = out_of_stock.count()
-    recent_sales = Sale.objects.order_by('-created_at')[:5]
-    recent_grns = GoodsReceivedNote.objects.order_by('-received_at')[:5]
-    open_alerts = StockAlert.objects.filter(is_resolved=False).order_by('-created_at')[:10]
+    """Executive inventory dashboard. The figures come from inventory/dashboard.py."""
+    from . import dashboard as figures
+    data = figures.build(request)
+    f = data['filters']
+    products = with_stock(Product.objects.filter(is_active=True))
+    if f.category:
+        products = products.filter(category=f.category)
+    low_stock = products.filter(stock__lte=F('reorder_level'), stock__gt=0).order_by('stock', 'name')
+    out_of_stock = products.filter(stock__lte=0).order_by('name')
+    # Keep the filters on paging links; each table pages on its own.
+    keep = request.GET.copy()
+    for k in ('low_page', 'out_page'):
+        keep.pop(k, None)
+    data.update({
+        'low_stock_page': Paginator(low_stock, 10).get_page(request.GET.get('low_page')),
+        'out_of_stock_page': Paginator(out_of_stock, 10).get_page(request.GET.get('out_page')),
+        'keep_query': keep.urlencode(),
+        'range_choices': [('7', '7 days'), ('30', '30 days'), ('90', '90 days'), ('365', '12 months')],
+        'chart_data': _dashboard_charts(data),
+    })
+    return render(request, 'dashboard.html', data)
 
-    today = date.today()
-    sales_today = Sale.objects.filter(created_at__date=today)
-    sales_today_total = sales_today.aggregate(t=Sum('total_amount'))['t'] or 0
 
-    # Sales last 7 days for chart
-    sales_chart = []
-    for i in range(6, -1, -1):
-        d = today - timedelta(days=i)
-        amt = Sale.objects.filter(created_at__date=d).aggregate(t=Sum('total_amount'))['t'] or 0
-        sales_chart.append({'date': d.strftime('%d %b'), 'amount': float(amt)})
+def _dashboard_charts(data):
+    """Only the series the charts need, for the page's JSON block."""
+    out = {}
+    for key in ('by_category', 'by_supplier', 'by_category_value', 'by_supplier_value', 'health'):
+        if key in data:
+            out[key] = data[key]
+    if 'movement' in data:
+        m = data['movement']
+        out['movement'] = {'labels': m['labels'], 'series': m['series'], 'months': m['months']}
+    if 'dispatch' in data:
+        d = data['dispatch']
+        out['dispatch'] = {'labels': data['movement']['labels'] if 'movement' in data else
+                           [day.strftime('%d %b') for day in _date_span(data['filters'])],
+                           'daily': d['daily'], 'sites': d['sites']}
+    if 'operations' in data:
+        out['containers'] = {'labels': [label for _, label, _ in data['operations']['statuses']],
+                             'values': [n for _, _, n in data['operations']['statuses']]}
+    return out
 
-    # Stock value
-    stock_value = total_stock_value()
 
-    # Warehouse-specific
-    pending_dispatch = visible_invoices(request.user).filter(dispatch_status='pending').select_related('cashier', 'ls_central').order_by('-created_at')[:8]
-    pending_dispatch_count = visible_invoices(request.user).filter(dispatch_status='pending').count()
-
-    # Dispatch activity — last 7 days
-    dispatch_chart = []
-    for i in range(6, -1, -1):
-        d = today - timedelta(days=i)
-        count = visible_invoices(request.user).filter(dispatch_status='dispatched', dispatched_at__date=d).count()
-        dispatch_chart.append({'date': d.strftime('%d %b'), 'count': count})
-
-    # Stock health breakdown
-    healthy_stock = total_products - low_stock_count
-    low_not_zero = low_stock_count - out_of_stock_count
-
-    context = {
-        'total_products': total_products,
-        'low_stock_count': low_stock_count,
-        'low_stock_page': Paginator(low_stock, 20).get_page(request.GET.get('low_page')),
-        'out_of_stock_page': Paginator(out_of_stock, 20).get_page(request.GET.get('out_page')),
-        'out_of_stock_count': out_of_stock_count,
-        'open_alerts_count': open_alerts.count(),
-        'open_alerts': open_alerts,
-        'recent_sales': recent_sales,
-        'recent_grns': recent_grns,
-        'sales_today_total': sales_today_total,
-        'sales_today_count': sales_today.count(),
-        'sales_chart_json': json.dumps(sales_chart),
-        'stock_value': stock_value,
-        'pending_dispatch': pending_dispatch,
-        'pending_dispatch_count': pending_dispatch_count,
-        'dispatch_chart_json': json.dumps(dispatch_chart),
-        'healthy_stock': healthy_stock,
-        'low_not_zero': low_not_zero,
-    }
-    return render(request, 'dashboard.html', context)
+def _date_span(f):
+    return [f.first + timedelta(days=i) for i in range(f.days)]
 
 
 # ── PRODUCTS ──────────────────────────────────────────────────────────────────
@@ -180,21 +165,37 @@ PRODUCTS_PER_PAGE = 50
 def product_list(request):
     q = request.GET.get('q', '')
     category_id = request.GET.get('category', '')
+    supplier_id = request.GET.get('supplier', '')
+    stock_status = request.GET.get('stock', '')
     products = Product.objects.select_related('category', 'supplier').filter(is_active=True)
     if q:
         products = products.filter(Q(name__icontains=q) | Q(sku__icontains=q) | Q(barcode__icontains=q))
     if category_id:
         products = products.filter(category_id=category_id)
+    if supplier_id:
+        products = products.filter(supplier_id=supplier_id)
+    products = with_stock(products)
+    # Same rules as the dashboard: low = at or below reorder level but above zero; out = zero or less.
+    stock_filters = {'low': Q(stock__lte=F('reorder_level'), stock__gt=0), 'out': Q(stock__lte=0),
+                     'healthy': Q(stock__gt=F('reorder_level'))}
+    if stock_status in stock_filters:
+        products = products.filter(stock_filters[stock_status])
+    else:
+        stock_status = ''
     categories = Category.objects.all()
-    page = Paginator(with_stock(products).order_by('name', 'pk'), PRODUCTS_PER_PAGE).get_page(request.GET.get('page'))
+    page = Paginator(products.order_by('name', 'pk'), PRODUCTS_PER_PAGE).get_page(request.GET.get('page'))
     product_data = [{'product': p, 'stock': p.stock, 'low': p.stock <= p.reorder_level}
                     for p in page]
-    # Keep the search and category filter on the page links.
+    # Keep the search and filters on the page links.
     params = request.GET.copy()
     params.pop('page', None)
     return render(request, 'products/list.html', {'product_data': product_data, 'page': page,
                                                   'query': params.urlencode(), 'categories': categories,
-                                                  'q': q, 'selected_cat': category_id})
+                                                  'suppliers': Supplier.objects.order_by('name'),
+                                                  'q': q, 'selected_cat': category_id,
+                                                  'selected_supplier': supplier_id, 'stock_status': stock_status,
+                                                  'stock_choices': [('low', 'Low stock'), ('out', 'Out of stock'),
+                                                                    ('healthy', 'Healthy')]})
 
 
 @login_required
@@ -257,7 +258,7 @@ def stock_lookup_search(request):
     truncated = len(rows) > LOOKUP_LIMIT
     rows = rows[:LOOKUP_LIMIT]
 
-    today = date.today()
+    today = timezone.localdate()
     soon = today + timedelta(days=EXPIRY_SOON_DAYS)
 
     # Expiry per product, for the handful of rows we are about to show.
@@ -511,7 +512,18 @@ def stock_adjust(request):
 @login_required
 def alert_list(request):
     alerts = StockAlert.objects.select_related('product').order_by('is_resolved', '-created_at')
-    return render(request, 'alerts/list.html', {'alerts': alerts})
+    alert_type = request.GET.get('type', '')
+    status = request.GET.get('status', '')
+    if alert_type in dict(StockAlert.ALERT_TYPES):
+        alerts = alerts.filter(alert_type=alert_type)
+    else:
+        alert_type = ''
+    if status in ('open', 'resolved'):
+        alerts = alerts.filter(is_resolved=(status == 'resolved'))
+    else:
+        status = ''
+    return render(request, 'alerts/list.html', {'alerts': alerts, 'alert_type': alert_type, 'status': status,
+                                                'type_choices': StockAlert.ALERT_TYPES})
 
 
 @login_required
@@ -539,15 +551,15 @@ def reports(request):
     # Monthly sales last 6 months
     monthly = []
     for i in range(5, -1, -1):
-        d = date.today().replace(day=1) - timedelta(days=i*30)
+        d = timezone.localdate().replace(day=1) - timedelta(days=i*30)
         amt = Sale.objects.filter(created_at__year=d.year, created_at__month=d.month).aggregate(t=Sum('total_amount'))['t'] or 0
         monthly.append({'month': d.strftime('%b %Y'), 'amount': float(amt)})
 
     low_stock = Paginator(products.filter(stock__lte=F('reorder_level')).order_by('name', 'pk'),
                           PRODUCTS_PER_PAGE).get_page(request.GET.get('low_page'))
     expiring_soon = GRNItem.objects.filter(
-        expiry_date__lte=date.today() + timedelta(days=30),
-        expiry_date__gte=date.today()
+        expiry_date__lte=timezone.localdate() + timedelta(days=30),
+        expiry_date__gte=timezone.localdate()
     ).select_related('product')
 
     context = {
@@ -1455,7 +1467,7 @@ def wms_dashboard(request):
                         Container.STATUS_PALLETIZED]).count(),
         'recent_grns': recent_grns,
         'recent_checkins': recent_checkins,
-        'today': date.today(),
+        'today': timezone.localdate(),
     })
 
 
@@ -1463,7 +1475,15 @@ def wms_dashboard(request):
 @role_required('admin', 'manager', 'warehouse', 'wms_operator')
 def pallet_list(request):
     q = request.GET.get('q', '').strip()
+    location = request.GET.get('location', '')
     pallets = Pallet.objects.select_related('product', 'created_by').order_by('-created_at')
+    shelved = PalletLocation.objects.filter(is_current=True).values('pallet')
+    if location == 'unshelved':
+        pallets = pallets.exclude(pk__in=shelved)
+    elif location == 'shelved':
+        pallets = pallets.filter(pk__in=shelved)
+    else:
+        location = ''
     if q:
         pallets = pallets.filter(
             Q(lot_number__icontains=q) |
@@ -1474,7 +1494,8 @@ def pallet_list(request):
     pallet_data = []
     for p in pallets:
         pallet_data.append({'pallet': p, 'location': p.current_location})
-    return render(request, 'wms/pallet_list.html', {'pallet_data': pallet_data, 'q': q, 'today': date.today()})
+    return render(request, 'wms/pallet_list.html', {'pallet_data': pallet_data, 'q': q, 'location': location,
+                                                    'today': timezone.localdate()})
 
 
 @login_required
@@ -1760,7 +1781,7 @@ def picking_ticket(request, invoice_pk):
 def manager_dashboard(request):
     from datetime import date as dt_date, timedelta as dt_td
 
-    today = dt_date.today()
+    today = timezone.localdate()
     soon = today + dt_td(days=30)
 
     total_pallets = Pallet.objects.count()
@@ -1853,7 +1874,7 @@ def wms_dispatcher_dashboard(request):
     pending_count = visible_invoices(request.user).filter(dispatch_status='pending').count()
     return render(request, 'wms/dispatcher_dashboard.html', {
         'pending_count': pending_count,
-        'today': date.today(),
+        'today': timezone.localdate(),
     })
 
 
@@ -2013,7 +2034,7 @@ def container_list(request):
         'closed': containers.filter(status=Container.STATUS_CLOSED),
         'q': q,
         'can_create': _user_role(request.user) in BROKER_ROLES,
-        'today': date.today(),
+        'today': timezone.localdate(),
     })
 
 
@@ -2226,7 +2247,7 @@ def warehouse_container_list(request):
                    .order_by(Case(When(units_left__gt=0, then=Value(0)), default=Value(1)),
                              '-units_left', '-closed_at')),
     }
-    context = {'can_add_list': _user_role(request.user) in BROKER_ROLES, 'today': date.today(),
+    context = {'can_add_list': _user_role(request.user) in BROKER_ROLES, 'today': timezone.localdate(),
                'owners': owners, 'q': q, 'selected_owner': owner}
     # Each tab pages on its own; its links keep the other tabs' pages.
     for name, (param, qs) in tabs.items():

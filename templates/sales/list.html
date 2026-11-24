@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load custom_tags %}
 {% block title %}Sales — Ah Liki IMS{% endblock %}
 {% block topbar_title %}Sales History{% endblock %}
 {% block content %}
@@ -20,7 +21,7 @@
         <td>{{ s.customer_name|default:"Walk-in" }}</td>
         <td><span class="badge badge-blue">{{ s.get_payment_method_display }}</span></td>
         <td><strong>SAT${{ s.total_amount }}</strong></td>
-        <td>{{ s.cashier.get_full_name|default:s.cashier.username }}</td>
+        <td>{{ s.cashier|staff_name }}</td>
         <td style="font-size:12px">{{ s.created_at|date:"d M Y H:i" }}</td>
         <td><a href="{% url 'sale_detail' s.pk %}" class="btn btn-sm btn-secondary">View</a></td>
       </tr>

@@ -46,8 +46,14 @@
 <form method="get" style="margin-bottom:16px;display:flex;gap:8px">
   <input name="q" value="{{ q }}" placeholder="Search lot number or product…"
     style="flex:1;padding:10px 12px;border:1px solid var(--gray-200);border-radius:7px;font-size:14px;font-family:inherit">
+  <select name="location" aria-label="Shelf status" onchange="this.form.submit()"
+    style="padding:10px 12px;border:1px solid var(--gray-200);border-radius:7px;font-size:14px;font-family:inherit;background:#fff">
+    <option value="">All pallets</option>
+    <option value="unshelved" {% if location == 'unshelved' %}selected{% endif %}>Awaiting shelving</option>
+    <option value="shelved" {% if location == 'shelved' %}selected{% endif %}>On a shelf</option>
+  </select>
   <button class="btn btn-secondary" type="submit">Search</button>
-  {% if q %}<a href="{% url 'pallet_list' %}" class="btn btn-secondary">✕</a>{% endif %}
+  {% if q or location %}<a href="{% url 'pallet_list' %}" class="btn btn-secondary">✕</a>{% endif %}
 </form>
 
 <!-- Desktop table -->

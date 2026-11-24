@@ -1,4 +1,5 @@
 {% extends 'cms/_base.html' %}
+{% load custom_tags %}
 {% block title %}{% if container %}{{ container.code }}{% else %}Add container{% endif %} — Ah Liki IMS{% endblock %}
 {% block topbar_title %}Container Management System{% endblock %}
 {% block cms_content %}
@@ -115,7 +116,7 @@
 
     <section class="cms-panel">
       <div class="cms-panel-body cms-sub" style="line-height:1.7">
-        Added {{ container.created_at|date:'d M Y H:i' }}{% if container.created_by %} by {{ container.created_by.get_full_name|default:container.created_by.username }}{% endif %}<br>
+        Added {{ container.created_at|date:'d M Y H:i' }}{% if container.created_by %} by {{ container.created_by|staff_name }}{% endif %}<br>
         Last updated {{ container.updated_at|date:'d M Y H:i' }}
         <form method="post" action="{% url 'cms_container_delete' container.pk %}" style="margin-top:10px"
               onsubmit="return confirm('Delete {{ container.code|escapejs }}? This also deletes its return history.')">

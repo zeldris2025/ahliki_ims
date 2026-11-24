@@ -1,0 +1,27 @@
+{% load custom_tags %}{% if page.object_list %}
+<div class="table-wrap">
+  <table class="dense">
+    <thead><tr><th>Product</th><th>SKU</th><th>Category</th><th class="num">On hand</th><th class="num">Reorder at</th></tr></thead>
+    <tbody>
+    {% for p in page %}
+    <tr>
+      <td><a href="{% url 'product_detail' p.pk %}">{{ p.name }}</a></td>
+      <td><code>{{ p.sku }}</code></td>
+      <td class="muted">{{ p.category|default:"—" }}</td>
+      <td class="num"><span class="badge {% if p.stock <= 0 %}badge-red{% else %}badge-amber{% endif %}">{{ p.stock|num }} {{ p.unit }}</span></td>
+      <td class="num">{{ p.reorder_level|num }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<div class="pager">
+  <span>{{ page.start_index|num }}–{{ page.end_index|num }} of {{ page.paginator.count|num }}</span>
+  <div>
+    {% if page.has_previous %}<a href="?{% if keep_query %}{{ keep_query }}&amp;{% endif %}{{ param }}={{ page.previous_page_number }}#stock-attention" class="btn btn-sm btn-secondary">← Prev</a>{% endif %}
+    {% if page.has_other_pages %}<span>Page {{ page.number }} / {{ page.paginator.num_pages }}</span>{% endif %}
+    {% if page.has_next %}<a href="?{% if keep_query %}{{ keep_query }}&amp;{% endif %}{{ param }}={{ page.next_page_number }}#stock-attention" class="btn btn-sm btn-secondary">Next →</a>{% endif %}
+    {% if more %}<a href="{{ more }}" class="btn btn-sm btn-secondary">Open in Products</a>{% endif %}
+  </div>
+</div>
+{% else %}<div class="empty">{% icon 'check' %} {{ empty }}</div>{% endif %}

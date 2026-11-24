@@ -113,14 +113,14 @@
           <button type="button" class="user-btn" data-dropdown-toggle aria-haspopup="true" aria-expanded="false">
             <span class="user-avatar">{{ request.user.first_name|first|upper|default:request.user.username|first|upper }}</span>
             <span class="user-info">
-              <span class="user-name">{{ request.user.get_full_name|default:request.user.username }}</span>
+              <span class="user-name">{{ request.user|staff_name }}</span>
               <span class="user-role">{{ nav_role_display|default:"Staff" }}{% if nav_department %} · {{ nav_department }}{% endif %}</span>
             </span>
             {% icon 'chevron-down' 'caret' %}
           </button>
           <div class="dropdown-menu" role="menu">
             <div class="dropdown-head dropdown-head-stack">
-              <strong>{{ request.user.get_full_name|default:request.user.username }}</strong>
+              <strong>{{ request.user|staff_name }}</strong>
               <span>{{ nav_role_display|default:"Staff" }} · {{ site_label }}</span>
             </div>
             <a href="{% url 'profile' %}" class="dropdown-item" role="menuitem">{% icon 'user' %} My Profile</a>

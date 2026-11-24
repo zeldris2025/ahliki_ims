@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+{% load custom_tags %}<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -248,7 +248,7 @@ body * {
 <!-- STATUS BAR -->
 <div class="status-bar">
   <span><span class="status-dot"></span> Online</span>
-  <span>👤 {{ request.user.get_full_name|default:request.user.username }}</span>
+  <span>👤 {{ request.user|staff_name }}</span>
   <span>📅 <span id="datestamp"></span></span>
   <span style="margin-left:auto"><a href="{% url 'dashboard' %}" style="color:var(--muted);text-decoration:none">← Back to Dashboard</a></span>
 </div>
@@ -600,7 +600,7 @@ function showReceipt(invNum, total) {
     <hr>
     <div>Invoice #: ${invNum}</div>
     <div>Date: ${new Date().toLocaleString('en-GB')}</div>
-    <div>Cashier: {{ request.user.get_full_name|default:request.user.username }}</div>
+    <div>Cashier: {{ request.user|staff_name }}</div>
     ${document.getElementById('customerName').value ? '<div>Customer: ' + document.getElementById('customerName').value + '</div>' : ''}
     <hr>
     <pre>${items}</pre>

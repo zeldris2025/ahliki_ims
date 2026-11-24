@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load custom_tags %}
 {% load ls_central %}
 {% block title %}Warehouse Dispatch — Ah Liki IMS{% endblock %}
 {% block topbar_title %}Warehouse Dispatch{% endblock %}
@@ -132,7 +133,7 @@
           <td>{{ inv.account_number|default:"—" }}</td>
           <td>{{ inv.item_count }} item{{ inv.item_count|pluralize }}</td>
           <td><strong>SAT${{ inv.total_amount }}</strong></td>
-          <td style="font-size:12px">{% if inv.ls_central %}<span class="badge badge-blue">LS Central</span>{% else %}{% if inv.cashier %}{{ inv.cashier.get_full_name|default:inv.cashier.username }}{% else %}—{% endif %}{% endif %}</td>
+          <td style="font-size:12px">{% if inv.ls_central %}<span class="badge badge-blue">LS Central</span>{% else %}{% if inv.cashier %}{{ inv.cashier|staff_name }}{% else %}—{% endif %}{% endif %}</td>
           <td style="font-size:12px">{{ inv.created_at|date:"d M Y H:i" }}</td>
           <td>
             <a href="{% url 'warehouse_dispatch_detail' inv.pk %}" class="btn btn-primary btn-sm">
@@ -219,7 +220,7 @@
           <td><strong>{{ inv.invoice_number }}</strong>{% if inv.site %} <span class="badge badge-gray">{{ inv.site }}</span>{% endif %}</td>
           <td>{{ inv.customer_name|default:"Walk-in" }}</td>
           <td><strong>SAT${{ inv.total_amount }}</strong></td>
-          <td>{% if inv.dispatched_by %}{{ inv.dispatched_by.get_full_name|default:inv.dispatched_by.username }}{% else %}—{% endif %}</td>
+          <td>{% if inv.dispatched_by %}{{ inv.dispatched_by|staff_name }}{% else %}—{% endif %}</td>
           <td>
             {% if inv.truck_plate %}
             <span style="font-family:monospace;font-weight:700;background:var(--gray-100,#f3f4f6);padding:3px 10px;border-radius:4px;letter-spacing:1px;font-size:13px">

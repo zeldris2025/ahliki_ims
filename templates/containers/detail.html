@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load custom_tags %}
 {% block title %}{{ container.container_number }} — Container{% endblock %}
 {% block topbar_title %}Container {{ container.container_number }}{% endblock %}
 
@@ -52,15 +53,15 @@
 <div class="flow">
   <div class="flow-step {% if container.status == 'at_wharf' %}current{% else %}done{% endif %}">
     <strong>1 · At Wharf</strong>
-    <span>{{ container.created_by.get_full_name|default:container.created_by.username|default:"—" }} · {{ container.created_at|date:"d M H:i" }}</span>
+    <span>{{ container.created_by|staff_name|default:"—" }} · {{ container.created_at|date:"d M H:i" }}</span>
   </div>
   <div class="flow-step {% if container.status == 'checked_in' %}current{% elif container.checked_in_at %}done{% endif %}">
     <strong>2 · Checked In at HQ</strong>
-    <span>{% if container.checked_in_at %}{{ container.checked_in_by.get_full_name|default:container.checked_in_by.username }} · {{ container.checked_in_at|date:"d M H:i" }}{% else %}Waiting{% endif %}</span>
+    <span>{% if container.checked_in_at %}{{ container.checked_in_by|staff_name }} · {{ container.checked_in_at|date:"d M H:i" }}{% else %}Waiting{% endif %}</span>
   </div>
   <div class="flow-step {% if container.status == 'opened' %}current{% elif container.opened_at %}done{% endif %}">
     <strong>3 · Opened</strong>
-    <span>{% if container.opened_at %}{{ container.opened_by.get_full_name|default:container.opened_by.username }} · {{ container.opened_at|date:"d M H:i" }}{% else %}Not opened{% endif %}</span>
+    <span>{% if container.opened_at %}{{ container.opened_by|staff_name }} · {{ container.opened_at|date:"d M H:i" }}{% else %}Not opened{% endif %}</span>
   </div>
   <div class="flow-step {% if container.status == 'palletized' %}current{% elif container.status == 'closed' %}done{% endif %}">
     <strong>4 · Palletized</strong>
@@ -68,7 +69,7 @@
   </div>
   <div class="flow-step {% if container.status == 'closed' %}done{% endif %}">
     <strong>5 · Closed</strong>
-    <span>{% if container.closed_at %}{{ container.closed_by.get_full_name|default:container.closed_by.username }} · {{ container.closed_at|date:"d M H:i" }}{% else %}Open{% endif %}</span>
+    <span>{% if container.closed_at %}{{ container.closed_by|staff_name }} · {{ container.closed_at|date:"d M H:i" }}{% else %}Open{% endif %}</span>
   </div>
 </div>
 
@@ -190,7 +191,7 @@
     <div class="comment{% if c.is_damage %} damage{% endif %}">
       <div class="who">
         {% if c.is_damage %}⚠️ <strong style="color:var(--red,#dc2626)">Damage report</strong> · {% endif %}
-        {{ c.author.get_full_name|default:c.author.username|default:"System" }} · {{ c.created_at|date:"d M Y H:i" }}
+        {{ c.author|staff_name|default:"System" }} · {{ c.created_at|date:"d M Y H:i" }}
       </div>
       <div class="body">{{ c.body }}</div>
     </div>

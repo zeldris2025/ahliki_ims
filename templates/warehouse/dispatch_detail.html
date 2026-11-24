@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load custom_tags %}
 {% load ls_central %}
 {% block title %}Dispatch {{ invoice.invoice_number }} — Ah Liki IMS{% endblock %}
 {% block topbar_title %}Dispatch{% endblock %}
@@ -24,7 +25,7 @@
   <span style="font-size:26px">✅</span>
   <div>
     <strong>Dispatched</strong> — Processed by
-    <strong>{% if invoice.dispatched_by %}{{ invoice.dispatched_by.get_full_name|default:invoice.dispatched_by.username }}{% else %}—{% endif %}</strong>
+    <strong>{% if invoice.dispatched_by %}{{ invoice.dispatched_by|staff_name }}{% else %}—{% endif %}</strong>
     on {{ invoice.dispatched_at|date:"d M Y H:i" }}.
   </div>
 </div>
@@ -198,7 +199,7 @@
             {% else %}<span class="badge badge-amber">Pending</span>{% endif %}
           </td></tr>
           {% if invoice.dispatch_status == 'dispatched' %}
-          <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Dispatched by</td><td>{% if invoice.dispatched_by %}{{ invoice.dispatched_by.get_full_name|default:invoice.dispatched_by.username }}{% else %}—{% endif %}</td></tr>
+          <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Dispatched by</td><td>{% if invoice.dispatched_by %}{{ invoice.dispatched_by|staff_name }}{% else %}—{% endif %}</td></tr>
           <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Dispatched at</td><td>{{ invoice.dispatched_at|date:"d M Y H:i" }}</td></tr>
           {% if invoice.truck_plate %}
           <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Truck Plate</td><td>
@@ -207,7 +208,7 @@
           {% endif %}
           {% endif %}
           <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Due Date</td><td>{{ invoice.due_date|default:"—" }}</td></tr>
-          <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Uploaded by</td><td>{% if invoice.cashier %}{{ invoice.cashier.get_full_name|default:invoice.cashier.username }}{% else %}LS Central{% endif %}</td></tr>
+          <tr><td style="color:var(--gray-500);padding:7px 0;font-size:13px">Uploaded by</td><td>{% if invoice.cashier %}{{ invoice.cashier|staff_name }}{% else %}LS Central{% endif %}</td></tr>
         </table>
       </div>
     </div>
@@ -228,7 +229,7 @@
             {% if comment.author %}{{ comment.author.first_name|first|upper|default:comment.author.username|first|upper }}{% else %}S{% endif %}
           </div>
           <div>
-            <span style="font-weight:600;font-size:13px">{% if comment.author %}{{ comment.author.get_full_name|default:comment.author.username }}{% else %}System{% endif %}</span>
+            <span style="font-weight:600;font-size:13px">{% if comment.author %}{{ comment.author|staff_name }}{% else %}System{% endif %}</span>
             <span style="color:var(--gray-400);font-size:12px;margin-left:8px">{{ comment.created_at|date:"d M Y H:i" }}</span>
           </div>
         </div>

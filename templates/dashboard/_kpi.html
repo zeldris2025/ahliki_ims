@@ -1,0 +1,11 @@
+{% load custom_tags %}<{% if k.href %}a href="{{ k.href }}"{% else %}div{% endif %} class="kpi{% if k.tone %} kpi-{{ k.tone }}{% endif %}{% if k.href %} kpi-link{% endif %}">
+  <span class="kpi-icon">{% icon k.icon %}</span>
+  <span class="kpi-label">{{ k.label }}{% if k.flag %} <span class="kpi-flag" title="See the note below about stock value">check</span>{% endif %}</span>
+  {% if k.short %}
+  <span class="kpi-value" title="{{ k.prefix }}{{ k.value|num:2 }}">{{ k.prefix }}{{ k.short }}</span>
+  {% else %}
+  <span class="kpi-value" data-count="{{ k.value|default:0|stringformat:'s' }}" data-decimals="{{ k.decimals }}" data-prefix="{{ k.prefix }}">{{ k.prefix }}{{ k.value|default:0|num:k.decimals }}</span>
+  {% endif %}
+  <span class="kpi-sub">{{ k.sub }}</span>
+  {% if k.href %}<span class="kpi-go" aria-hidden="true">{% icon 'chevron-right' %}</span>{% endif %}
+</{% if k.href %}a{% else %}div{% endif %}>

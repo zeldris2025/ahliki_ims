@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load custom_tags %}
 {% block title %}Transfer Pallet — Ahliki WMS{% endblock %}
 {% block topbar_title %}↔️ Transfer Pallet{% endblock %}
 
@@ -100,7 +101,7 @@
           {% for loc in pallet.location_history.all %}
           <tr>
             <td><strong>{{ loc.shelf.code }}</strong></td>
-            <td style="font-size:12px">{{ loc.assigned_by.get_full_name|default:loc.assigned_by.username }}</td>
+            <td style="font-size:12px">{{ loc.assigned_by|staff_name }}</td>
             <td style="font-size:12px">{{ loc.assigned_at|date:"d M Y H:i" }}</td>
             <td>{% if loc.is_current %}<span class="badge badge-green">Current</span>{% else %}<span class="badge badge-gray">Moved</span>{% endif %}</td>
           </tr>
