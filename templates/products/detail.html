@@ -1,63 +1,182 @@
 {% extends 'base.html' %}
-{% load custom_tags %}
+{% load static custom_tags %}
 {% block title %}{{ product.name }} — Ah Liki IMS{% endblock %}
-{% block topbar_title %}Product Detail{% endblock %}
+{% block topbar_title %}Product{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'css/dashboard.css' %}"><link rel="stylesheet" href="{% static 'css/catalogue.css' %}">{% endblock %}
+{% block head_js %}<script src="{% static 'vendor/chartjs/chart.umd.min.js' %}" defer></script><script src="{% static 'js/charts.js' %}" defer></script>{% endblock %}
 {% block content %}
-<div class="page-header">
-  <div><h1>{{ product.name }}</h1><p>SKU: <code>{{ product.sku }}</code></p></div>
-  <div style="display:flex;gap:8px">
-    {% if request.user.is_superuser or request.user|has_role:'admin' or request.user|has_role:'finance' %}<a href="{% url 'product_edit' product.pk %}" class="btn btn-secondary">Edit</a>{% endif %}
-    <a href="{% url 'product_list' %}" class="btn btn-secondary">← Back</a>
-  </div>
-</div>
-<div class="grid-2" style="gap:16px;margin-bottom:20px">
-  <div class="card">
-    <div class="card-header"><h2>Product Info</h2></div>
-    <div class="card-body">
-      <table style="width:100%;border-collapse:collapse">
-        {% for label, val in forloop.parentloop.0 %}{% endfor %}
-        <tr><td style="color:var(--gray-500);padding:5px 0;width:130px">SKU</td><td><code>{{ product.sku }}</code></td></tr>
-        <tr><td style="color:var(--gray-500);padding:5px 0">Barcode</td><td>{{ product.barcode|default:"—" }}</td></tr>
-        <tr><td style="color:var(--gray-500);padding:5px 0">Category</td><td>{{ product.category|default:"—" }}</td></tr>
-        <tr><td style="color:var(--gray-500);padding:5px 0">Supplier</td><td>{{ product.supplier|default:"—" }}</td></tr>
-        <tr><td style="color:var(--gray-500);padding:5px 0">Unit</td><td>{{ product.unit }}</td></tr>
-        <tr><td style="color:var(--gray-500);padding:5px 0">Sale Price</td><td>SAT${{ product.unit_price }}</td></tr>
-        <tr><td style="color:var(--gray-500);padding:5px 0">Cost Price</td><td>SAT${{ product.cost_price }}</td></tr>
-        <tr><td style="color:var(--gray-500);padding:5px 0">Reorder At</td><td>{{ product.reorder_level }} {{ product.unit }}</td></tr>
-      </table>
+<div class="profile-head">
+  <div>
+    <h1>{{ product.name }}</h1>
+    <div class="meta">
+      <span class="sku">{{ product.sku }}</span>
+      {% include 'products/_status.html' with s=status %}
+      {% if expired %}{% include 'products/_status.html' with s='expired' %}{% elif expiring %}{% include 'products/_status.html' with s='expiring' %}{% endif %}
+      {% if not product.is_active %}<span class="chip chip-inactive">Inactive</span>{% endif %}
+      {% if product.category %}<span>{{ product.category }}</span>{% endif %}
     </div>
   </div>
-  <div class="card">
-    <div class="card-header"><h2>Stock Status</h2></div>
-    <div class="card-body" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:160px">
-      <div style="font-size:52px;font-weight:800;color:{% if product.is_low_stock %}var(--red){% else %}var(--green-dark){% endif %}">{{ current_stock }}</div>
-      <div style="font-size:13px;color:var(--gray-500)">{{ product.unit }}(s) on hand</div>
-      {% if product.is_low_stock %}<span class="badge badge-red" style="margin-top:10px">⚠️ Below reorder level</span>
-      {% else %}<span class="badge badge-green" style="margin-top:10px">✅ Stock OK</span>{% endif %}
-      <div style="margin-top:14px"><a href="{% url 'stock_adjust' %}" class="btn btn-sm btn-secondary">Adjust stock</a></div>
-    </div>
+  <div class="profile-actions">
+    {% if can_adjust %}<a href="{% url 'stock_adjust' %}?product={{ product.pk }}" class="btn btn-secondary">{% icon 'scale' %}Adjust stock</a>{% endif %}
+    {% if can_movements %}<a href="{% url 'stock_movements' %}?product={{ product.pk }}" class="btn btn-secondary">{% icon 'history' %}Full ledger</a>{% endif %}
+    {% if can_edit %}<a href="{% url 'product_edit' product.pk %}" class="btn btn-primary">{% icon 'edit' %}Edit</a>{% endif %}
   </div>
 </div>
-{% if alerts %}<div class="alert alert-warning">⚠️ {{ alerts.count }} open alert(s) for this product. <a href="{% url 'alert_list' %}">View →</a></div>{% endif %}
-<div class="card">
-  <div class="card-header"><h2>Recent Stock Movements</h2></div>
+
+{% if alerts %}
+<div class="data-note" role="note">
+  <span class="data-note-icon">{% icon 'bell' %}</span>
+  <div><strong>{{ alerts|length }} open alert{{ alerts|length|pluralize }}.</strong>
+    {% for a in alerts|slice:":3" %}<a href="{% url 'alert_detail' a.pk %}">{{ a.get_alert_type_display }}</a>{% if not forloop.last %} · {% endif %}{% endfor %}</div>
+</div>
+{% endif %}
+
+<div class="profile-grid">
+  <section class="panel">
+    <header class="panel-head"><h3>Stock on hand</h3><span class="panel-sub">from the ledger</span></header>
+    <div class="stock-hero"><strong>{{ current_stock|num }}</strong><span>{{ product.unit }}</span></div>
+    <div class="stock-meter">
+      <small>Reorder at {{ product.reorder_level|num }} {{ product.unit }} · {{ status_label }}</small>
+    </div>
+    <dl class="facts">
+      {% for key, label, t in type_totals %}<div><dt>{{ label }}</dt><dd>{{ t.q|default:0|num }} <small class="panel-sub">· {{ t.n }} entr{{ t.n|pluralize:"y,ies" }}</small></dd></div>{% endfor %}
+    </dl>
+  </section>
+
+  <section class="panel">
+    <header class="panel-head"><h3>General information</h3></header>
+    <dl class="facts">
+      <div><dt>SKU</dt><dd><span class="sku">{{ product.sku }}</span></dd></div>
+      <div><dt>Barcode</dt><dd>{% if product.barcode %}<span class="sku">{{ product.barcode }}</span>{% else %}—{% endif %}</dd></div>
+      <div><dt>Category</dt><dd>{{ product.category|default:"—" }}</dd></div>
+      <div><dt>Supplier</dt><dd>{{ product.supplier|default:"—" }}</dd></div>
+      <div><dt>Unit</dt><dd>{{ product.unit }}</dd></div>
+      <div><dt>Added</dt><dd>{{ product.created_at|date:"j M Y" }}</dd></div>
+    </dl>
+    {% if product.description %}<p class="panel-foot" style="display:block;color:var(--gray-700)">{{ product.description|linebreaksbr }}</p>{% endif %}
+  </section>
+
+  <section class="panel">
+    <header class="panel-head"><h3>Pricing</h3></header>
+    <dl class="facts">
+      <div><dt>Unit price</dt><dd>SAT${{ product.unit_price|num:2 }}</dd></div>
+      {% if show_cost %}
+      <div><dt>Cost price</dt><dd>SAT${{ product.cost_price|num:2 }}</dd></div>
+      <div><dt>Stock value at cost</dt><dd>SAT${{ stock_value|num:2 }}</dd></div>
+      {% if margin is not None %}<div><dt>Margin on unit price</dt><dd>{{ margin|num:1 }}%</dd></div>{% endif %}
+      {% endif %}
+    </dl>
+  </section>
+</div>
+
+<section class="panel" style="margin-bottom:18px">
+  <header class="panel-head">
+    <h3>Stock on hand, last 90 days</h3>
+    <div class="panel-tools"><span class="panel-sub">end-of-day balance</span><button type="button" class="link-btn" data-table-for="chBalance">Table</button></div>
+  </header>
+  <div class="chart-box"><canvas id="chBalance" data-chart="balance" role="img" aria-label="Stock on hand per day over the last 90 days, with the reorder level"></canvas><div class="skeleton chart-skel"></div></div>
+</section>
+
+<section class="panel" style="margin-bottom:18px" id="ledger">
+  <header class="panel-head">
+    <h3>Stock movements <span class="panel-sub">{{ moves_page.paginator.count|num }} entr{{ moves_page.paginator.count|pluralize:"y,ies" }}</span></h3>
+  </header>
+  <nav class="type-totals" aria-label="Filter by movement type">
+    <a href="?#ledger" class="{% if not mtype %}on{% endif %}">All</a>
+    {% for key, label in type_choices %}<a href="?mtype={{ key }}#ledger" class="{% if mtype == key %}on{% endif %}"><span class="mv mv-{{ key }}">{{ label }}</span></a>{% endfor %}
+  </nav>
   <div class="table-wrap">
-    <table>
-      <thead><tr><th>Date</th><th>Type</th><th>Qty</th><th>Reference</th><th>Batch</th><th>Expiry</th><th>By</th></tr></thead>
+    <table class="dense">
+      <thead><tr><th>Date</th><th>Type</th><th class="num">Qty</th><th>Reference</th><th>Batch</th><th>Expiry</th><th>By</th></tr></thead>
       <tbody>
       {% for m in movements %}
       <tr>
-        <td style="font-size:12px">{{ m.timestamp|date:"d M Y H:i" }}</td>
-        <td>{% if m.movement_type == 'in' %}<span class="badge badge-green">IN</span>{% elif m.movement_type == 'out' %}<span class="badge badge-red">OUT</span>{% else %}<span class="badge badge-gray">{{ m.get_movement_type_display }}</span>{% endif %}</td>
-        <td><strong>{{ m.quantity }}</strong></td>
+        <td class="time">{{ m.timestamp|date:"d M Y H:i" }}</td>
+        <td><span class="mv mv-{{ m.movement_type }}">{{ m.get_movement_type_display }}</span></td>
+        <td class="qty {% if m.quantity > 0 %}qty-pos{% elif m.quantity < 0 %}qty-neg{% endif %}">{% if m.quantity > 0 %}+{% endif %}{{ m.quantity|num }}</td>
         <td>{{ m.reference|default:"—" }}</td>
-        <td>{{ m.batch_number|default:"—" }}</td>
-        <td>{{ m.expiry_date|default:"—" }}</td>
-        <td style="font-size:12px">{{ m.performed_by.username|default:"—" }}</td>
+        <td class="muted">{{ m.batch_number|default:"—" }}</td>
+        <td class="muted">{{ m.expiry_date|date:"j M Y"|default:"—" }}</td>
+        <td class="muted">{{ m.performed_by|staff_name|default:"—" }}</td>
       </tr>
-      {% empty %}<tr><td colspan="7" style="text-align:center;color:var(--gray-500)">No movements yet.</td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="7"><div class="empty">{% icon 'info' %} No movements{% if mtype %} of this type{% endif %} yet.</div></td></tr>{% endfor %}
       </tbody>
     </table>
   </div>
+  {% if moves_page.has_other_pages %}
+  <div class="pager">
+    <span>{{ moves_page.start_index }}–{{ moves_page.end_index }} of {{ moves_page.paginator.count|num }}</span>
+    <div>
+      {% if moves_page.has_previous %}<a href="?{% if moves_query %}{{ moves_query }}&amp;{% endif %}page={{ moves_page.previous_page_number }}#ledger" class="btn btn-sm btn-secondary">← Newer</a>{% endif %}
+      <span>Page {{ moves_page.number }} of {{ moves_page.paginator.num_pages }}</span>
+      {% if moves_page.has_next %}<a href="?{% if moves_query %}{{ moves_query }}&amp;{% endif %}page={{ moves_page.next_page_number }}#ledger" class="btn btn-sm btn-secondary">Older →</a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+</section>
+
+<div class="dash-grid" style="margin-bottom:18px">
+  <section class="panel span-2">
+    <header class="panel-head"><h3>Batches and expiry <span class="panel-sub">from goods received · {{ receipt_count|num }} receipt{{ receipt_count|pluralize }}</span></h3></header>
+    {% if batches %}
+    <div class="table-wrap">
+      <table class="dense">
+        <thead><tr><th>Batch</th><th>GRN</th><th>Received</th><th class="num">Qty</th><th>Expiry</th><th>Status</th></tr></thead>
+        <tbody>
+        {% for b in batches %}{% with i=b.item %}
+        <tr>
+          <td><span class="sku">{{ i.batch_number|default:"—" }}</span></td>
+          <td>{% if can_grn %}<a href="{% url 'grn_detail' i.grn.pk %}">{{ i.grn.grn_number }}</a>{% else %}{{ i.grn.grn_number }}{% endif %}<span class="sub-line">{{ i.grn.supplier|default:"" }}</span></td>
+          <td class="time">{{ i.grn.received_at|date:"j M Y" }}</td>
+          <td class="qty">{{ i.quantity_received|num }}</td>
+          <td class="time">{{ i.expiry_date|date:"j M Y"|default:"—" }}</td>
+          <td>{% include 'products/_status.html' with s=b.status %}</td>
+        </tr>
+        {% endwith %}{% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if receipt_count > batches|length %}<p class="panel-foot">Showing the latest {{ batches|length }}.</p>{% endif %}
+    {% else %}<div class="empty">{% icon 'info' %} Nothing received through a GRN yet.</div>{% endif %}
+    <p class="panel-foot">{% icon 'clock' %} “Expiring” means within {{ expiry_days }} days, the same window the expiry alerts use.</p>
+  </section>
+
+  <section class="panel">
+    <header class="panel-head"><h3>Recent dispatches</h3><span class="panel-sub">invoices you can see</span></header>
+    {% if dispatches %}
+    <ul class="row-list">
+      {% for d in dispatches %}
+      <li><a class="grow" href="{% url 'invoice_detail' d.invoice.pk %}">{{ d.invoice.invoice_number }}</a>{% if d.invoice.site %}<span class="site-chip">{{ d.invoice.site }}</span>{% endif %}<strong>{{ d.quantity|num }}</strong><time>{{ d.invoice.dispatched_at|date:"j M" }}</time></li>
+      {% endfor %}
+    </ul>
+    {% else %}<div class="empty">{% icon 'info' %} No dispatched invoices for this product.</div>{% endif %}
+  </section>
 </div>
+
+<section class="panel" style="margin-bottom:18px">
+  <header class="panel-head"><h3>Pallets and shelf locations <span class="panel-sub">{{ pallet_count|num }} pallet{{ pallet_count|pluralize }}</span></h3>
+    {% if can_pallet and pallet_count %}<a class="link-btn" href="{% url 'pallet_list' %}?q={{ product.sku|urlencode }}">All pallets →</a>{% endif %}</header>
+  {% if pallet_rows %}
+  <div class="table-wrap">
+    <table class="dense">
+      <thead><tr><th>Lot</th><th class="num">Qty</th><th>Expiry</th><th>Status</th><th>Shelf</th><th>Created</th></tr></thead>
+      <tbody>
+      {% for r in pallet_rows %}
+      <tr>
+        <td><span class="sku">{{ r.pallet.lot_number }}</span></td>
+        <td class="qty">{{ r.pallet.quantity|num }}</td>
+        <td class="time">{{ r.pallet.expiry_date|date:"j M Y"|default:"—" }}</td>
+        <td>{% include 'products/_status.html' with s=r.status %}</td>
+        <td>{% if r.shelf %}<span class="badge badge-blue">{{ r.shelf }}</span>{% else %}<span class="badge badge-amber">Not shelved</span>{% endif %}</td>
+        <td class="time">{{ r.pallet.created_at|date:"j M Y" }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="panel-foot">{% icon 'info' %} Pallet quantities are what was palletised; stock on hand comes from the ledger above.</p>
+  {% else %}<div class="empty">{% icon 'info' %} No pallets for this product.</div>{% endif %}
+</section>
+
+{{ chart_data|json_script:"chart-data" }}
 {% endblock %}

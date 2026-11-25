@@ -24,7 +24,7 @@ from .forms import (ProductForm, SupplierForm, CategoryForm, GRNForm, GRNItemFor
                     PalletForm, CheckInForm, TransferForm, PalletEditForm,
                     ContainerForm, ContainerItemFormSet, ContainerCommentForm,
                     ContainerPalletForm, ShipmentTrackingForm, ShelfAddForm, ShelfEditForm)
-from . import auto_refresh, cms_audit, terminal49
+from . import auto_refresh, cms_audit, stock_intel, terminal49
 
 
 from .models import SITES
@@ -160,14 +160,42 @@ def _date_span(f):
 
 PRODUCTS_PER_PAGE = 50
 
+# Sortable product columns: ?sort=<key> or ?sort=-<key>.
+PRODUCT_SORTS = {
+    'sku': ('sku',), 'name': ('name',), 'category': ('category__name', 'name'),
+    'supplier': ('supplier__name', 'name'), 'stock': ('stock', 'name'), 'price': ('unit_price', 'name'),
+    'cost': ('cost_price', 'name'), 'reorder': ('reorder_level', 'name'),
+}
+# Cost prices are for the stock and finance side, not the sales counter.
+COST_ROLES = ('admin', 'manager', 'finance', 'warehouse')
+
+
+def _role(user):
+    from .navigation import effective_role
+    return effective_role(user)
+
+
+def _may_open(user, url_name):
+    """True if the user's role passes that view's role_required (menus and buttons use it)."""
+    from .navigation import effective_role, view_roles
+    allowed = view_roles(url_name)
+    return user.is_superuser or allowed is None or effective_role(user) in allowed
+
 
 @login_required
 def product_list(request):
-    q = request.GET.get('q', '')
+    q = request.GET.get('q', '').strip()
     category_id = request.GET.get('category', '')
     supplier_id = request.GET.get('supplier', '')
     stock_status = request.GET.get('stock', '')
-    products = Product.objects.select_related('category', 'supplier').filter(is_active=True)
+    active = request.GET.get('active', '')
+    sort = request.GET.get('sort', 'name')
+    products = Product.objects.select_related('category', 'supplier')
+    if active == 'inactive':
+        products = products.filter(is_active=False)
+    elif active != 'all':
+        active = ''
+        products = products.filter(is_active=True)
     if q:
         products = products.filter(Q(name__icontains=q) | Q(sku__icontains=q) | Q(barcode__icontains=q))
     if category_id:
@@ -177,25 +205,50 @@ def product_list(request):
     products = with_stock(products)
     # Same rules as the dashboard: low = at or below reorder level but above zero; out = zero or less.
     stock_filters = {'low': Q(stock__lte=F('reorder_level'), stock__gt=0), 'out': Q(stock__lte=0),
-                     'healthy': Q(stock__gt=F('reorder_level'))}
+                     'healthy': Q(stock__gt=F('reorder_level')),
+                     'expiring': Q(pk__in=stock_intel.expiring_product_ids())}
     if stock_status in stock_filters:
         products = products.filter(stock_filters[stock_status])
     else:
         stock_status = ''
-    categories = Category.objects.all()
-    page = Paginator(products.order_by('name', 'pk'), PRODUCTS_PER_PAGE).get_page(request.GET.get('page'))
-    product_data = [{'product': p, 'stock': p.stock, 'low': p.stock <= p.reorder_level}
+    sort_key = sort.lstrip('-')
+    if sort_key not in PRODUCT_SORTS:
+        sort, sort_key = 'name', 'name'
+    order = [('-' + c if sort.startswith('-') else c) for c in PRODUCT_SORTS[sort_key]]
+    page = Paginator(products.order_by(*order, 'pk'), PRODUCTS_PER_PAGE).get_page(request.GET.get('page'))
+    expiring = stock_intel.expiring_product_ids([p.pk for p in page])
+    product_data = [{'product': p, 'stock': p.stock, 'low': p.stock <= p.reorder_level,
+                     'status': stock_intel.stock_status(p.stock, p.reorder_level),
+                     'expiring': p.pk in expiring}
                     for p in page]
-    # Keep the search and filters on the page links.
+    # Keep the search and filters on the page links; sort links keep everything but the sort.
     params = request.GET.copy()
     params.pop('page', None)
-    return render(request, 'products/list.html', {'product_data': product_data, 'page': page,
-                                                  'query': params.urlencode(), 'categories': categories,
-                                                  'suppliers': Supplier.objects.order_by('name'),
-                                                  'q': q, 'selected_cat': category_id,
-                                                  'selected_supplier': supplier_id, 'stock_status': stock_status,
-                                                  'stock_choices': [('low', 'Low stock'), ('out', 'Out of stock'),
-                                                                    ('healthy', 'Healthy')]})
+    sort_params = params.copy()
+    sort_params.pop('sort', None)
+    user = request.user
+    columns = [('sku', 'SKU'), ('name', 'Product'), ('category', 'Category'), ('supplier', 'Supplier'),
+               ('stock', 'Stock'), ('price', 'Unit price')]
+    show_cost = _role(user) in COST_ROLES
+    if show_cost:
+        columns.append(('cost', 'Cost price'))
+    columns.append(('reorder', 'Reorder at'))
+    return render(request, 'products/list.html', {
+        'product_data': product_data, 'page': page, 'query': params.urlencode(),
+        'sort_query': sort_params.urlencode(), 'sort': sort, 'columns': columns,
+        'categories': Category.objects.all(), 'suppliers': Supplier.objects.order_by('name'),
+        'q': q, 'selected_cat': category_id, 'selected_supplier': supplier_id,
+        'stock_status': stock_status, 'active': active,
+        'stock_choices': [('healthy', 'Healthy'), ('low', 'Low stock'), ('out', 'Out of stock'),
+                          ('expiring', f'Batch expiring ≤ {stock_intel.EXPIRY_DAYS} days')],
+        'show_cost': show_cost,
+        'can_add': _may_open(user, 'product_add'),
+        'can_edit': _may_open(user, 'product_edit'),
+        'can_adjust': _may_open(user, 'stock_adjust'),
+        'can_movements': _may_open(user, 'stock_movements'),
+        'can_import': user.is_staff and _role(user) == 'admin',
+        'filtered': bool(q or category_id or supplier_id or stock_status or active),
+    })
 
 
 @login_required
@@ -314,16 +367,76 @@ def stock_lookup_search(request):
     return JsonResponse({'results': results, 'query': q, 'truncated': truncated})
 
 
+PRODUCT_MOVES_PER_PAGE = 25
+BALANCE_DAYS = 90
+
+
 @login_required
 def product_detail(request, pk):
-    product = get_object_or_404(Product, pk=pk)
-    movements = mask_other_sites(request.user, product.stock_movements.order_by('-timestamp')[:20])
-    alerts = product.alerts.filter(is_resolved=False)
+    from .models import Invoice, InvoiceItem
+    product = get_object_or_404(Product.objects.select_related('category', 'supplier'), pk=pk)
+    user = request.user
+    today = timezone.localdate()
+    stock = stock_by_product([product.pk])[product.pk]
+
+    # Ledger, newest first, with an optional type filter; another site's invoice numbers stay hidden.
+    mtype = request.GET.get('mtype', '')
+    ledger = product.stock_movements.select_related('performed_by').order_by('-timestamp', '-pk')
+    if mtype in dict(StockMovement.MOVEMENT_TYPES):
+        ledger = ledger.filter(movement_type=mtype)
+    else:
+        mtype = ''
+    moves_page = Paginator(ledger, PRODUCT_MOVES_PER_PAGE).get_page(request.GET.get('page'))
+    movements = mask_other_sites(user, moves_page.object_list)
+    type_totals = {r['movement_type']: r for r in product.stock_movements.values('movement_type')
+                   .annotate(q=Sum('quantity'), n=Count('id'))}
+
+    days = [today - timedelta(days=i) for i in range(BALANCE_DAYS - 1, -1, -1)]
+    balance = stock_intel.balance_series(product, days)
+
+    receipts = GRNItem.objects.filter(product=product).select_related('grn', 'grn__supplier').order_by('-grn__received_at')
+    batches = [{'item': i, 'status': stock_intel.batch_status(i.expiry_date, today)} for i in receipts[:30]]
+
+    # Dispatches only from invoices this user may see.
+    dispatches = (InvoiceItem.objects.filter(product=product, invoice__in=visible_invoices(user),
+                                             invoice__dispatch_status='dispatched')
+                  .select_related('invoice', 'invoice__dispatched_by').order_by('-invoice__dispatched_at')[:20])
+
+    pallets = list(Pallet.objects.filter(product=product).order_by('expiry_date', '-created_at')[:50])
+    shelves = dict(PalletLocation.objects.filter(pallet__in=pallets, is_current=True)
+                   .values_list('pallet_id', 'shelf__code'))
+    pallet_rows = [{'pallet': p, 'shelf': shelves.get(p.pk), 'status': stock_intel.batch_status(p.expiry_date, today)}
+                   for p in pallets]
+
+    params = request.GET.copy()
+    params.pop('page', None)
+    status = stock_intel.stock_status(stock, product.reorder_level)
+    show_cost = _role(user) in COST_ROLES
     return render(request, 'products/detail.html', {
         'product': product,
-        'movements': movements,
-        'alerts': alerts,
-        'current_stock': product.current_stock,
+        'current_stock': stock,
+        'status': status, 'status_label': stock_intel.STATUS_LABELS[status],
+        'expiring': any(b['status'] == 'expiring' for b in batches),
+        'expired': any(b['status'] == 'expired' for b in batches),
+        'show_cost': show_cost,
+        'stock_value': stock * product.cost_price if show_cost else None,
+        'margin': (float((product.unit_price - product.cost_price) / product.unit_price * 100)
+                   if show_cost and product.unit_price and product.cost_price else None),
+        'movements': movements, 'moves_page': moves_page, 'mtype': mtype, 'moves_query': params.urlencode(),
+        'type_choices': StockMovement.MOVEMENT_TYPES,
+        'type_totals': [(k, label, type_totals.get(k, {'q': 0, 'n': 0})) for k, label in StockMovement.MOVEMENT_TYPES],
+        'receipt_count': receipts.count(), 'batches': batches,
+        'dispatches': dispatches, 'pallet_rows': pallet_rows, 'pallet_count': Pallet.objects.filter(product=product).count(),
+        'alerts': product.alerts.filter(is_resolved=False).order_by('-created_at'),
+        'expiry_days': stock_intel.EXPIRY_DAYS,
+        'chart_data': {'balance': {'type': 'line', 'labels': [d.strftime('%d %b') for d in days],
+                                   'datasets': [{'label': 'Stock on hand', 'data': balance}],
+                                   'reference': {'label': 'Reorder level', 'value': product.reorder_level}}},
+        'can_edit': _may_open(user, 'product_edit'),
+        'can_adjust': _may_open(user, 'stock_adjust'),
+        'can_movements': _may_open(user, 'stock_movements'),
+        'can_grn': _may_open(user, 'grn_detail'),
+        'can_pallet': _may_open(user, 'pallet_list'),
     })
 
 
@@ -485,18 +598,105 @@ def sale_detail(request, pk):
 
 # ── STOCK MOVEMENTS & ADJUSTMENTS ─────────────────────────────────────────────
 
+MOVEMENTS_PER_PAGE = 50
+
+
+def _parse_day(value):
+    try:
+        return date.fromisoformat(value) if value else None
+    except ValueError:
+        return None
+
+
 @login_required
 @role_required('admin', 'warehouse')
 def stock_movements(request):
-    movements = mask_other_sites(
-        request.user, StockMovement.objects.select_related('product', 'performed_by').order_by('-timestamp')[:100])
-    return render(request, 'stock/movements.html', {'movements': movements})
+    """The stock ledger as a timeline, filterable by product, type, user and date."""
+    from django.contrib.auth.models import User
+    from .models import Invoice
+    user = request.user
+    g = request.GET
+    q = g.get('q', '').strip()
+    mtype = g.get('type', '') if g.get('type', '') in dict(StockMovement.MOVEMENT_TYPES) else ''
+    first, last = _parse_day(g.get('from', '')), _parse_day(g.get('to', ''))
+    if first and last and first > last:
+        first, last = last, first
+    product = None
+    if g.get('product', '').isdigit():
+        product = Product.objects.filter(pk=g['product']).first()
+    who = g.get('user', '') if g.get('user', '').isdigit() else ''
+
+    moves = StockMovement.objects.select_related('product', 'performed_by')
+    if product:
+        moves = moves.filter(product=product)
+    if q:
+        by_ref = Q(reference__icontains=q)
+        if not sees_all_sites(user):
+            # A reference search must not confirm another site's invoice numbers.
+            hidden = Invoice.objects.exclude(pk__in=visible_invoices(user).values('pk')).values('invoice_number')
+            by_ref &= ~Q(reference__in=hidden)
+        moves = moves.filter(Q(product__name__icontains=q) | Q(product__sku__icontains=q)
+                             | Q(batch_number__icontains=q) | by_ref)
+    if mtype:
+        moves = moves.filter(movement_type=mtype)
+    if first:
+        moves = moves.filter(timestamp__date__gte=first)
+    if last:
+        moves = moves.filter(timestamp__date__lte=last)
+    if who:
+        moves = moves.filter(performed_by_id=who)
+
+    summary = moves.aggregate(n=Count('id'), units_in=Sum('quantity', filter=Q(quantity__gt=0)),
+                              units_out=Sum('quantity', filter=Q(quantity__lt=0)))
+    page = Paginator(moves.order_by('-timestamp', '-pk'), MOVEMENTS_PER_PAGE).get_page(g.get('page'))
+    params = g.copy()
+    params.pop('page', None)
+    return render(request, 'stock/movements.html', {
+        'movements': mask_other_sites(user, page.object_list), 'page': page, 'query': params.urlencode(),
+        'q': q, 'mtype': mtype, 'first': first, 'last': last, 'product': product, 'who': who,
+        'type_choices': StockMovement.MOVEMENT_TYPES,
+        'users': User.objects.filter(pk__in=StockMovement.objects.values('performed_by')).order_by('first_name', 'username'),
+        'summary': summary, 'filtered': bool(q or mtype or first or last or product or who),
+        'today': timezone.localdate(),
+    })
+
+
+@login_required
+@role_required('admin', 'manager', 'warehouse')
+def stock_intelligence(request):
+    """Stock Intelligence workspace: stock health, movement trends, rankings and adjustments."""
+    from . import dashboard as figures
+    f = figures.read_filters(request)
+    data = stock_intel.build(f)
+    data['recent_adjustments'] = mask_other_sites(request.user, data['recent_adjustments'])
+    cat_q = f'&category={f.category.pk}' if f.category else ''
+    user = request.user
+    products = reverse('product_list')
+    data.update({
+        'filters': f, 'today': timezone.localdate(), 'expiry_days': stock_intel.EXPIRY_DAYS,
+        'categories': Category.objects.order_by('name'),
+        'range_choices': [('7', '7 days'), ('30', '30 days'), ('90', '90 days'), ('365', '12 months')],
+        'links': {
+            'healthy': f'{products}?stock=healthy{cat_q}',
+            'low': f'{products}?stock=low{cat_q}',
+            'out': f'{products}?stock=out{cat_q}',
+            'expiring': f'{products}?stock=expiring{cat_q}',
+            'alerts': reverse('alert_list') + '?status=open',
+            'discrepancy': reverse('alert_list') + '?type=discrepancy&status=open',
+            'grns': reverse('grn_list') if _may_open(user, 'grn_list') else None,
+            'ledger': reverse('stock_movements') if _may_open(user, 'stock_movements') else None,
+        },
+    })
+    return render(request, 'stock/intelligence.html', data)
 
 
 @login_required
 @role_required('admin', 'warehouse')
 def stock_adjust(request):
-    form = StockAdjustForm(request.POST or None)
+    initial = {}
+    if request.method == 'GET' and request.GET.get('product', '').isdigit():
+        initial['product'] = request.GET['product']
+    form = StockAdjustForm(request.POST or None, initial=initial)
     if form.is_valid():
         movement = form.save(commit=False)
         movement.performed_by = request.user
@@ -509,32 +709,101 @@ def stock_adjust(request):
 
 # ── ALERTS ────────────────────────────────────────────────────────────────────
 
+ALERTS_PER_PAGE = 50
+ALERT_NEW_DAYS = 7          # "new" on the alerts page = raised in the last week
+ALERT_RESOLVED_DAYS = 30    # "recently resolved" = resolved in the last 30 days
+
+
+def _alerts_with_stock(alerts):
+    return alerts.annotate(stock=Coalesce(Sum('product__stock_movements__quantity'), 0))
+
+
 @login_required
 def alert_list(request):
-    alerts = StockAlert.objects.select_related('product').order_by('is_resolved', '-created_at')
-    alert_type = request.GET.get('type', '')
-    status = request.GET.get('status', '')
+    g = request.GET
+    alerts = _alerts_with_stock(StockAlert.objects.select_related('product', 'resolved_by'))
+    alert_type = g.get('type', '')
+    status = g.get('status', '')
+    q = g.get('q', '').strip()
     if alert_type in dict(StockAlert.ALERT_TYPES):
         alerts = alerts.filter(alert_type=alert_type)
     else:
         alert_type = ''
     if status in ('open', 'resolved'):
         alerts = alerts.filter(is_resolved=(status == 'resolved'))
+    elif status == 'critical':
+        alerts = alerts.filter(is_resolved=False, stock__lte=0)
     else:
         status = ''
-    return render(request, 'alerts/list.html', {'alerts': alerts, 'alert_type': alert_type, 'status': status,
-                                                'type_choices': StockAlert.ALERT_TYPES})
+    if q:
+        alerts = alerts.filter(Q(product__name__icontains=q) | Q(product__sku__icontains=q))
+
+    now = timezone.now()
+    open_all = _alerts_with_stock(StockAlert.objects.filter(is_resolved=False))
+    open_by_type = dict(StockAlert.objects.filter(is_resolved=False).values_list('alert_type').annotate(n=Count('id')))
+    summary = {
+        'outstanding': sum(open_by_type.values()),
+        'critical': open_all.filter(stock__lte=0).count(),
+        'new': StockAlert.objects.filter(created_at__gte=now - timedelta(days=ALERT_NEW_DAYS)).count(),
+        'resolved': StockAlert.objects.filter(is_resolved=True,
+                                              resolved_at__gte=now - timedelta(days=ALERT_RESOLVED_DAYS)).count(),
+        'by_type': [(k, label, open_by_type.get(k, 0)) for k, label in StockAlert.ALERT_TYPES],
+    }
+    page = Paginator(alerts.order_by('is_resolved', '-created_at', '-pk'), ALERTS_PER_PAGE).get_page(g.get('page'))
+    params = g.copy()
+    params.pop('page', None)
+    return render(request, 'alerts/list.html', {
+        'alerts': page.object_list, 'page': page, 'query': params.urlencode(),
+        'alert_type': alert_type, 'status': status, 'q': q,
+        'type_choices': StockAlert.ALERT_TYPES, 'summary': summary,
+        'new_days': ALERT_NEW_DAYS, 'resolved_days': ALERT_RESOLVED_DAYS,
+        'can_resolve': _may_open(request.user, 'alert_resolve'),
+        'filtered': bool(alert_type or status or q),
+    })
+
+
+@login_required
+def alert_detail(request, pk):
+    alert = get_object_or_404(StockAlert.objects.select_related('product', 'resolved_by'), pk=pk)
+    product = alert.product
+    today = timezone.localdate()
+    stock = stock_by_product([product.pk])[product.pk]
+    batches = [{'item': i, 'status': stock_intel.batch_status(i.expiry_date, today)}
+               for i in GRNItem.objects.filter(product=product, expiry_date__isnull=False)
+               .select_related('grn').order_by('expiry_date')[:10]]
+    return render(request, 'alerts/detail.html', {
+        'alert': alert, 'product': product, 'stock': stock,
+        'status': stock_intel.stock_status(stock, product.reorder_level),
+        'movements': mask_other_sites(request.user, product.stock_movements.select_related('performed_by')
+                                      .order_by('-timestamp', '-pk')[:10]),
+        'batches': batches,
+        'others': product.alerts.exclude(pk=alert.pk).order_by('is_resolved', '-created_at')[:10],
+        'can_resolve': _may_open(request.user, 'alert_resolve'),
+        'can_adjust': _may_open(request.user, 'stock_adjust'),
+        'can_grn': _may_open(request.user, 'grn_detail'),
+    })
 
 
 @login_required
 @role_required('admin', 'warehouse')
 def alert_resolve(request, pk):
+    """Resolve an alert. POST only: following a link must never change data."""
+    from django.utils.http import url_has_allowed_host_and_scheme
     alert = get_object_or_404(StockAlert, pk=pk)
-    alert.is_resolved = True
-    alert.resolved_at = timezone.now()
-    alert.resolved_by = request.user
-    alert.save()
-    messages.success(request, 'Alert marked as resolved.')
+    if request.method != 'POST':
+        return redirect('alert_detail', pk=pk)
+    if alert.is_resolved:
+        messages.info(request, 'That alert was already resolved.')
+    else:
+        alert.is_resolved = True
+        alert.resolved_at = timezone.now()
+        alert.resolved_by = request.user
+        alert.save()
+        messages.success(request, 'Alert marked as resolved.')
+    nxt = request.POST.get('next', '')
+    if nxt and url_has_allowed_host_and_scheme(nxt, allowed_hosts={request.get_host()},
+                                               require_https=request.is_secure()):
+        return redirect(nxt)
     return redirect('alert_list')
 
 

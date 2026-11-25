@@ -57,6 +57,7 @@ SECTIONS = (
                 match=('supplier_*',)),
         NavItem('Stock Lookup', 'stock_lookup', 'search', ('admin', 'manager', 'cashier'),
                 match=('stock_lookup*',)),
+        NavItem('Stock Intelligence', 'stock_intelligence', 'trend', ('admin', 'manager', 'warehouse')),
         NavItem('Stock Movements', 'stock_movements', 'arrows-up-down', ('admin', 'warehouse')),
         NavItem('Stock Adjustments', 'stock_adjust', 'scale', ('admin', 'warehouse')),
         NavItem('Alerts', 'alert_list', 'bell', ('admin', 'manager', 'warehouse'),
@@ -134,8 +135,24 @@ def view_roles(url_name):
     try:
         func = resolve(reverse(url_name)).func
     except NoReverseMatch:
-        return frozenset()
+        # URLs that take arguments (e.g. a product id) can't be reversed bare; find them by name.
+        func = _view_named(url_name)
+        if func is None:
+            return frozenset()
     return getattr(func, 'allowed_roles', None)
+
+
+def _view_named(url_name, patterns=None, namespace=''):
+    from django.urls import URLPattern, URLResolver, get_resolver
+    for p in get_resolver().url_patterns if patterns is None else patterns:
+        if isinstance(p, URLResolver):
+            ns = f'{namespace}{p.namespace}:' if p.namespace else namespace
+            found = _view_named(url_name, p.url_patterns, ns)
+            if found is not None:
+                return found
+        elif isinstance(p, URLPattern) and p.name and f'{namespace}{p.name}' == url_name:
+            return p.callback
+    return None
 
 
 def can_see(item, user, role):

@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+{% load static custom_tags %}
+{% block title %}Alert: {{ product.name }} — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Alert{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'css/dashboard.css' %}"><link rel="stylesheet" href="{% static 'css/catalogue.css' %}">{% endblock %}
+{% block content %}
+<div class="page-header">
+  <div><h1>{{ alert.get_alert_type_display }}</h1><p><a href="{% url 'product_detail' product.pk %}">{{ product.name }}</a> · <span class="sku">{{ product.sku }}</span></p></div>
+  <a href="{% url 'alert_list' %}" class="btn btn-secondary">← All alerts</a>
+</div>
+
+<div class="dash-grid" style="margin-bottom:18px">
+  <section class="panel span-2">
+    <div class="alert-hero atype-{{ alert.alert_type }}">
+      <span class="atype-icon">{% if alert.alert_type == 'low_stock' %}{% icon 'alert' %}{% elif alert.alert_type == 'expiry' %}{% icon 'clock' %}{% else %}{% icon 'scale' %}{% endif %}</span>
+      <div>
+        {% if alert.is_resolved %}<span class="chip chip-healthy">{% icon 'check' %}Resolved</span>{% elif stock <= 0 %}<span class="chip chip-out">{% icon 'x' %}Critical: out of stock</span>{% else %}<span class="chip chip-low">{% icon 'bell' %}Open</span>{% endif %}
+        <p>{{ alert.message }}</p>
+      </div>
+    </div>
+    <dl class="facts">
+      <div><dt>Raised</dt><dd>{{ alert.created_at|date:"j M Y H:i" }}</dd></div>
+      <div><dt>Stock on hand now</dt><dd>{{ stock|num }} {{ product.unit }} {% include 'products/_status.html' with s=status %}</dd></div>
+      <div><dt>Reorder level</dt><dd>{{ product.reorder_level|num }} {{ product.unit }}</dd></div>
+      {% if alert.is_resolved %}
+      <div><dt>Resolved by</dt><dd>{{ alert.resolved_by|staff_name|default:"—" }}</dd></div>
+      <div><dt>Resolved at</dt><dd>{{ alert.resolved_at|date:"j M Y H:i"|default:"—" }}</dd></div>
+      {% endif %}
+    </dl>
+    {% if not alert.is_resolved %}
+    <div class="resolve-box">
+      <span>{% if alert.alert_type == 'low_stock' and status != 'healthy' %}Stock is still at or below the reorder level. Receiving stock does not close this alert by itself.{% else %}Resolve once the cause has been dealt with.{% endif %}</span>
+      <div class="profile-actions">
+        {% if can_adjust %}<a href="{% url 'stock_adjust' %}?product={{ product.pk }}" class="btn btn-secondary">{% icon 'scale' %}Adjust stock</a>{% endif %}
+        {% if can_resolve %}
+        <form method="post" action="{% url 'alert_resolve' alert.pk %}" onsubmit="return confirm('Mark this alert as resolved?')">{% csrf_token %}
+          <input type="hidden" name="next" value="{% url 'alert_detail' alert.pk %}">
+          <button type="submit" class="btn btn-primary">{% icon 'check' %}Mark resolved</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="panel">
+    <header class="panel-head"><h3>Other alerts for this product</h3></header>
+    {% if others %}
+    <ul class="row-list">
+      {% for o in others %}<li><a class="grow" href="{% url 'alert_detail' o.pk %}">{{ o.get_alert_type_display }}</a>{% if o.is_resolved %}<span class="chip chip-healthy">Resolved</span>{% else %}<span class="chip chip-low">Open</span>{% endif %}<time>{{ o.created_at|date:"j M" }}</time></li>{% endfor %}
+    </ul>
+    {% else %}<div class="empty">{% icon 'check' %} None.</div>{% endif %}
+  </section>
+</div>
+
+<div class="dash-grid">
+  <section class="panel span-2">
+    <header class="panel-head"><h3>Latest stock movements</h3>{% if can_adjust %}<a class="link-btn" href="{% url 'stock_movements' %}?product={{ product.pk }}">Full ledger →</a>{% endif %}</header>
+    <div class="table-wrap">
+      <table class="dense">
+        <thead><tr><th>Date</th><th>Type</th><th class="num">Qty</th><th>Reference</th><th>By</th></tr></thead>
+        <tbody>
+        {% for m in movements %}
+        <tr>
+          <td class="time">{{ m.timestamp|date:"j M Y H:i" }}</td>
+          <td><span class="mv mv-{{ m.movement_type }}">{{ m.get_movement_type_display }}</span></td>
+          <td class="qty {% if m.quantity > 0 %}qty-pos{% elif m.quantity < 0 %}qty-neg{% endif %}">{% if m.quantity > 0 %}+{% endif %}{{ m.quantity|num }}</td>
+          <td>{{ m.reference|default:"—" }}</td>
+          <td class="muted">{{ m.performed_by|staff_name|default:"—" }}</td>
+        </tr>
+        {% empty %}<tr><td colspan="5"><div class="empty">{% icon 'info' %} No movements.</div></td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <section class="panel">
+    <header class="panel-head"><h3>Batches by expiry</h3></header>
+    {% if batches %}
+    <ul class="row-list">
+      {% for b in batches %}<li><span class="grow sku">{% if can_grn %}<a href="{% url 'grn_detail' b.item.grn.pk %}">{{ b.item.batch_number|default:b.item.grn.grn_number }}</a>{% else %}{{ b.item.batch_number|default:b.item.grn.grn_number }}{% endif %}</span>{% include 'products/_status.html' with s=b.status %}<time>{{ b.item.expiry_date|date:"j M Y" }}</time></li>{% endfor %}
+    </ul>
+    {% else %}<div class="empty">{% icon 'info' %} No dated batches received.</div>{% endif %}
+  </section>
+</div>
+{% endblock %}

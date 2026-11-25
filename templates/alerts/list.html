@@ -1,40 +1,88 @@
 {% extends 'base.html' %}
+{% load static custom_tags %}
 {% block title %}Alerts — Ah Liki IMS{% endblock %}
 {% block topbar_title %}Stock Alerts{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'css/dashboard.css' %}"><link rel="stylesheet" href="{% static 'css/catalogue.css' %}">{% endblock %}
+{% block head_js %}<script src="{% static 'js/charts.js' %}" defer></script>{% endblock %}
 {% block content %}
-<div class="page-header"><div><h1>Stock Alerts</h1><p>{{ alerts|length }} alert{{ alerts|length|pluralize }}{% if status %} · {{ status|capfirst }}{% endif %}</p></div></div>
-<div class="card">
-  <div class="card-body" style="padding-bottom:0">
-    <form method="get" class="search-bar">
-      <select name="type" aria-label="Alert type" onchange="this.form.submit()">
-        <option value="">All types</option>
-        {% for key, label in type_choices %}<option value="{{ key }}" {% if alert_type == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
-      </select>
-      <select name="status" aria-label="Status" onchange="this.form.submit()">
-        <option value="">Open and resolved</option>
-        <option value="open" {% if status == 'open' %}selected{% endif %}>Open</option>
-        <option value="resolved" {% if status == 'resolved' %}selected{% endif %}>Resolved</option>
-      </select>
-      <noscript><button class="btn btn-secondary" type="submit">Filter</button></noscript>
-      {% if alert_type or status %}<a href="{% url 'alert_list' %}" class="btn btn-secondary">Clear</a>{% endif %}
-    </form>
+<div class="page-header">
+  <div><h1>Stock alerts</h1><p>Low stock, expiry and GRN discrepancy alerts raised by the system</p></div>
+</div>
+
+<div class="kpi-grid">
+  <a href="?status=critical" class="kpi kpi-danger kpi-link">
+    <span class="kpi-icon">{% icon 'x' %}</span><span class="kpi-label">Critical</span>
+    <span class="kpi-value" data-count="{{ summary.critical }}">{{ summary.critical|num }}</span>
+    <span class="kpi-sub">Open, product now out of stock</span><span class="kpi-go" aria-hidden="true">{% icon 'chevron-right' %}</span>
+  </a>
+  <a href="?status=open" class="kpi kpi-warning kpi-link">
+    <span class="kpi-icon">{% icon 'bell' %}</span><span class="kpi-label">Outstanding</span>
+    <span class="kpi-value" data-count="{{ summary.outstanding }}">{{ summary.outstanding|num }}</span>
+    <span class="kpi-sub">{% for k, label, n in summary.by_type %}{{ n|num }} {{ label }}{% if not forloop.last %} · {% endif %}{% endfor %}</span><span class="kpi-go" aria-hidden="true">{% icon 'chevron-right' %}</span>
+  </a>
+  <div class="kpi">
+    <span class="kpi-icon">{% icon 'clock' %}</span><span class="kpi-label">New</span>
+    <span class="kpi-value" data-count="{{ summary.new }}">{{ summary.new|num }}</span>
+    <span class="kpi-sub">Raised in the last {{ new_days }} days</span>
   </div>
+  <a href="?status=resolved" class="kpi kpi-primary kpi-link">
+    <span class="kpi-icon">{% icon 'check' %}</span><span class="kpi-label">Resolved</span>
+    <span class="kpi-value" data-count="{{ summary.resolved }}">{{ summary.resolved|num }}</span>
+    <span class="kpi-sub">In the last {{ resolved_days }} days</span><span class="kpi-go" aria-hidden="true">{% icon 'chevron-right' %}</span>
+  </a>
+</div>
+
+<div class="card">
+  <form method="get" class="filter-bar" data-autosubmit data-no-guard role="search">
+    <input type="search" name="q" value="{{ q }}" placeholder="Product name or SKU…" aria-label="Search alerts by product" autocomplete="off">
+    <select name="type" aria-label="Alert type">
+      <option value="">All types</option>
+      {% for key, label in type_choices %}<option value="{{ key }}"{% if alert_type == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <select name="status" aria-label="Status">
+      <option value="">Open and resolved</option>
+      <option value="open"{% if status == 'open' %} selected{% endif %}>Open</option>
+      <option value="critical"{% if status == 'critical' %} selected{% endif %}>Critical (open, out of stock)</option>
+      <option value="resolved"{% if status == 'resolved' %} selected{% endif %}>Resolved</option>
+    </select>
+    <button class="btn btn-secondary" type="submit">{% icon 'search' %}Filter</button>
+    {% if filtered %}<a href="{% url 'alert_list' %}" class="btn btn-secondary">Clear</a>{% endif %}
+  </form>
   <div class="table-wrap">
-    <table>
-      <thead><tr><th>Type</th><th>Product</th><th>Message</th><th>Created</th><th>Status</th><th></th></tr></thead>
+    <table class="dense">
+      <thead><tr><th>Type</th><th>Product</th><th>Details</th><th class="num">Stock now</th><th>Raised</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead>
       <tbody>
       {% for a in alerts %}
-      <tr style="{% if a.is_resolved %}opacity:0.5{% endif %}">
-        <td>{% if a.alert_type == 'low_stock' %}<span class="badge badge-red">Low Stock</span>{% elif a.alert_type == 'expiry' %}<span class="badge badge-amber">Expiry</span>{% else %}<span class="badge badge-blue">Discrepancy</span>{% endif %}</td>
-        <td><a href="{% url 'product_detail' a.product.pk %}">{{ a.product.name }}</a></td>
-        <td style="font-size:12px">{{ a.message }}</td>
-        <td style="font-size:12px">{{ a.created_at|date:"d M Y" }}</td>
-        <td>{% if a.is_resolved %}<span class="badge badge-green">Resolved</span>{% else %}<span class="badge badge-red">Open</span>{% endif %}</td>
-        <td>{% if not a.is_resolved %}<a href="{% url 'alert_resolve' a.pk %}" class="btn btn-sm btn-amber">Resolve</a>{% endif %}</td>
+      <tr class="{% if a.is_resolved %}row-inactive{% endif %}">
+        <td>{% if a.alert_type == 'low_stock' %}<span class="chip chip-low">{% icon 'alert' %}Low stock</span>{% elif a.alert_type == 'expiry' %}<span class="chip chip-expiring">{% icon 'clock' %}Expiry</span>{% else %}<span class="chip chip-ok">{% icon 'scale' %}Discrepancy</span>{% endif %}</td>
+        <td><a href="{% url 'product_detail' a.product.pk %}">{{ a.product.name }}</a><span class="sub-line sku">{{ a.product.sku }}</span></td>
+        <td class="muted" style="max-width:380px">{{ a.message|truncatechars:120 }}</td>
+        <td class="qty{% if a.stock <= 0 %} qty-neg{% endif %}">{{ a.stock|num }} <small>{{ a.product.unit }}</small></td>
+        <td class="time">{{ a.created_at|date:"j M Y" }}</td>
+        <td>{% if a.is_resolved %}<span class="chip chip-healthy">{% icon 'check' %}Resolved</span><span class="sub-line">{{ a.resolved_by|staff_name }}{% if a.resolved_at %} · {{ a.resolved_at|date:"j M" }}{% endif %}</span>{% elif a.stock <= 0 %}<span class="chip chip-out">{% icon 'x' %}Critical</span>{% else %}<span class="chip chip-low">{% icon 'bell' %}Open</span>{% endif %}</td>
+        <td><div class="row-actions">
+          <a class="icon-act" href="{% url 'alert_detail' a.pk %}" title="Investigate" aria-label="Investigate alert for {{ a.product.name }}">{% icon 'eye' %}</a>
+          {% if can_resolve and not a.is_resolved %}
+          <form method="post" action="{% url 'alert_resolve' a.pk %}" onsubmit="return confirm('Mark this alert as resolved?')">{% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button type="submit" class="btn btn-sm btn-secondary">{% icon 'check' %}Resolve</button>
+          </form>
+          {% endif %}
+        </div></td>
       </tr>
-      {% empty %}<tr><td colspan="6" style="text-align:center;color:var(--gray-500);padding:24px">No alerts.</td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="7"><div class="empty">{% icon 'check' %} No alerts match these filters.</div></td></tr>{% endfor %}
       </tbody>
     </table>
   </div>
+  {% if page.paginator.count %}
+  <div class="pager">
+    <span>{{ page.start_index|num }}–{{ page.end_index|num }} of {{ page.paginator.count|num }}</span>
+    {% if page.has_other_pages %}<div>
+      {% if page.has_previous %}<a href="?{% if query %}{{ query }}&amp;{% endif %}page={{ page.previous_page_number }}" class="btn btn-sm btn-secondary">← Prev</a>{% endif %}
+      <span>Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+      {% if page.has_next %}<a href="?{% if query %}{{ query }}&amp;{% endif %}page={{ page.next_page_number }}" class="btn btn-sm btn-secondary">Next →</a>{% endif %}
+    </div>{% endif %}
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

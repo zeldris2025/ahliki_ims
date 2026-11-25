@@ -94,7 +94,7 @@
           <div class="dropdown-menu dropdown-wide" role="menu">
             <div class="dropdown-head"><strong>Alerts</strong><span>{{ open_alerts_count }} open</span></div>
             {% for a in nav_alerts %}
-            <a href="{% url 'alert_list' %}" class="notice notice-{{ a.alert_type }}" role="menuitem">
+            <a href="{% url 'alert_detail' a.pk %}" class="notice notice-{{ a.alert_type }}" role="menuitem">
               <span class="notice-icon">{% if a.alert_type == 'expiry' %}{% icon 'clock' %}{% elif a.alert_type == 'discrepancy' %}{% icon 'alert' %}{% else %}{% icon 'package' %}{% endif %}</span>
               <span class="notice-body">
                 <strong>{{ a.get_alert_type_display }} · {{ a.product.name }}</strong>

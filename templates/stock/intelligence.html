@@ -1,0 +1,135 @@
+{% extends 'base.html' %}
+{% load static custom_tags %}
+{% block title %}Stock Intelligence — Ah Liki IMS{% endblock %}
+{% block topbar_title %}Stock Intelligence{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'css/dashboard.css' %}"><link rel="stylesheet" href="{% static 'css/catalogue.css' %}">{% endblock %}
+{% block head_js %}<script src="{% static 'vendor/chartjs/chart.umd.min.js' %}" defer></script><script src="{% static 'js/charts.js' %}" defer></script>{% endblock %}
+{% block content %}
+{% with f=filters h=health %}
+<div class="dash-head">
+  <div>
+    <h1>Stock intelligence</h1>
+    <p>{{ f.first|date:"j M" }} – {{ f.last|date:"j M Y" }}{% if f.category %} · {{ f.category.name }}{% endif %} · all figures from the stock ledger</p>
+  </div>
+  <form method="get" class="dash-filters" data-autosubmit data-no-guard>
+    <div class="seg" role="radiogroup" aria-label="Date range">
+      {% for key, label in range_choices %}
+      <label class="seg-opt{% if f.range_key == key %} on{% endif %}"><input type="radio" name="range" value="{{ key }}"{% if f.range_key == key %} checked{% endif %}>{{ label }}</label>
+      {% endfor %}
+      <label class="seg-opt{% if f.range_key == 'custom' %} on{% endif %}"><input type="radio" name="range" value="custom"{% if f.range_key == 'custom' %} checked{% endif %}>Custom</label>
+    </div>
+    <span class="custom-dates"{% if f.range_key != 'custom' %} hidden{% endif %}>
+      <input type="date" name="from" value="{{ f.first|date:'Y-m-d' }}" aria-label="From date" max="{{ today|date:'Y-m-d' }}">
+      <span aria-hidden="true">–</span>
+      <input type="date" name="to" value="{{ f.last|date:'Y-m-d' }}" aria-label="To date" max="{{ today|date:'Y-m-d' }}">
+      <button class="btn btn-sm btn-primary" type="submit">Apply</button>
+    </span>
+    <select name="category" aria-label="Category">
+      <option value="">All categories</option>
+      {% for c in categories %}<option value="{{ c.pk }}"{% if f.category and f.category.pk == c.pk %} selected{% endif %}>{{ c.name }}</option>{% endfor %}
+    </select>
+    <noscript><button class="btn btn-sm btn-secondary" type="submit">Apply</button></noscript>
+    {% if request.GET %}<a class="btn btn-sm btn-secondary" href="{% url 'stock_intelligence' %}">Reset</a>{% endif %}
+  </form>
+</div>
+
+{# Inventory health — current position, not limited by the date range #}
+<div class="kpi-grid">
+  <a class="kpi kpi-link kpi-primary" href="{{ links.healthy }}"><span class="kpi-icon">{% icon 'check' %}</span><span class="kpi-label">Healthy</span>
+    <span class="kpi-value" data-count="{{ h.healthy }}">{{ h.healthy|num }}</span><span class="kpi-sub">Above reorder level, of {{ h.total|num }}</span><span class="kpi-go" aria-hidden="true">{% icon 'chevron-right' %}</span></a>
+  <a class="kpi kpi-link kpi-warning" href="{{ links.low }}"><span class="kpi-icon">{% icon 'alert' %}</span><span class="kpi-label">Low stock</span>
+    <span class="kpi-value" data-count="{{ h.low }}">{{ h.low|num }}</span><span class="kpi-sub">At or below reorder level</span><span class="kpi-go" aria-hidden="true">{% icon 'chevron-right' %}</span></a>
+  <a class="kpi kpi-link kpi-danger" href="{{ links.out }}"><span class="kpi-icon">{% icon 'x' %}</span><span class="kpi-label">Out of stock</span>
+    <span class="kpi-value" data-count="{{ h.out }}">{{ h.out|num }}</span><span class="kpi-sub">Zero or below on the ledger</span><span class="kpi-go" aria-hidden="true">{% icon 'chevron-right' %}</span></a>
+  <a class="kpi kpi-link kpi-warning" href="{{ links.expiring }}"><span class="kpi-icon">{% icon 'clock' %}</span><span class="kpi-label">Expiring</span>
+    <span class="kpi-value" data-count="{{ h.expiring }}">{{ h.expiring|num }}</span><span class="kpi-sub">Products with a batch due in {{ expiry_days }} days{% if h.expired_batches %} · {{ h.expired_batches|num }} batch{{ h.expired_batches|pluralize:"es" }} past expiry{% endif %}</span><span class="kpi-go" aria-hidden="true">{% icon 'chevron-right' %}</span></a>
+  <a class="kpi kpi-link" href="{{ links.discrepancy }}"><span class="kpi-icon">{% icon 'scale' %}</span><span class="kpi-label">Discrepancies</span>
+    <span class="kpi-value" data-count="{{ h.discrepancy_alerts }}">{{ h.discrepancy_alerts|num }}</span><span class="kpi-sub">Open alerts · {{ h.discrepancy_grns|num }} GRN{{ h.discrepancy_grns|pluralize }} flagged in period</span><span class="kpi-go" aria-hidden="true">{% icon 'chevron-right' %}</span></a>
+</div>
+
+{% if bulk.n %}
+<div class="data-note" role="note">
+  <span class="data-note-icon">{% icon 'info' %}</span>
+  <div><strong>Placeholder stock in the ledger.</strong> {{ bulk.n|num }} entries ({{ bulk.q|num }} units) have a reference starting “BULK-”. They are opening placeholders, not counted stock, so stock levels and the healthy count are higher than what's really on the shelves.</div>
+</div>
+{% endif %}
+
+<div class="move-totals">
+  <div class="move-total mv-in"><span class="sw"></span><div><span class="mt-label">Received</span><strong>{{ totals.in.q|default:0|num }}</strong><span class="mt-sub">{{ totals.in.n|num }} entries</span></div></div>
+  <div class="move-total mv-out"><span class="sw"></span><div><span class="mt-label">Dispatched / out</span><strong>{{ totals.out.q|default:0|num }}</strong><span class="mt-sub">{{ totals.out.n|num }} entries</span></div></div>
+  <div class="move-total mv-adjustment"><span class="sw"></span><div><span class="mt-label">Adjustments</span><strong>{{ totals.adjustment.q|default:0|num }}</strong><span class="mt-sub">{{ totals.adjustment.n|num }} entries, units either way</span></div></div>
+  <div class="move-total mv-return"><span class="sw"></span><div><span class="mt-label">Returns</span><strong>{{ totals.return.q|default:0|num }}</strong><span class="mt-sub">{{ totals.return.n|num }} entries · net change {% if net > 0 %}+{% endif %}{{ net|num }}</span></div></div>
+</div>
+
+<details class="dash-section" open data-section="intel-trends">
+  <summary><h2>Movement trends</h2><span>Units per day and per month</span><span class="sec-caret">{% icon 'chevron-down' %}</span></summary>
+  <div class="dash-grid">
+    <section class="panel span-2">
+      <header class="panel-head"><h3>Stock in vs stock out</h3><div class="panel-tools"><span class="panel-sub">units per day</span><button type="button" class="link-btn" data-table-for="chInOut">Table</button></div></header>
+      <div class="chart-box"><canvas id="chInOut" data-chart="inout" role="img" aria-label="Units received and units dispatched per day"></canvas><div class="skeleton chart-skel"></div></div>
+    </section>
+    <section class="panel">
+      <header class="panel-head"><h3>Monthly trend</h3><div class="panel-tools"><span class="panel-sub">last 12 months</span><button type="button" class="link-btn" data-table-for="chMonths">Table</button></div></header>
+      <div class="chart-box"><canvas id="chMonths" data-chart="months" role="img" aria-label="Units in and out per month"></canvas><div class="skeleton chart-skel"></div></div>
+    </section>
+    <section class="panel span-3">
+      <header class="panel-head"><h3>Daily movement by type</h3><div class="panel-tools"><span class="panel-sub">units, stacked</span><button type="button" class="link-btn" data-table-for="chDaily">Table</button>{% if links.ledger %}<a class="link-btn" href="{{ links.ledger }}?from={{ f.first|date:'Y-m-d' }}&amp;to={{ f.last|date:'Y-m-d' }}">Timeline →</a>{% endif %}</div></header>
+      <div class="chart-box chart-tall"><canvas id="chDaily" data-chart="daily" role="img" aria-label="Units moved per day by movement type"></canvas><div class="skeleton chart-skel"></div></div>
+    </section>
+  </div>
+</details>
+
+<details class="dash-section" open data-section="intel-rank">
+  <summary><h2>Product movement rankings</h2><span>Top {{ rank_out|length|default:"10" }} in the period</span><span class="sec-caret">{% icon 'chevron-down' %}</span></summary>
+  <div class="dash-grid">
+    <section class="panel">
+      <header class="panel-head"><h3>Most moved out</h3><span class="panel-sub">units</span></header>
+      {% if rank_out %}<ol class="rank-list">{% for r in rank_out %}<li><span class="rank">{{ forloop.counter }}</span><a href="{% url 'product_detail' r.product__pk %}" title="{{ r.product__name }}">{{ r.product__name }}</a><strong>{{ r.q|num }} <small>{{ r.product__unit }}</small></strong></li>{% endfor %}</ol>
+      {% else %}<div class="empty">{% icon 'info' %} Nothing went out in this period.</div>{% endif %}
+    </section>
+    <section class="panel">
+      <header class="panel-head"><h3>Most received</h3><span class="panel-sub">units in</span></header>
+      {% if rank_in %}<ol class="rank-list">{% for r in rank_in %}<li><span class="rank">{{ forloop.counter }}</span><a href="{% url 'product_detail' r.product__pk %}" title="{{ r.product__name }}">{{ r.product__name }}</a><strong>{{ r.q|num }} <small>{{ r.product__unit }}</small></strong></li>{% endfor %}</ol>
+      {% else %}<div class="empty">{% icon 'info' %} Nothing came in during this period.</div>{% endif %}
+    </section>
+    <section class="panel">
+      <header class="panel-head"><h3>Most adjusted</h3><span class="panel-sub">adjustment entries</span></header>
+      {% if rank_adjust %}<ol class="rank-list">{% for r in rank_adjust %}<li><span class="rank">{{ forloop.counter }}</span><a href="{% url 'product_detail' r.product__pk %}" title="{{ r.product__name }}">{{ r.product__name }}</a><strong>{{ r.n|num }}× <small>net {% if r.q > 0 %}+{% endif %}{{ r.q|num }}</small></strong></li>{% endfor %}</ol>
+      {% else %}<div class="empty">{% icon 'check' %} No adjustments in this period.</div>{% endif %}
+    </section>
+  </div>
+</details>
+
+<details class="dash-section" open data-section="intel-adjust">
+  <summary><h2>Adjustment activity</h2><span>Manual corrections to the ledger</span><span class="sec-caret">{% icon 'chevron-down' %}</span></summary>
+  <div class="dash-grid">
+    <section class="panel">
+      <header class="panel-head"><h3>Adjustments per day</h3><div class="panel-tools"><span class="panel-sub">units</span><button type="button" class="link-btn" data-table-for="chAdjust">Table</button></div></header>
+      <div class="chart-box"><canvas id="chAdjust" data-chart="adjust" role="img" aria-label="Units adjusted up and down per day"></canvas><div class="skeleton chart-skel"></div></div>
+    </section>
+    <section class="panel span-2">
+      <header class="panel-head"><h3>Latest adjustments</h3>{% if links.ledger %}<a class="link-btn" href="{{ links.ledger }}?type=adjustment&amp;from={{ f.first|date:'Y-m-d' }}&amp;to={{ f.last|date:'Y-m-d' }}">All adjustments →</a>{% endif %}</header>
+      {% if recent_adjustments %}
+      <div class="table-wrap">
+        <table class="dense">
+          <thead><tr><th>When</th><th>Product</th><th class="num">Qty</th><th>Note</th><th>By</th></tr></thead>
+          <tbody>
+          {% for m in recent_adjustments %}
+          <tr>
+            <td class="time">{{ m.timestamp|date:"j M H:i" }}</td>
+            <td><a href="{% url 'product_detail' m.product.pk %}">{{ m.product.name }}</a></td>
+            <td class="qty {% if m.quantity > 0 %}qty-pos{% else %}qty-neg{% endif %}">{% if m.quantity > 0 %}+{% endif %}{{ m.quantity|num }}</td>
+            <td class="muted">{{ m.notes|default:m.reference|default:"—"|truncatechars:70 }}</td>
+            <td class="muted">{{ m.performed_by|staff_name|default:"—" }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}<div class="empty">{% icon 'check' %} No adjustments in this period.</div>{% endif %}
+    </section>
+  </div>
+</details>
+{% endwith %}
+{{ charts|json_script:"chart-data" }}
+{% endblock %}

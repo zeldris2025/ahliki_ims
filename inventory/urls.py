@@ -49,9 +49,11 @@ urlpatterns = [
     # Stock
     path('stock/movements/', views.stock_movements, name='stock_movements'),
     path('stock/adjust/', views.stock_adjust, name='stock_adjust'),
+    path('stock/intelligence/', views.stock_intelligence, name='stock_intelligence'),
 
     # Alerts
     path('alerts/', views.alert_list, name='alert_list'),
+    path('alerts/<int:pk>/', views.alert_detail, name='alert_detail'),
     path('alerts/<int:pk>/resolve/', views.alert_resolve, name='alert_resolve'),
 
     # Reports

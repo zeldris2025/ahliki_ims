@@ -1,29 +1,68 @@
 {% extends 'base.html' %}
+{% load static custom_tags %}
 {% block title %}Stock Movements — Ah Liki IMS{% endblock %}
 {% block topbar_title %}Stock Movements{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'css/dashboard.css' %}"><link rel="stylesheet" href="{% static 'css/catalogue.css' %}">{% endblock %}
+{% block head_js %}<script src="{% static 'js/charts.js' %}" defer></script>{% endblock %}
 {% block content %}
 <div class="page-header">
-  <div><h1>Stock Movements</h1><p>Last 100 movements across all products</p></div>
-  <a href="{% url 'stock_adjust' %}" class="btn btn-primary">+ Adjust Stock</a>
+  <div>
+    <h1>Stock movement timeline</h1>
+    <p>{% if product %}<a href="{% url 'product_detail' product.pk %}">{{ product.name }}</a> · {% endif %}Every receipt, dispatch, adjustment and return in the stock ledger, newest first</p>
+  </div>
+  <a href="{% url 'stock_adjust' %}{% if product %}?product={{ product.pk }}{% endif %}" class="btn btn-primary">{% icon 'plus' %}Adjust stock</a>
 </div>
+
 <div class="card">
+  <form method="get" class="filter-bar" data-autosubmit data-no-guard role="search">
+    {% if product %}<input type="hidden" name="product" value="{{ product.pk }}">{% endif %}
+    <input type="search" name="q" value="{{ q }}" placeholder="Product, SKU, batch or reference…" aria-label="Search movements" autocomplete="off">
+    <select name="type" aria-label="Movement type">
+      <option value="">All types</option>
+      {% for key, label in type_choices %}<option value="{{ key }}"{% if mtype == key %} selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select>
+    <select name="user" aria-label="Performed by">
+      <option value="">Anyone</option>
+      {% for u in users %}<option value="{{ u.pk }}"{% if who == u.pk|stringformat:"s" %} selected{% endif %}>{{ u|staff_name }}</option>{% endfor %}
+    </select>
+    <label class="inline">From <input type="date" name="from" value="{{ first|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}"></label>
+    <label class="inline">To <input type="date" name="to" value="{{ last|date:'Y-m-d' }}" max="{{ today|date:'Y-m-d' }}"></label>
+    <button type="submit" class="btn btn-secondary">{% icon 'search' %}Apply</button>
+    {% if filtered %}<a href="{% url 'stock_movements' %}" class="btn btn-secondary">Clear</a>{% endif %}
+  </form>
+  <div class="filter-meta">
+    <span><strong>{{ summary.n|num }}</strong> movement{{ summary.n|pluralize }}{% if filtered %} match{% endif %}</span>
+    <span>Units in <strong class="qty-pos">+{{ summary.units_in|default:0|num }}</strong> · Units out <strong class="qty-neg">{{ summary.units_out|default:0|num }}</strong></span>
+  </div>
   <div class="table-wrap">
-    <table>
-      <thead><tr><th>Date</th><th>Product</th><th>Type</th><th>Qty</th><th>Reference</th><th>Batch</th><th>By</th></tr></thead>
+    <table class="dense">
+      <thead><tr><th>Time</th><th>Product</th><th>Type</th><th class="num">Qty</th><th>Reference</th><th>Batch</th><th>Expiry</th><th>By</th></tr></thead>
       <tbody>
       {% for m in movements %}
+      {% ifchanged m.timestamp|date:"Ymd" %}<tr class="tl-day"><td colspan="8">{% icon 'calendar' %} {{ m.timestamp|date:"l j F Y" }}</td></tr>{% endifchanged %}
       <tr>
-        <td style="font-size:12px;white-space:nowrap">{{ m.timestamp|date:"d M Y H:i" }}</td>
-        <td><a href="{% url 'product_detail' m.product.pk %}">{{ m.product.name }}</a></td>
-        <td>{% if m.movement_type == 'in' %}<span class="badge badge-green">IN</span>{% elif m.movement_type == 'out' %}<span class="badge badge-red">OUT</span>{% else %}<span class="badge badge-gray">{{ m.get_movement_type_display }}</span>{% endif %}</td>
-        <td><strong>{{ m.quantity }}</strong></td>
-        <td>{{ m.reference|default:"—" }}</td>
-        <td>{{ m.batch_number|default:"—" }}</td>
-        <td style="font-size:12px">{{ m.performed_by.username|default:"—" }}</td>
+        <td class="time">{{ m.timestamp|date:"H:i" }}</td>
+        <td><a href="{% url 'product_detail' m.product.pk %}">{{ m.product.name }}</a><span class="sub-line sku">{{ m.product.sku }}</span></td>
+        <td><span class="mv mv-{{ m.movement_type }}">{{ m.get_movement_type_display }}</span></td>
+        <td class="qty {% if m.quantity > 0 %}qty-pos{% elif m.quantity < 0 %}qty-neg{% endif %}">{% if m.quantity > 0 %}+{% endif %}{{ m.quantity|num }} <small>{{ m.product.unit }}</small></td>
+        <td>{{ m.reference|default:"—" }}{% if m.notes %}<span class="sub-line" title="{{ m.notes }}">{{ m.notes|truncatechars:60 }}</span>{% endif %}</td>
+        <td class="muted">{{ m.batch_number|default:"—" }}</td>
+        <td class="muted">{{ m.expiry_date|date:"j M Y"|default:"—" }}</td>
+        <td class="muted">{{ m.performed_by|staff_name|default:"—" }}</td>
       </tr>
-      {% empty %}<tr><td colspan="7" style="text-align:center;color:var(--gray-500);padding:24px">No movements yet.</td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="8"><div class="empty">{% icon 'info' %} No movements match these filters.</div></td></tr>{% endfor %}
       </tbody>
     </table>
   </div>
+  {% if page.has_other_pages %}
+  <div class="pager">
+    <span>{{ page.start_index|num }}–{{ page.end_index|num }} of {{ page.paginator.count|num }}</span>
+    <div>
+      {% if page.has_previous %}<a href="?{% if query %}{{ query }}&amp;{% endif %}page={{ page.previous_page_number }}" class="btn btn-sm btn-secondary">← Newer</a>{% endif %}
+      <span>Page {{ page.number }} of {{ page.paginator.num_pages|num }}</span>
+      {% if page.has_next %}<a href="?{% if query %}{{ query }}&amp;{% endif %}page={{ page.next_page_number }}" class="btn btn-sm btn-secondary">Older →</a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}
