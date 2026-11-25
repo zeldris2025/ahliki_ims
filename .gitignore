@@ -13,3 +13,6 @@ ahliki_ims/ls_central_config.py
 # SQLite write-ahead log (WAL mode)
 db.sqlite3-wal
 db.sqlite3-shm
+
+# Local-only settings read by manage.py
+.env.local
